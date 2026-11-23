@@ -10,9 +10,12 @@
 
 """Conversion des modeles en dictionnaires JSON pour les API."""
 
+from __future__ import annotations
+
 import calendar
 from datetime import datetime, timedelta
 from urllib.parse import urlencode
+from typing import TYPE_CHECKING, Any
 
 from django.utils import timezone
 
@@ -22,15 +25,23 @@ from .models import MAINTENANCE, PIN_OPTIONAL_ROLES, PUSH_TYPES, WEB_PREFS, Item
 from .reports import item_reports, lot_reports, pack_reports, summary as report_summary
 from .services import restock_credit, LotPreload, fixed_slots_missing, optional_lot, slot_candidates, assign_slots, optional_types, ordered_requirements, lot_distribution, hidden_in_verif, virtual_lot, unplaced_lines, out_deadline, requirements_status
 
+if TYPE_CHECKING:
+    from datetime import date
+    from django.db.models.query import QuerySet
+    from inventory.models import (
+        ItemRevision, ItemType, Items, LabelStyle, Lots, NotificationSettings, Operation, SealedPacks, Secouristes,
+        ServerSettings,
+    )
 
-def public_url(path: str, **params) -> str:
+
+def public_url(path: str, **params: Any) -> str:
     base = qrprotec_setting('PUBLIC_BASE_URL')
     if not base.endswith('/'):
         base += '/'
     return f"{base}{path}?{urlencode(params)}"
 
 
-def _date(value):
+def _date(value: datetime | date | None) -> str | None:
     """Date seule (peremption, expiration) ou horodatage en heure locale (verifs, passages)."""
     if not value:
         return None
@@ -39,12 +50,12 @@ def _date(value):
     return value.isoformat()
 
 
-def _who(value):
+def _who(value: str) -> str:
     # nom court (prenom, initiale en cas d'homonyme) sur l'API publique, voir idendity.anonymized
     return identity_name(value)
 
 
-def item_type_dict(item_type):
+def item_type_dict(item_type: ItemType) -> dict[str, Any]:
     return {
         'type': item_type.type,
         'name': item_type.name,
@@ -79,7 +90,7 @@ def item_type_dict(item_type):
     }
 
 
-def item_dict(item, today=None):
+def item_dict(item: Items, today: date | None = None) -> dict[str, Any]:
     today = today or timezone.localdate()
     return {
         'iid': item.iid,
@@ -152,13 +163,13 @@ def item_dict(item, today=None):
     }
 
 
-def revision_dict(revision):
+def revision_dict(revision: ItemRevision) -> dict[str, Any]:
     return {'kind': revision.kind, 'label': MAINTENANCE.get(revision.kind, MAINTENANCE['revision'])['label'],
             'at': _date(revision.at), 'by': _who(revision.by), 'tasks': list(revision.tasks or []),
             'next_due': _date(revision.next_due), 'note': revision.note, 'manual': revision.manual}
 
 
-def maintenance_dict(item, kind, today=None):
+def maintenance_dict(item: Items, kind: str, today: date | None = None) -> dict[str, Any]:
     """Revision ou desinfection d'un item sous une forme commune : prochaine date, retard, periodicite, taches, derniere
     faite, et ou en est le cycle (debut : derniere faite, sinon prochaine - periodicite ; `cycle_month` : mois en
     cours du cycle, de 1 a `months`)."""
@@ -186,7 +197,7 @@ def maintenance_dict(item, kind, today=None):
     }
 
 
-def cycle_month(start, due, months, today):
+def cycle_month(start: date | None, due: date, months: int, today: date) -> tuple[date | None, int | None]:
     """Mois en cours d'un cycle d'entretien (de 1 a months), debut = derniere faite, sinon prochaine - periodicite."""
     if due and (start is None or start >= due):
         index = due.month - 1 - months
@@ -198,7 +209,7 @@ def cycle_month(start, due, months, today):
     return start, max(1, min(months, elapsed + 1))
 
 
-def lot_disinfection(lot, today=None):
+def lot_disinfection(lot: Lots, today: date | None = None) -> dict[str, Any] | None:
     """Desinfection periodique du lot lui-meme (Lots.disinfection_months), meme forme que maintenance_dict, ou None."""
     if not lot.disinfection_months:
         return None
@@ -212,19 +223,19 @@ def lot_disinfection(lot, today=None):
             'done_by': _who(lot.disinfected_by), 'cycle_start': _date(start), 'cycle_month': month}
 
 
-def maintenance_list(item, today=None):
+def maintenance_list(item: Items, today: date | None = None) -> list[dict[str, Any]]:
     """Revision et desinfection actives sur le type de l'item (vide pour un consommable)."""
     return [maintenance_dict(item, kind, today) for kind in MAINTENANCE if item.pack.item_type.has_maintenance(kind)]
 
 
-def storage_kind(lot):
+def storage_kind(lot: Lots) -> str:
     """Genre d'un rangement du stock (Lots.storage_kind), vide pour un lot ordinaire et pour le stock."""
     if not lot.lot_type.storage or lot.lot_type_id == STOCK_LOT_TYPE:
         return ''
     return lot.storage_kind or STORAGE_KIND_DEFAULT
 
 
-def item_last_location(item):
+def item_last_location(item: Items) -> dict[str, Any] | None:
     """Dernier emplacement connu d'un item (fiche d'item du front web) : son lot actuel, ou pour un item qui n'est
     plus actif (sorti, disparu, utilise...) le lot qu'il a quitte en dernier. None : en stock, ou jamais range."""
     lot, at = None, None
@@ -249,7 +260,7 @@ def item_last_location(item):
     }
 
 
-def sealed_pack_dict(sealed_pack, with_items=True):
+def sealed_pack_dict(sealed_pack: SealedPacks, with_items: bool = True) -> dict[str, Any]:
     data = {
         'id': sealed_pack.id,
         'type': sealed_pack.item_type_id,
@@ -271,7 +282,7 @@ def sealed_pack_dict(sealed_pack, with_items=True):
     return data
 
 
-def suggested_part_of(lot_type):
+def suggested_part_of(lot_type: LotType) -> str:
     """Referentiel propose pour un type qui n'en a pas encore (transition) : celui de tous ses lots s'ils sont tous
     des sous-lots de lots d'un meme type (ex : les sacs de soin, tous dans des B+). '' sinon."""
     if lot_type.referentiel or lot_type.part_of_id or lot_type.storage:
@@ -283,7 +294,7 @@ def suggested_part_of(lot_type):
     return '' if parent_type == lot_type.type else parent_type
 
 
-def lot_type_dict(lot_type):
+def lot_type_dict(lot_type: LotType) -> dict[str, Any]:
     # lot unique : son lot (actif de preference, le plus recent s'il y en a eu plusieurs)
     lot = lot_type.lots_set.order_by('-active', '-created').first() if lot_type.unique else None
     return {
@@ -345,7 +356,7 @@ STATE_LABELS = {
 KIND_ORDER = {'ok': 0, 'warn': 1, 'bad': 2}
 
 
-def lot_state(data):
+def lot_state(data: dict[str, Any]) -> dict[str, str]:
     """Etat d'un lot seul (memes regles que les fronts) : kind 'ok' (vert), 'warn' (orange) ou 'bad' (rouge)."""
     if data.get('unusable'):
         # signale non utilisable (signalement ouvert sur le lot) : rouge, scelle ou verifie, jusqu'a sa resolution
@@ -377,7 +388,7 @@ def lot_state(data):
     return {'kind': kind, 'code': code, 'label': label}
 
 
-def replace_reason(data):
+def replace_reason(data: dict[str, Any]) -> str:
     """Pourquoi des items d'un lot sont a remplacer, en quelques mots (« périmés », « signalé », « à remplacer ») :
     meme regle que replaceReason du web."""
     total = data['expired_count']
@@ -393,11 +404,12 @@ def replace_reason(data):
     return ', '.join(parts)
 
 
-def _credit_dict(credit):
+def _credit_dict(credit: dict[str, Any] | None) -> dict[str, Any] | None:
     return None if credit is None else {'outings_left': credit['outings_left'], 'until': _date(credit['until'])}
 
 
-def _lot_core(lot, today, items=None, preload=None):
+def _lot_core(lot: Lots, today: date, items: list[Items] | None = None, preload: LotPreload | None = None
+             ) -> dict[str, Any]:
     """Champs communs a toutes les vues d'un lot (sans cles ni contenu detaille)."""
     if items is None:
         items = list(lot.items.select_related('pack__item_type').filter(status=ItemStatus.ACTIVE).order_by('iid'))
@@ -488,7 +500,7 @@ def _lot_core(lot, today, items=None, preload=None):
     return data
 
 
-def aggregate_tree(rows):
+def aggregate_tree(rows: list[dict[str, Any]]) -> dict[str, Any]:
     """Etat d'un lot global a partir de ses lots (lignes de _lot_core avec 'depth', en profondeur d'abord).
 
     - un lot qui ne contient rien et n'attend rien mais a des sous-lots (simple regroupement) ne compte pas ;
@@ -556,7 +568,7 @@ def aggregate_tree(rows):
     }
 
 
-def attention_rank(row):
+def attention_rank(row: dict[str, Any]) -> int:
     """Ce qu'un lot demande comme attention, pour le ranger : 3 rouge (a traiter), 2 orange (verif recommandee),
     1 valide mais une peremption ou une revision approche, 0 rien a faire, -1 lot archive. Un simple regroupement
     (rien d'attendu, rien dedans) ne compte que par ses sous-lots."""
@@ -572,12 +584,12 @@ def attention_rank(row):
     return 1 if soon else 0
 
 
-def attention_order(rows):
+def attention_order(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Lignes de lots en profondeur d'abord ('id', 'parent') reordonnees pour que, a chaque niveau, les branches a
     traiter passent devant les autres : l'arborescence reste intacte (chaque lot suivi de ses sous-lots) et l'ordre
     d'origine departage les egalites. Une branche vaut le lot le plus a traiter qu'elle contient."""
     ids = {row['id'] for row in rows}
-    children = {}
+    children: dict[str, list[dict[str, Any]]] = {}
     roots = []
     for row in rows:
         if row.get('parent') in ids and row['parent'] != row['id']:
@@ -586,7 +598,7 @@ def attention_order(rows):
             roots.append(row)
     ranks = {}
 
-    def rank(row):
+    def rank(row: dict[str, Any]) -> int:
         if row['id'] not in ranks:
             ranks[row['id']] = attention_rank(row)  # garde-fou contre un cycle
             ranks[row['id']] = max([ranks[row['id']]] + [rank(child) for child in children.get(row['id'], [])])
@@ -595,7 +607,7 @@ def attention_order(rows):
     ordered = []
     done = set()
 
-    def walk(level):
+    def walk(level: list[dict[str, Any]]) -> None:
         for row in sorted(level, key=lambda row: -rank(row)):  # tri stable : ordre d'origine a egalite
             if row['id'] in done:
                 continue
@@ -608,13 +620,13 @@ def attention_order(rows):
     return ordered
 
 
-def _tree_row(lot, today, depth):
+def _tree_row(lot: Lots, today: date, depth: int) -> dict[str, Any]:
     row = _lot_core(lot, today)
     row['depth'] = depth
     return row
 
 
-def lot_global(lot, today):
+def lot_global(lot: Lots, today: date) -> dict[str, Any] | None:
     """Lot global (racine) du lot et etat de chacun de ses lots ; None si le lot n'a ni parent ni sous-lot."""
     root = lot.root()
     tree = root.descendants()
@@ -637,7 +649,8 @@ def lot_global(lot, today):
     return summary
 
 
-def lot_dict(lot, local=False, with_items=False, today=None, with_global=True, preload=None):
+def lot_dict(lot: Lots, local: bool = False, with_items: bool = False, today: date | None = None,
+             with_global: bool = True, preload: LotPreload | None = None) -> dict[str, Any]:
     """`preload` (services.LotPreload) : donnees de toute une liste de lots deja lues (lot_list)."""
     today = today or timezone.localdate()
     if preload is not None:
@@ -692,14 +705,14 @@ def lot_dict(lot, local=False, with_items=False, today=None, with_global=True, p
     return data
 
 
-def _slot_lot(lot, today):
+def _slot_lot(lot: Lots, today: date) -> dict[str, Any]:
     core = _lot_core(lot, today)
     return {'id': lot.id, 'name': lot.name, 'lot_type': lot.lot_type_id, 'lot_type_name': lot.lot_type.name,
             'state': core['state'], 'parent_name': lot.parent.name if lot.parent_id else '',
             'replaces': lot.replaces_id or '', 'replaces_name': lot.replaces.name if lot.replaces_id else ''}
 
 
-def lot_slots(lot, children, today):
+def lot_slots(lot: Lots, children: QuerySet, today: date) -> list[dict[str, Any]]:
     """Lots exiges du type du lot (LotTypeSlot) et ce qui les occupe : sous-lots ranges dans chaque place, places
     vides, lots disponibles pour une place a l'assemblage (valides en premier) et lots qui peuvent remplacer un lot
     fixe (Gestion des lots du poste)."""
@@ -725,7 +738,7 @@ def lot_slots(lot, children, today):
     return rows
 
 
-def lot_own_content(lot, preload=None):
+def lot_own_content(lot: Lots, preload: LotPreload | None = None) -> dict[str, Any]:
     """Contenu propre d'un lot, tel que la TECH l'edite (Gestion des lots) : items en plus du type (extra) et
     emplacements de ce lot (location None : celui du type), ordre de ses emplacements (vide : celui du type)."""
     if preload is not None:
@@ -742,7 +755,7 @@ def lot_own_content(lot, preload=None):
     }
 
 
-def seal_opening_dict(lot):
+def seal_opening_dict(lot: Lots) -> dict[str, Any]:
     """Scelle tel qu'il etait quand son etiquette d'ouverture a ete scannee (ecran d'ouverture des fronts) : pose
     quand, par qui, valide ou non a l'ouverture (aucun item perime, inutilisable ou desactive sous le scelle) et
     jusqu'a quand le contenu etait valide (premiere peremption, sous-lots compris)."""
@@ -759,11 +772,11 @@ def seal_opening_dict(lot):
     }
 
 
-def _add_items(data, lot, items, today):
+def _add_items(data: dict[str, Any], lot: Lots, items: list[Items], today: date) -> None:
     # facultatif dans ce lot (attendu facultatif ou sous-lot facultatif) : non scanne, il ne retient pas le lot
     _, optional = optional_types(lot)
 
-    def row(item):
+    def row(item: Items) -> dict[str, Any]:
         result = item_dict(item, today)
         result['optional'] = optional(item)
         return result
@@ -774,14 +787,15 @@ def _add_items(data, lot, items, today):
     ]
 
 
-def lot_list(lots, local=False, today=None, attention=False):
+def lot_list(lots: QuerySet, local: bool = False, today: date | None = None, attention: bool = False
+            ) -> list[dict[str, Any]]:
     """Liste de lots dans l'ordre de l'arborescence (chaque lot global suivi de ses sous-lots), avec pour chaque
     lot sa profondeur et l'etat de son lot global. 'attention_order' donne la place du lot quand les lots a traiter
     passent en haut (attention_order) ; attention=True renvoie directement la liste dans cet ordre."""
     today = today or timezone.localdate()
     lots = list(lots)
     ids = {lot.id for lot in lots}
-    children = {}
+    children: dict[str | None, list[Lots]] = {}
     for lot in lots:
         if lot.parent_id in ids:
             children.setdefault(lot.parent_id, []).append(lot)
@@ -790,7 +804,7 @@ def lot_list(lots, local=False, today=None, attention=False):
     ordered = []
     seen = set()
 
-    def walk(lot, depth, root):
+    def walk(lot: Lots, depth: int, root: Lots) -> None:
         if lot.id in seen:
             return
         seen.add(lot.id)
@@ -803,8 +817,8 @@ def lot_list(lots, local=False, today=None, attention=False):
         walk(lot, 0, lot)
     for lot in lots:  # cycle eventuel (ne devrait pas exister)
         walk(lot, 0, lot)
-    rows = []
-    trees = {}
+    rows: list[dict[str, Any]] = []
+    trees: dict[str, list[dict[str, Any]]] = {}
     preload = LotPreload(lots)  # quelques requetes pour toute la liste, au lieu de cinq par lot
     for lot, depth, root in ordered:
         row = lot_dict(lot, local=local, today=today, with_global=False, preload=preload)
@@ -830,7 +844,7 @@ def lot_list(lots, local=False, today=None, attention=False):
     return ordered if attention else rows
 
 
-def user_dict(user, local=False):
+def user_dict(user: Secouristes, local: bool = False) -> dict[str, Any]:
     data = {
         'matricule': user.matricule,
         'prenom': user.prenom,
@@ -892,13 +906,13 @@ def user_dict(user, local=False):
 VERIF_SENT_GAP = Verifs.SENT_GAP
 
 
-def verif_sent(verif):
+def verif_sent(verif: Verifs) -> str | None:
     """Heure de reception d'une verif faite hors connexion et envoyee plus tard (Verifs.sent_late), None si elle a ete
     envoyee tout de suite."""
     return _date(verif.sent_late())
 
 
-def verif_dict(verif):
+def verif_dict(verif: Verifs) -> dict[str, Any]:
     return {
         'id': verif.id,
         'lot': verif.lot_id,
@@ -914,7 +928,7 @@ def verif_dict(verif):
     }
 
 
-def operation_dict(operation, names, undoable=False):
+def operation_dict(operation: Operation, names: dict[str, str], undoable: bool = False) -> dict[str, Any]:
     """Ligne du journal des operations. `names` : noms affiches des identites (journal.names). `undoable` : lot
     d'operations qui a garde ses ecritures (voir undo.py) ; annulee, la ligne d'annulation (cancelled_by) doit etre
     chargee avec (select_related)."""
@@ -955,7 +969,7 @@ def operation_dict(operation, names, undoable=False):
 #     }
 
 
-def server_settings_dict(settings_row):
+def server_settings_dict(settings_row: ServerSettings) -> dict[str, Any]:
     return {
         'declared_identity': settings_row.declared_identity,
         'pin_required_roles': list(settings_row.pin_required_roles or []),  # code obligatoire, en plus des admins
@@ -974,7 +988,7 @@ def server_settings_dict(settings_row):
     }
 
 
-def notification_settings_dict(settings_row):
+def notification_settings_dict(settings_row: NotificationSettings) -> dict[str, int]:
     # delai de l'alerte « expire bientot » des etiquettes privees de lot et des badges (notifications web) ; les
     # evenements et destinataires SMS ne sont plus exposes (API SMS plus maintenue, voir notifications.py)
     return {'key_expiry_warning_days': settings_row.expiry_warning_days}

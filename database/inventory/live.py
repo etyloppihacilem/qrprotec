@@ -55,17 +55,24 @@ Messages (JSON, trames texte) :
                        {"type": "remove", "id": "..."}, {"type": "error", "message": "..."}
 """
 
+from __future__ import annotations
+
 import hmac
 import json
 import logging
 import secrets
 import threading
 import time
+from typing import TYPE_CHECKING, Any
 
 from django.db import close_old_connections
 from django.utils import timezone
 
 from .remote_scanner import ALPHABET, WebSocketClosed
+
+if TYPE_CHECKING:
+    from inventory.remote_scanner import WebSocket
+    from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
@@ -82,11 +89,11 @@ GRACE = 20                  # participant deconnecte depuis GRACE s : il ne reti
 REAPER_PERIOD = 10.0
 
 
-def _text(value, size):
+def _text(value: str | None, size: int) -> str:
     return str(value or '')[:size]
 
 
-def _verif_ids(values):
+def _verif_ids(values: list[int]) -> list[int]:
     """Verifs enregistrees d'une session terminee (compte rendu ouvert depuis le suivi) : ids distincts, dans
     l'ordre, une par etape d'une vérif en cascade."""
     ids = []
@@ -96,18 +103,18 @@ def _verif_ids(values):
     return ids[:100]
 
 
-def _number(value):
+def _number(value: str | int) -> int:
     try:
         return max(0, min(100000, int(value)))
     except (TypeError, ValueError):
         return 0
 
 
-def _token(size):
+def _token(size: int) -> str:
     return ''.join(secrets.choice(ALPHABET) for _ in range(size))
 
 
-def public_name(identity):
+def public_name(identity: str) -> str:
     """Nom affiche dans le suivi (identite stockee M:matricule ou D:nom), anonymise comme sur l'API publique."""
     from .idendity import anonymized, identity_name
     try:
@@ -117,7 +124,7 @@ def public_name(identity):
         close_old_connections()
 
 
-def badge_identity(credentials):
+def badge_identity(credentials: Any) -> str | None:
     """Identite stockee d'un badge valide ({"matricule", "key"}, ou "session" apres une connexion par nom et PIN),
     None sinon. Acces base : appele hors verrou."""
     from .idendity import SOURCE_VERIFIED
@@ -133,7 +140,7 @@ def badge_identity(credentials):
         close_old_connections()
 
 
-def is_gestion(credentials):
+def is_gestion(credentials: dict[str, str]) -> bool:
     """Badge (ou jeton de connexion) valide d'un utilisateur actif des roles gestion ou admin. Acces base : appele hors
     verrou."""
     from .models import Role
@@ -147,7 +154,7 @@ def is_gestion(credentials):
         close_old_connections()
 
 
-def scanner_identity(message):
+def scanner_identity(message: dict[str, str]) -> tuple[str, str, bool]:
     """(identite stockee, nom affiche, badge verifie) d'une page de scan : badge verifie, sinon nom declare (marque
     comme tel), sinon personne."""
     from .idendity import SOURCE_DECLARED
@@ -165,7 +172,7 @@ def scanner_identity(message):
     return '', '', False
 
 
-def clean_state(message):
+def clean_state(message: dict[str, Any]) -> dict[str, Any] | None:
     """Etat publie par une page de scan, borne et nettoye (rien n'est cru : c'est de l'affichage)."""
     lot = message.get('lot')
     if not isinstance(lot, dict) or not lot.get('id'):
@@ -193,7 +200,7 @@ def clean_state(message):
     }
 
 
-def clean_entries(value):
+def clean_entries(value: Any) -> list[dict[str, Any]]:
     """Scans d'un participant, partages avec les autres participants (attendus et liste des scans chez eux). Ce ne
     sont que des iids : la verif envoyee est controlee par le serveur comme toute autre verif."""
     entries = []
@@ -222,9 +229,9 @@ def clean_entries(value):
     return entries
 
 
-def checked_entries(entries):
+def checked_entries(entries: list[dict[str, Any]]) -> dict[Any, Any]:
     """{lot id: [types]} des items a cocher coches (scans 'check') : le "checked" d'une verif."""
-    checked = {}
+    checked: dict[str, list[str]] = {}
     for entry in entries:
         if entry['kind'] == 'check' and entry['info'] and entry['info']['type']:
             checked.setdefault(entry['iid'], [])
@@ -233,12 +240,12 @@ def checked_entries(entries):
     return checked
 
 
-def clean_labels(value):
+def clean_labels(value: Any) -> list[str]:
     """Lots dont l'etiquette (publique ou cle) a ete scannee pendant la verif : la verif est bien celle de ces lots."""
     return [_text(lot_id, 16) for lot_id in (value if isinstance(value, list) else [])[:MAX_LOTS] if lot_id]
 
 
-def clean_keys(value):
+def clean_keys(value: Any) -> list[tuple[str, str]]:
     """Lots de la verif et leurs cles ([{"id", "key"}]) : gardes sur le serveur, jamais renvoyes."""
     result = []
     for entry in (value if isinstance(value, list) else [])[:MAX_LOTS]:
@@ -248,62 +255,62 @@ def clean_keys(value):
 
 
 class Participant:
-    def __init__(self, identity='', who='', verified=False):
+    def __init__(self, identity: str = '', who: str = '', verified: bool = False) -> None:
         self.id = _token(12)
         self.token = _token(24)
         self.identity = identity   # identite stockee (M:matricule ou D:nom), enregistree sur la verif
         self.who = who
         self.verified = verified
-        self.socket = None
+        self.socket: WebSocket | None = None
         self.lost = time.monotonic()
-        self.state = None          # dernier etat publie (None : rien a montrer)
-        self.updated = None
-        self.entries = []
+        self.state: dict[str, Any] | None = None  # dernier etat publie (None : rien a montrer)
+        self.updated: datetime | None = None
+        self.entries: list[dict[str, Any]] = []
         self.validated = False     # a valide sa partie de la verif
         self.partial = False
 
-    def public(self):
+    def public(self) -> dict[str, Any]:
         return {'who': self.who, 'verified': self.verified, 'connected': self.socket is not None,
                 'validated': self.validated, 'level': (self.state or {}).get('level')}
 
 
 class LiveSession:
-    def __init__(self):
+    def __init__(self) -> None:
         self.id = _token(12)
-        self.participants = {}     # id -> Participant, dans l'ordre d'arrivee
-        self.lots = {}             # id -> cle (vide si inconnue), dans l'ordre d'ajout
-        self.labels = set()        # lots dont l'etiquette (publique ou cle) a ete scannee par un participant
+        self.participants: dict[str, Participant] = {}     # id -> Participant, dans l'ordre d'arrivee
+        self.lots: dict[str, str] = {}             # id -> cle (vide si inconnue), dans l'ordre d'ajout
+        self.labels: set[str] = set()        # lots dont l'etiquette (publique ou cle) a ete scannee par un participant
         self.started = timezone.now()
         self.updated = self.started
-        self.done = None           # {"complete", "partial", "present", "at"} une fois validee
-        self.submitting = None     # participant qui envoie la verif commune
+        self.done: dict[str, Any] | None = None  # {"complete", "partial", "present", "at"} une fois validee
+        self.submitting: str | None = None       # participant qui envoie la verif commune
         self.saving = False        # verif sans participant en cours d'enregistrement par le serveur
         self.solo = False          # « Quitter » la verif commune : pas de fusion automatique
         self.finished = 0          # fin de la verif (time.monotonic), pour DONE_KEEP
-        self.steps = {}            # vérif en cascade : lot id -> {"at", "by", "complete", "sealed"}, lots deja valides
+        self.steps: dict[str, dict[str, Any]] = {}  # vérif en cascade : lot id -> {"at", "by", "complete", "sealed"}, lots deja valides
         # « vérif complète » activee par la gestion ou un admin (scanner ou suivi) : items et sous-lots facultatifs
         # obligatoires pour tous les participants (services.perform_verif strict)
         self.full = False
         self.full_by = ''
 
     @property
-    def state(self):
+    def state(self) -> dict[str, Any] | None:
         """Dernier etat publie par un participant (chacun publie toute la verif, scans des autres compris)."""
         published = [p for p in self.participants.values() if p.state]
         return max(published, key=lambda p: p.updated).state if published else None
 
     @property
-    def connected(self):
+    def connected(self) -> bool:
         return any(p.socket is not None for p in self.participants.values())
 
     @property
-    def lost(self):
+    def lost(self) -> float:
         return max((p.lost for p in self.participants.values()), default=0)
 
-    def people(self, me=None):
+    def people(self, me: Participant | None = None) -> list[dict[str, Any]]:
         """Participants tels qu'affiches : une personne une seule fois, meme connectee sur plusieurs telephones ou
         onglets (meme identite). Connectee si l'un l'est, a valide si tous l'ont fait, niveau du plus recent."""
-        groups = {}
+        groups: dict[str, list[Participant]] = {}
         for p in self.participants.values():
             # deux invites sans prenom sont deux personnes
             groups.setdefault(p.identity if p.identity and p.identity != GUEST_IDENTITY else p.id, []).append(p)
@@ -318,10 +325,10 @@ class LiveSession:
         return rows
 
     @property
-    def who(self):
+    def who(self) -> str:
         return ', '.join(row['who'] or 'Invité' for row in self.people())
 
-    def public(self):
+    def public(self) -> dict[str, Any]:
         state = self.state or {}
         participants = list(self.participants.values())
         return {
@@ -349,25 +356,25 @@ class LiveSession:
 class LiveHub:
     """Verifs en cours et pages de suivi, en memoire, partagees par les serveurs du meme processus."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         self.lock = threading.RLock()
-        self.sessions = {}
-        self.watchers = set()
-        self._reaper = None
+        self.sessions: dict[str, LiveSession] = {}
+        self.watchers: set[WebSocket] = set()
+        self._reaper: threading.Thread | None = None
 
     # -- diffusion -----------------------------------------------------------------------------------------------------
 
-    def visible(self):
+    def visible(self) -> list[dict[str, Any]]:
         with self.lock:
             return [session.public() for session in self.sessions.values() if session.state or session.done]
 
-    def broadcast(self, message):
+    def broadcast(self, message: dict[str, Any]) -> None:
         with self.lock:
             watchers = list(self.watchers)
         for websocket in watchers:
             websocket.send_json(message)
 
-    def _nearby(self, session):
+    def _nearby(self, session: LiveSession) -> list[Any]:
         """Autres verifs en cours sur le meme lot global : on peut les rejoindre depuis le scanner."""
         state = session.state
         if not state or session.done:
@@ -375,7 +382,7 @@ class LiveHub:
         return [{'id': other.id, 'who': other.who, 'lot': other.state['lot']} for other in self.sessions.values()
                 if other is not session and not other.done and other.state and other.state['root'] == state['root']]
 
-    def _team(self, session, me):
+    def _team(self, session: LiveSession, me: Participant) -> dict[str, Any]:
         return {
             'type': 'team',
             'id': session.id,
@@ -391,7 +398,7 @@ class LiveHub:
             'full_by': session.full_by,
         }
 
-    def _changed(self, session):
+    def _changed(self, session: LiveSession) -> None:
         """Une verif a change : pages de suivi, participants, et participants des verifs du meme lot global."""
         self._name_done(session)
         with self.lock:
@@ -409,14 +416,14 @@ class LiveHub:
         else:
             self.broadcast({'type': 'remove', 'id': session.id})
 
-    def remove(self, session_id):
+    def remove(self, session_id: str) -> bool:
         with self.lock:
             session = self.sessions.pop(session_id, None)
         if session is not None:
             self.broadcast({'type': 'remove', 'id': session_id})
         return session is not None
 
-    def leave_cascade(self, session, participant):
+    def leave_cascade(self, session: LiveSession, participant: Participant) -> None:
         """Vérif en cascade terminee par un participant. S'il reste d'autres participants connectes, la vérif commune
         continue sans lui ; sinon elle est terminee : affichee comme validee (lots valides) dans le suivi, ou retiree si
         rien n'a ete valide. Les participants deconnectes ne la retiennent pas : tout ce qui est valide est enregistre."""
@@ -434,7 +441,7 @@ class LiveHub:
         self._changed(session)
 
     @staticmethod
-    def _name_done(session):
+    def _name_done(session: LiveSession) -> None:
         """Verif terminee : les lots qui la nomment sur sa carte (services.VerifTitles, comme « Vérifs récentes ») et,
         pour une cascade, le nombre de lots valides sans les cadres (le Stock dont on n'a fait qu'un rangement)."""
         done = session.done
@@ -453,7 +460,7 @@ class LiveHub:
         done['names'] = [name['name'] for name in names]
 
     @staticmethod
-    def _close_cascade(session):
+    def _close_cascade(session: LiveSession) -> None:
         """Vérif en cascade terminee (sous verrou) : resume des lots valides, gardee DONE_KEEP dans le suivi."""
         steps = list(session.steps.values())
         incomplete = sum(1 for step in steps if not step['complete'] and not step['sealed'])
@@ -463,7 +470,7 @@ class LiveHub:
         session.submitting = None
         session.finished = time.monotonic()
 
-    def _leave(self, session, participant):
+    def _leave(self, session: LiveSession, participant: Participant) -> None:
         """Retire un participant (il rejoint une autre verif) ; une verif sans participant disparait."""
         session.participants.pop(participant.id, None)
         if session.submitting == participant.id:
@@ -473,7 +480,7 @@ class LiveHub:
 
     # -- ramasseur -----------------------------------------------------------------------------------------------------
 
-    def reap(self, now=None):
+    def reap(self, now: float | None = None) -> list[str]:
         """Retire les verifs terminees depuis DONE_KEEP et celles dont les telephones ont disparu depuis LOST_KEEP
         (abandonnees), sauf celles qui sont completes ou qu'un participant a validees : le serveur les enregistre.
         Verif a plusieurs dont tous les participants encore connectes ont valide (les autres sont partis) : un de
@@ -514,7 +521,7 @@ class LiveHub:
         return expired
 
     @staticmethod
-    def _worth_saving(session):
+    def _worth_saving(session: LiveSession) -> bool:
         """Verif sans participant a enregistrer plutot qu'a abandonner : quelqu'un a valide sa partie, ou tout
         ce qui etait attendu a ete scanne."""
         state = session.state or {}
@@ -523,7 +530,7 @@ class LiveHub:
         complete = bool(state.get('count')) and not state.get('remaining')
         return any(p.validated for p in session.participants.values()) or complete
 
-    def save_unattended(self, session):
+    def save_unattended(self, session: LiveSession) -> bool:
         """Enregistre la verif commune comme si son dernier participant l'avait envoyee : scans de tous, cles des lots
         gardees par le serveur, au nom de celui qui a valide (sinon du premier participant). False si impossible."""
         from . import services, undo
@@ -571,7 +578,7 @@ class LiveHub:
         return True
 
     @staticmethod
-    def _submitter(session, now):
+    def _submitter(session: LiveSession, now: float) -> Participant | None:
         if session.done or len(session.participants) < 2:
             return None
         submitting = session.participants.get(session.submitting)
@@ -583,13 +590,13 @@ class LiveHub:
         ready = [p for p in participants if p.validated and p.socket is not None]
         return ready[-1] if ready else None
 
-    def _start_reaper(self):
+    def _start_reaper(self) -> None:
         with self.lock:
             if self._reaper is None or not self._reaper.is_alive():
                 self._reaper = threading.Thread(target=self._reap_loop, daemon=True, name='live-reaper')
                 self._reaper.start()
 
-    def _reap_loop(self):
+    def _reap_loop(self) -> None:
         while True:
             time.sleep(REAPER_PERIOD)
             try:
@@ -603,7 +610,7 @@ class LiveHub:
 
     # -- page de scan --------------------------------------------------------------------------------------------------
 
-    def _find(self, credentials):
+    def _find(self, credentials: dict[str, Any] | None) -> tuple[LiveSession | None, Participant | None]:
         """(verif, participant) designes par {"id", "pid", "token"}, (None, None) si inconnus."""
         if not isinstance(credentials, dict):
             return None, None
@@ -614,7 +621,8 @@ class LiveHub:
             return None, None
         return session, participant
 
-    def attach_scanner(self, message, websocket):
+    def attach_scanner(self, message: dict[str, Any], websocket: WebSocket
+                       ) -> tuple[LiveSession | None, Participant | None, str | None]:
         """Reprend le participant {"id", "pid", "token"} s'il existe encore (rechargement de la page), lui fait
         rejoindre la verif "join" (badge exige), sinon cree une nouvelle verif. Renvoie (verif, participant, erreur)."""
         identity, who, verified = scanner_identity(message)
@@ -656,14 +664,14 @@ class LiveHub:
         self._start_reaper()
         return session, participant, None
 
-    def _session_of(self, participant, hint):
+    def _session_of(self, participant: Participant, hint: LiveSession) -> LiveSession | None:
         """Verif ou se trouve le participant (une fusion a pu le deplacer), None s'il l'a quittee."""
         if self.sessions.get(hint.id) is hint and hint.participants.get(participant.id) is participant:
             return hint
         return next((session for session in self.sessions.values()
                      if session.participants.get(participant.id) is participant), None)
 
-    def _merge(self, session):
+    def _merge(self, session: LiveSession) -> LiveSession | None:
         """Une verif est deja en cours sur le meme lot global (meme lot, ou un autre sous-lot du meme lot) : les
         verifs sont fusionnees dans la plus ancienne, une verif commune de tous leurs lots. Les participants des autres
         recoivent un nouveau hello (meme pid et jeton) marque "merged". Renvoie la verif commune, None sinon."""
@@ -704,7 +712,7 @@ class LiveHub:
             self.broadcast({'type': 'remove', 'id': session_id})
         return target
 
-    def _restart(self, participant, websocket):
+    def _restart(self, participant: Participant, websocket: WebSocket) -> tuple[LiveSession, Participant]:
         """Nouveau scan apres la fin d'une verif : le participant repart sur une nouvelle verif (la verif terminee
         reste affichee, ce telephone n'y est plus connecte)."""
         with self.lock:
@@ -718,7 +726,7 @@ class LiveHub:
         websocket.send_json({'type': 'hello', 'id': fresh.id, 'pid': moved.id, 'token': moved.token})
         return fresh, moved
 
-    def run_scanner(self, websocket):
+    def run_scanner(self, websocket: WebSocket) -> None:
         session = participant = None
         try:
             hello = self._parse(websocket.receive())
@@ -815,7 +823,7 @@ class LiveHub:
 
     # -- envoi de la verif (vue POST /api/verifs/) ---------------------------------------------------------------------
 
-    def verif_team(self, credentials, step=None):
+    def verif_team(self, credentials: dict[str, str] | None, step: set[str] | None = None) -> dict[str, Any] | None:
         """Verif a plusieurs envoyee par un de ses participants ({"id", "pid", "token"}) : cles des lots connues du
         serveur et identites des autres participants (ceux qui ont valide ou scanne, « Invité » sans compte ni prenom ;
         celui qui envoie donne la sienne dans la requete). None si inconnue.
@@ -836,13 +844,13 @@ class LiveHub:
                     'shared': len(session.participants) > 1}
 
     @staticmethod
-    def _entry_in(entry, iids):
+    def _entry_in(entry: dict[str, Any], iids: set[str]) -> bool:
         """Scan partage compris dans les iids (et lots scelles) d'une vérif envoyee."""
         if entry['kind'] == 'pack':
             return bool(iids & set(entry['items']))
         return entry['iid'] in iids
 
-    def step(self, team, report, iids, final=False):
+    def step(self, team: dict[str, Any], report: dict[str, Any], iids: list[str], final: bool = False) -> None:
         """Vérif en cascade : un participant a valide un lot (et ses sous-lots faits). La vérif commune continue : le
         lot est note valide pour tous, les scans envoyes sont retires des scans partages. final : le lot global a ete
         valide, ce participant a fini (comme "leave", sans attendre son message)."""
@@ -875,7 +883,7 @@ class LiveHub:
         else:
             self._changed(session)
 
-    def finish(self, team, report):
+    def finish(self, team: dict[str, Any], report: dict[str, Any]) -> None:
         """Verif enregistree : affichee comme terminee, compte rendu envoye aux autres participants."""
         with self.lock:
             session = self.sessions.get(team['id'])
@@ -894,7 +902,7 @@ class LiveHub:
             websocket.send_json({'type': 'report', 'report': report})
         self._changed(session)
 
-    def set_full(self, session_id, on, credentials):
+    def set_full(self, session_id: str, on: bool, credentials: dict[str, str]) -> bool:
         """« Rendre la vérif complète » (ou revenir au facultatif) pour tous les participants : roles gestion et admin,
         depuis la page de scan d'un participant ou la page de suivi. Renvoie False si refuse."""
         if not is_gestion(credentials):
@@ -912,7 +920,7 @@ class LiveHub:
 
     # -- page de suivi -------------------------------------------------------------------------------------------------
 
-    def run_watcher(self, websocket):
+    def run_watcher(self, websocket: WebSocket) -> None:
         try:
             hello = self._parse(websocket.receive())
             if hello.get('type') != 'hello' or not badge_identity(hello.get('user')):
@@ -934,7 +942,7 @@ class LiveHub:
                 self.watchers.discard(websocket)
 
     @staticmethod
-    def _parse(text):
+    def _parse(text: str) -> dict[str, Any]:
         try:
             message = json.loads(text)
         except ValueError:

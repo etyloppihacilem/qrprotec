@@ -21,3 +21,33 @@ cryptography = ">=41"
 [build-system]
 requires = ["poetry-core>=2.0.0,<3.0.0"]
 build-backend = "poetry.core.masonry.api"
+
+[tool.mypy]
+# Typage du code Python : toute fonction est annotee (parametres et retour), ainsi que les variables dont le type ne se
+# devine pas (conteneurs vides, attributs initialises a None). Voir CLAUDE.md. Verification, depuis la racine du depot :
+#     pip install mypy django-stubs djangorestframework-stubs && QRPROTEC_DEBUG=1 mypy
+python_version = "3.13"
+mypy_path = "database"
+files = ["database", "packaging", "tools/bench/qrprotec-bench"]
+exclude = ["database/vendor/"]
+explicit_package_bases = true
+plugins = ["mypy_django_plugin.main", "mypy_drf_plugin.main"]
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+check_untyped_defs = true
+warn_redundant_casts = true
+no_implicit_optional = true
+# Codes encore desactives : erreurs de typage du code existant (request.data de DRF vu comme dict | list, cles
+# etrangeres facultatives non verifiees avant usage, variables reutilisees avec un autre type...). A reactiver un par
+# un en corrigeant le code ; tout le reste (annotations manquantes, types invalides ou inconnus) est verifie.
+disable_error_code = [
+    "union-attr", "arg-type", "attr-defined", "call-overload", "index", "assignment", "operator", "misc",
+    "return-value", "list-item", "dict-item", "type-var", "func-returns-value", "str-unpack", "return",
+]
+
+[[tool.mypy.overrides]]
+module = "inventory.migrations.*"
+ignore_errors = true
+
+[tool.django-stubs]
+django_settings_module = "qrprotecDB.settings"

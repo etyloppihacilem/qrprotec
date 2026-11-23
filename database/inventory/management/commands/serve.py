@@ -28,6 +28,10 @@ inventory/remote_scanner.py) et du suivi des verifs en direct (/ws/live/..., voi
 reverse proxy doit transmettre les en-tetes Upgrade/Connection.
 """
 
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Any
+
 import ipaddress
 import re
 import shutil
@@ -48,6 +52,9 @@ from inventory.middleware import (RoleWSGIHandler, authenticate_front, local_acc
 from inventory.live import hub as live_hub
 from inventory.remote_scanner import RECEIVE_TIMEOUT, WebSocket, accept_key, hub
 
+if TYPE_CHECKING:
+    from django.core.management.base import CommandParser, OutputWrapper
+
 CERT_DIR = Path(settings.BASE_DIR) / '.dev-certs'
 
 # Connexions simultanees par API au plus (un thread chacune) : au-dela, les nouvelles connexions attendent dans la file
@@ -61,12 +68,12 @@ CONNECTION_TIMEOUT = 30
 SECRET_PARAMS_RE = re.compile(r'([?&](?:key|k|s|t)=)[^&\s#"]*')
 
 
-def redact_secrets(text):
+def redact_secrets(text: str | int) -> str | int:
     """Ligne de journal sans les valeurs des parametres secrets (?key=..., &k=..., ...)."""
     return SECRET_PARAMS_RE.sub(r'\1***', text) if isinstance(text, str) else text
 
 
-def parse_address(value, default_address):
+def parse_address(value: str, default_address: str) -> tuple[str, int]:
     if ':' in value and not value.startswith('['):
         address, _, port = value.rpartition(':')
     else:
@@ -77,7 +84,7 @@ def parse_address(value, default_address):
         raise CommandError(f"Adresse invalide : {value}")
 
 
-def certificate_names():
+def certificate_names() -> str:
     """Noms couverts par le certificat : localhost + hotes autorises (sauf jokers)."""
     names = ['localhost', '127.0.0.1', '::1']
     for host in settings.ALLOWED_HOSTS:
@@ -94,7 +101,7 @@ def certificate_names():
     return ','.join(entries)
 
 
-def development_certificate(stdout):
+def development_certificate(stdout: OutputWrapper) -> tuple[Path, Path]:
     """Genere (ou reutilise) un certificat auto-signe couvrant les hotes courants."""
     cert, key, names_file = CERT_DIR / 'cert.pem', CERT_DIR / 'key.pem', CERT_DIR / 'names.txt'
     names = certificate_names()
@@ -115,17 +122,17 @@ def development_certificate(stdout):
     return cert, key
 
 
-def tls_server_class(cert, key):
+def tls_server_class(cert: Path, key: Path) -> type[WSGIServer]:
     context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
     context.load_cert_chain(str(cert), str(key))
 
     class TLSWSGIServer(WSGIServer):
-        def server_bind(self):
+        def server_bind(self) -> None:
             super().server_bind()
             # la poignee de main TLS se fait dans le thread de la requete, pas dans la boucle d'accept
             self.socket = context.wrap_socket(self.socket, server_side=True, do_handshake_on_connect=False)
 
-        def handle_error(self, request, client_address):
+        def handle_error(self, request: Any, client_address: Any) -> None:
             # navigateur qui refuse le certificat auto-signe : pas de trace a chaque tentative
             if isinstance(sys.exc_info()[1], (ssl.SSLError, ConnectionError)):
                 return
@@ -140,10 +147,10 @@ class QRProtecRequestHandler(WSGIRequestHandler):
 
     timeout = CONNECTION_TIMEOUT  # StreamRequestHandler.setup : delai sur chaque lecture et ecriture du socket
 
-    def log_message(self, format, *args):
+    def log_message(self, format: str, *args: Any) -> None:
         super().log_message(format, *(redact_secrets(arg) for arg in args))
 
-    def handle_one_request(self):
+    def handle_one_request(self) -> None:
         try:
             self.raw_requestline = self.rfile.readline(65537)
         except TimeoutError:
@@ -167,7 +174,7 @@ class QRProtecRequestHandler(WSGIRequestHandler):
         handler.request_handler = self
         handler.run(self.server.get_app())
 
-    def refuse(self, code, message):
+    def refuse(self, code: int, message: str) -> None:
         body = message.encode()
         self.send_response(code)
         self.send_header('Content-Type', 'text/plain; charset=utf-8')
@@ -175,7 +182,7 @@ class QRProtecRequestHandler(WSGIRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
-    def handle_websocket(self, path):
+    def handle_websocket(self, path: str) -> None:
         role = getattr(self.server, 'qrprotec_role', 'public')
         params = {key: values[0] for key, values in parse_qs(urlsplit(self.path).query).items()}
         key = self.headers.get('Sec-WebSocket-Key', '')
@@ -232,7 +239,9 @@ class QRProtecRequestHandler(WSGIRequestHandler):
 class BoundedThreadingMixIn(socketserver.ThreadingMixIn):
     """Un thread par connexion, comme ThreadingMixIn, mais au plus MAX_CONNECTIONS a la fois."""
 
-    def process_request(self, request, client_address):
+    connection_slots: threading.BoundedSemaphore
+
+    def process_request(self, request: Any, client_address: Any) -> None:
         self.connection_slots.acquire()
         try:
             super().process_request(request, client_address)
@@ -240,14 +249,14 @@ class BoundedThreadingMixIn(socketserver.ThreadingMixIn):
             self.connection_slots.release()
             raise
 
-    def process_request_thread(self, request, client_address):
+    def process_request_thread(self, request: Any, client_address: Any) -> None:
         try:
             super().process_request_thread(request, client_address)
         finally:
             self.connection_slots.release()
 
 
-def run_server(address, port, handler, server_cls, role):
+def run_server(address: str, port: int, handler: RoleWSGIHandler, server_cls: type[WSGIServer], role: str) -> None:
     httpd_cls = type('QRProtecServer', (BoundedThreadingMixIn, server_cls), {})
     httpd = httpd_cls((address, port), QRProtecRequestHandler, ipv6=':' in address)
     httpd.connection_slots = threading.BoundedSemaphore(MAX_CONNECTIONS)
@@ -260,7 +269,7 @@ def run_server(address, port, handler, server_cls, role):
 class Command(BaseCommand):
     help = "Lance l'API publique, l'API locale et l'API distante (ports distincts)."
 
-    def add_arguments(self, parser):
+    def add_arguments(self, parser: CommandParser) -> None:
         config = settings.QRPROTEC
         parser.add_argument('--public', default=f"{config['PUBLIC_API_ADDRESS']}:{config['PUBLIC_API_PORT']}")
         parser.add_argument('--local', default=f"{config['LOCAL_API_ADDRESS']}:{config['LOCAL_API_PORT']}")
@@ -273,7 +282,7 @@ class Command(BaseCommand):
         parser.add_argument('--cert', help="Certificat PEM a utiliser avec --https")
         parser.add_argument('--key', help="Cle privee PEM a utiliser avec --https")
 
-    def handle(self, *args, **options):
+    def handle(self, *args: Any, **options: Any) -> None:
         application = get_internal_wsgi_application()
         public_server_cls = WSGIServer
         scheme = 'http'

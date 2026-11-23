@@ -15,8 +15,11 @@ Le front compte chaque etiquette acceptee par l'imprimante, par jour et par cate
 lots identifies (`batch`) : hors connexion, ils attendent sur le front ; un lot deja recu n'est pas recompte.
 """
 
+from __future__ import annotations
+
 from datetime import date, timedelta
 from decimal import Decimal, InvalidOperation
+from typing import Any
 
 from django.db import IntegrityError, transaction
 from django.db.models import F, Sum
@@ -35,7 +38,7 @@ class CountError(Exception):
     pass
 
 
-def parse_decimal(value):
+def parse_decimal(value: str | int | bool | None) -> Decimal:
     """Nombre saisi : « 2,5 » comme « 2.5 » (virgule ou point), espaces ignores. Leve InvalidOperation /
     ValueError / TypeError si ce n'est pas un nombre fini."""
     if isinstance(value, bool) or value is None:
@@ -49,7 +52,7 @@ def parse_decimal(value):
     return number
 
 
-def _mm(value, field):
+def _mm(value: int, field: str) -> Decimal:
     try:
         number = parse_decimal(value).quantize(Decimal('0.1'))
     except (InvalidOperation, ValueError, TypeError):
@@ -59,7 +62,7 @@ def _mm(value, field):
     return number
 
 
-def _row(row, today):
+def _row(row: dict[str, Any], today: date) -> tuple[date, Decimal, Decimal, str, int]:
     if not isinstance(row, dict):
         raise CountError('counts : liste de compteurs attendue')
     try:
@@ -81,7 +84,7 @@ def _row(row, today):
     return day, _mm(row.get('width_mm'), 'width_mm'), _mm(row.get('height_mm'), 'height_mm'), support, count
 
 
-def record(batch_id, front, rows):
+def record(batch_id: str, front: str, rows: list[dict[str, Any]]) -> tuple[int, bool]:
     """Ajoute les compteurs d'un envoi. Renvoie (nombre d'etiquettes comptees, deja recu)."""
     batch_id = str(batch_id or '').strip()
     if not 8 <= len(batch_id) <= 64:
@@ -105,17 +108,17 @@ def record(batch_id, front, rows):
     return sum(row[4] for row in parsed), False
 
 
-def _number(value):
+def _number(value: Decimal) -> str:
     """40.0 -> « 40 », 40.5 -> « 40,5 »."""
     text = f'{Decimal(value).normalize():f}'
     return text.replace('.', ',')
 
 
-def category_label(width, height, support):
+def category_label(width: Decimal, height: Decimal, support: str) -> str:
     return f'{_number(width)} × {_number(height)} mm, {LabelSupport(support).label}'
 
 
-def summary(year=None):
+def summary(year: int | None = None) -> dict[str, Any]:
     """Tableau d'une annee : une ligne par categorie avec ses 12 mois et son total, plus les totaux par mois.
     `years` : annees qui ont des impressions (et l'annee en cours), pour choisir."""
     current = timezone.localdate().year
@@ -124,7 +127,7 @@ def summary(year=None):
             .annotate(month=ExtractMonth('day'))
             .values('width_mm', 'height_mm', 'support', 'month')
             .annotate(total=Sum('count')))
-    categories = {}
+    categories: dict[Any, list[int]] = {}
     for row in rows:
         key = (row['width_mm'], row['height_mm'], row['support'])
         category = categories.setdefault(key, [0] * 12)

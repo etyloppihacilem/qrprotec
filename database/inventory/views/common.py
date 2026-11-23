@@ -19,12 +19,16 @@ Deux familles de vues :
 - locales (servies uniquement sur le port local) : gestion complete sans cle.
 """
 
+from __future__ import annotations
+
 import functools
 from collections import Counter, defaultdict
 import hashlib
 import hmac
 import re
 from datetime import date, datetime, timedelta
+from typing import TYPE_CHECKING, Any
+from collections.abc import Callable
 
 from django.contrib.auth.hashers import check_password, make_password
 from django.core import signing
@@ -75,12 +79,19 @@ from ..models import (
     storage_kind_value, MAINTENANCE,
 )
 
+if TYPE_CHECKING:
+    from django.db.models.query import QuerySet
+    from inventory.models import Checklist
+    from rest_framework.request import Request
+    from collections.abc import Iterable
+    from django.http import HttpRequest
+
 CODE_RE = re.compile(r'^[A-Za-z0-9]{%d}$' % TYPE_LENGTH)
 MATRICULE_RE = re.compile(r'^[A-Za-z0-9_-]{1,16}$')
 
 
 class ApiError(Exception):
-    def __init__(self, message, code=status.HTTP_400_BAD_REQUEST, **extra):
+    def __init__(self, message: str, code: int = status.HTTP_400_BAD_REQUEST, **extra: Any) -> None:
         super().__init__(message)
         self.message = message
         self.code = code
@@ -93,19 +104,19 @@ ALL_ROLES = tuple(Role.values)
 SESSION_HEADER = 'HTTP_X_QRPROTEC_SESSION'
 
 
-def is_front(request) -> bool:
+def is_front(request: Request | HttpRequest) -> bool:
     """Requete d'un poste (API locale, ou API distante avec une cle de front valide)."""
     return getattr(request, 'qrprotec_local', False)
 
 
-def is_main_poste(request) -> bool:
+def is_main_poste(request: Request) -> bool:
     """Poste principal : front de l'API locale (meme machine que le back) ou front distant dont la cle est marquee
     « poste principal » (kiosk sur une autre machine, back sans kiosk). Il imprime les « Impressions en attente » et
     gere les ordinateurs connectes."""
     return getattr(request, 'qrprotec_poste', False)
 
 
-def front_user(request):
+def front_user(request: Request) -> Secouristes | None:
     """Utilisateur connecte sur le poste : le front envoie le jeton de session recu de /api/auth/ (badge, puis PIN
     si besoin) dans l'en-tete X-QRProtec-Session. Le serveur ne croit plus le matricule envoye par le poste."""
     if not is_front(request):
@@ -115,17 +126,17 @@ def front_user(request):
     return request.qrprotec_user
 
 
-def is_local(request) -> bool:
+def is_local(request: Request) -> bool:
     """Poste avec un utilisateur connecte : pas de cle de lot exigee, identite verifiee par la session."""
     return front_user(request) is not None
 
 
-def is_privileged(request) -> bool:
+def is_privileged(request: Request) -> bool:
     user = front_user(request)
     return user is not None and user.role in GESTION
 
 
-def require_front(request, roles):
+def require_front(request: Request, roles: Any) -> Secouristes:
     """Routes du poste (ex-privilege du localhost) : utilisateur connecte avec l'un des roles."""
     user = front_user(request)
     if user is None:
@@ -136,7 +147,7 @@ def require_front(request, roles):
     return user
 
 
-def debug_options(request) -> bool:
+def debug_options(request: Request) -> bool:
     """Options de debug du poste (reglage « Activer les options de débug ») : {"debug": true} n'est pris en compte
     que pour un admin connecte sur un poste. Elles levent les refus des deplacements d'items (items perimes,
     supprimes, remplaces... ranges dans un lot), pour construire des lots inacceptables en vrai et tester l'affichage.
@@ -149,7 +160,7 @@ def debug_options(request) -> bool:
     return True
 
 
-def operation_identity(request, data=None):
+def operation_identity(request: Request, data: dict[str, Any] | None = None) -> str:
     """Identite d'une operation : utilisateur verifie, ou nom declare si le reglage du serveur l'autorise."""
     allowed = ServerSettings.get().declared_identity
     identity = identity_from_request(request.data if data is None else data, front_user(request), allowed)
@@ -159,7 +170,7 @@ def operation_identity(request, data=None):
     return identity
 
 
-def team_identity(request, team):
+def team_identity(request: Request, team: dict[str, Any]) -> str:
     """Vérif à plusieurs : il faut au moins un secouriste connecte et authentifie parmi les participants. Un invite
     (sans compte, {"guest": true, "name": prenom facultatif}) peut l'envoyer, meme sans le reglage du nom declare :
     elle est enregistree au nom d'un secouriste connecte, l'invite parmi les participants."""
@@ -180,23 +191,23 @@ def team_identity(request, team):
     return own
 
 
-def front_identity(request):
+def front_identity(request: Request) -> str:
     """Identite stockee de l'utilisateur connecte sur le poste (operations de gestion du journal)."""
     user = front_user(request)
     return f'{SOURCE_VERIFIED}:{user.matricule}' if user else ''
 
 
-def changed_fields(data, labels):
+def changed_fields(data: dict[str, Any], labels: dict[str, str]) -> str:
     """Libelles des champs modifies par une requete PATCH (journal), dans l'ordre de `labels`."""
     return ', '.join(label for field, label in labels.items() if field in data)
 
 
-def error(message, code=status.HTTP_400_BAD_REQUEST, **extra):
+def error(message: str, code: int = status.HTTP_400_BAD_REQUEST, **extra: Any) -> Response:
     return Response({'error': message, **extra}, status=code)
 
 
-def handle_errors(view):
-    def wrapper(request, *args, **kwargs):
+def handle_errors(view: Callable[..., HttpResponse]) -> Callable[..., HttpResponse]:
+    def wrapper(request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
         previous = journal.set_request(request)  # moyen d'authentification note au journal des operations
         try:
             return view(request, *args, **kwargs)
@@ -211,7 +222,7 @@ def handle_errors(view):
     return wrapper
 
 
-def parse_date(value, field):
+def parse_date(value: str | None, field: str) -> date | None:
     if value in (None, ''):
         return None
     try:
@@ -220,7 +231,7 @@ def parse_date(value, field):
         raise ApiError(f"{field} : date invalide (format AAAA-MM-JJ attendu)")
 
 
-def parse_int(value, field, minimum=0, maximum=None):
+def parse_int(value: str | int, field: str, minimum: int = 0, maximum: int | None = None) -> int:
     try:
         number = int(value)
     except (TypeError, ValueError):
@@ -235,19 +246,19 @@ MAX_REVISION_MONTHS = 120
 TASK_LENGTH = 120
 
 
-def parse_label_style(value):
+def parse_label_style(value: str | LabelStyle) -> str | LabelStyle:
     if value not in LabelStyle.values:
         raise ApiError("label_style : " + ', '.join(LabelStyle.values) + " attendu")
     return value
 
 
-def check_tear_off_tasks(tear_off, tasks):
+def check_tear_off_tasks(tear_off: bool, tasks: list[str]) -> None:
     """Une etiquette a dechirer disparait a l'ouverture : elle ne peut pas porter de taches a cocher."""
     if tear_off and tasks:
         raise ApiError("Un type à étiquette à déchirer ne peut pas avoir de tâches à la vérif")
 
 
-def check_physical(physical, perissable, tear_off, revision_months):
+def check_physical(physical: bool, perissable: bool, tear_off: bool, revision_months: int) -> None:
     """Un item a cocher (sans etiquette) n'a ni date de peremption, ni etiquette a dechirer, ni revision ou
     desinfection (revision_months : somme des deux periodicites)."""
     if not physical and (perissable or tear_off or revision_months):
@@ -258,7 +269,7 @@ def check_physical(physical, perissable, tear_off, revision_months):
 MAX_FILLS = 1_000_000
 
 
-def apply_units(item_type, data):
+def apply_units(item_type: ItemType, data: dict[str, Any]) -> None:
     """Attentes en quantite (ItemType.is_group, unit, group, fills, default_subtype) d'un type d'item, depuis les
     champs presents dans data. Un type parent (is_group : a unites, ex : « Sérum phy » en mL, ou sans unite, ex :
     « Bandes ») n'a ni etiquette ni item a lui : ce sont ses sous-types qu'on receptionne et qu'on imprime ; un seul
@@ -313,7 +324,7 @@ def apply_units(item_type, data):
         raise ApiError("Un item à cocher ne peut pas être le sous-type d'un type parent")
 
 
-def parse_tasks(value):
+def parse_tasks(value: str | list[str] | None) -> list[str]:
     """Taches d'un type d'item (etiquette de taches) : liste de libelles, sans vides ni doublons."""
     if value is None:
         return []
@@ -329,7 +340,7 @@ def parse_tasks(value):
     return tasks
 
 
-def ensure_name_free(queryset, name, what):
+def ensure_name_free(queryset: Iterable[Any], name: str, what: str) -> None:
     """Refuse un nom deja pris dans `queryset` (sans accents ni casse, voir name_key). Les fronts font la meme
     verification pendant la saisie."""
     key = name_key(name)
@@ -340,14 +351,14 @@ def ensure_name_free(queryset, name, what):
                            status.HTTP_409_CONFLICT)
 
 
-def iid_list(data):
+def iid_list(data: dict[str, Any]) -> list[str]:
     items = data.get('items', [])
     if not isinstance(items, list) or not all(isinstance(iid, str) for iid in items):
         raise ApiError("items : liste d'iids attendue")
     return [iid.strip() for iid in items if iid.strip()]
 
 
-def checked_map(data):
+def checked_map(data: dict[str, Any]) -> dict[str, list[str]] | None:
     """"checked" d'une verif : {lot id: [types d'items a cocher coches]}, None si absent (ancien front)."""
     value = data.get('checked')
     if value is None:
@@ -358,7 +369,7 @@ def checked_map(data):
             if isinstance(types, list)}
 
 
-def place_map(data):
+def place_map(data: dict[str, Any]) -> dict[str, str]:
     """"places" d'une verif : {iid: id du lot dont l'etiquette a ete scannee en dernier avant l'item}."""
     places = data.get('places') or {}
     if not isinstance(places, dict):
@@ -366,7 +377,7 @@ def place_map(data):
     return {str(iid): str(lot) for iid, lot in places.items() if isinstance(lot, str)}
 
 
-def parse_role(data):
+def parse_role(data: dict[str, Any]) -> str | Role | None:
     """Role demande ('role', ou l'ancien booleen 'privileged' = admin), None si absent."""
     if 'role' in data:
         role = str(data['role'])
@@ -378,7 +389,7 @@ def parse_role(data):
     return None
 
 
-def badge_user(request, roles=None):
+def badge_user(request: Request, roles: Any = None) -> Secouristes:
     """Secouriste authentifie par son badge ({"user": {"matricule", "key"}}) ou par son jeton de session
     ({"user": {"matricule", "session"}}), avec l'un des roles donnes."""
     credentials = request.data.get('user')
@@ -395,7 +406,7 @@ def badge_user(request, roles=None):
     return user
 
 
-def require_lot_key(request, lot):
+def require_lot_key(request: Request, lot: Lots) -> None:
     """Sur l'API publique, toute ecriture sur un lot exige sa cle."""
     if is_local(request):
         return
@@ -403,7 +414,7 @@ def require_lot_key(request, lot):
         raise ApiError(key_error(lot, request.data.get('key')), status.HTTP_403_FORBIDDEN)
 
 
-def key_error(lot, key):
+def key_error(lot: Lots, key: str | None) -> str:
     """Message quand l'etiquette privee d'un lot manque ou ne vaut plus : dit ce qu'elle est et ou la trouver."""
     state = lot.key_status(key) if key else 'missing'
     if state == 'expired':
@@ -415,12 +426,12 @@ def key_error(lot, key):
     return f"Scannez l'étiquette clé de {lot.name} pour valider. " + lot.key_hint()
 
 
-def is_verified(identity):
+def is_verified(identity: str) -> bool:
     """Identite d'un secouriste reconnu (badge, ou nom et PIN), pas un nom declare."""
     return identity.startswith(f'{SOURCE_VERIFIED}:')
 
 
-def parse_scanner_volume(value):
+def parse_scanner_volume(value: int) -> int:
     try:
         volume = int(value)
     except (TypeError, ValueError):
@@ -430,14 +441,14 @@ def parse_scanner_volume(value):
     return volume
 
 
-def parse_web_prefs(value):
+def parse_web_prefs(value: Any) -> dict[str, bool]:
     """Reglages du front web a changer ({nom: booleen}, noms de models.WEB_PREFS) : les autres restent tels quels."""
     if not isinstance(value, dict) or not all(name in WEB_PREFS and isinstance(flag, bool) for name, flag in value.items()):
         raise ApiError("web_prefs : réglages attendus (" + ', '.join(WEB_PREFS) + ") avec true ou false")
     return value
 
 
-def _checklist_call(action):
+def _checklist_call(action: Callable[[], Any]) -> Any:
     try:
         return action()
     except PermissionError as exc:

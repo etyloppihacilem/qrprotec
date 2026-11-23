@@ -11,11 +11,19 @@
 """Passkeys du front web (voir inventory/passkeys.py) : connexion, gestion par le secouriste, suppression par un
 admin, QR code de connexion au poste montre par un secouriste connecte avec sa passkey."""
 
+from __future__ import annotations
+
 import logging
+from typing import TYPE_CHECKING
 
 from .. import passkeys as webauthn
 from .common import *  # noqa: F401,F403
 from .public import *  # noqa: F401,F403
+
+if TYPE_CHECKING:
+    from inventory.models import Passkey, Secouristes
+    from inventory.passkeys import PasskeyError
+    from rest_framework.request import Request
 
 log = logging.getLogger('inventory.passkeys')
 
@@ -23,7 +31,7 @@ PASSKEY_LOGIN_ERROR = "Passkey refusée : réessayez, ou connectez-vous avec vot
 MAX_PASSKEYS = 10
 
 
-def passkey_row(passkey):
+def passkey_row(passkey: Passkey) -> dict[str, Any]:
     return {
         'id': passkey.pk,
         'device': passkey.device,
@@ -32,11 +40,11 @@ def passkey_row(passkey):
     }
 
 
-def passkey_rows(user):
+def passkey_rows(user: Secouristes) -> list[dict[str, Any]]:
     return [passkey_row(passkey) for passkey in user.passkeys.order_by('-created')]
 
 
-def refuse(request, what, exc, matricule=''):
+def refuse(request: Request, what: str, exc: PasskeyError, matricule: str = '') -> None:
     """Refus d'une reponse WebAuthn : la raison technique part dans le journal du serveur (journalctl), pour le
     debogage ; le telephone ne recoit qu'un message general."""
     log.warning('passkey refusée (%s%s) depuis %s : %s', what, f' de {matricule}' if matricule else '',
@@ -45,7 +53,7 @@ def refuse(request, what, exc, matricule=''):
 
 @api_view(['POST'])
 @handle_errors
-def passkey_login_options(request):
+def passkey_login_options(request: Request) -> Response:
     """Options de navigator.credentials.get() pour se connecter avec une passkey (sans nom a taper)."""
     if request.data.get('debug_rp'):  # aide au debogage : domaine des passkeys vu par le serveur
         return Response({'rp_id': webauthn.rp_id(request)})
@@ -54,7 +62,7 @@ def passkey_login_options(request):
 
 @api_view(['POST'])
 @handle_errors
-def passkey_login(request):
+def passkey_login(request: Request) -> Response:
     """Connexion avec une passkey : {"credential"} (reponse de navigator.credentials.get()). Meme reponse que
     /api/auth/, avec `passkey_session` : le web propose alors le QR code de connexion au poste. Remplace le badge et le
     PIN (le telephone a verifie l'empreinte, le visage ou son code)."""
@@ -88,7 +96,7 @@ def passkey_login(request):
     return Response(login_response(request, user, passkey=True, method='passkey'))
 
 
-def first_login_user(request):
+def first_login_user(request: Request) -> Secouristes | None:
     """Premiere connexion au web (Hippolyte, 2026-11-21) : la passkey est proposee avant le choix du code PIN
     obligatoire. La connexion attend encore ce code : la carte seule ({"user": {"matricule", "key"}}, sans jeton de
     session) suffit alors pour creer la passkey, comme elle suffit pour choisir le code. None dans tout autre cas."""
@@ -103,7 +111,7 @@ def first_login_user(request):
 
 @api_view(['POST'])
 @handle_errors
-def my_passkeys(request):
+def my_passkeys(request: Request) -> Response:
     """Passkeys de l'utilisateur connecte (web) : {"user", "action"} :
     - "list" (defaut) : ses passkeys ;
     - "options" : options de navigator.credentials.create() ;
@@ -150,7 +158,7 @@ def my_passkeys(request):
 
 @api_view(['POST'])
 @handle_errors
-def my_poste_login(request):
+def my_poste_login(request: Request) -> Response:
     """QR code de connexion au poste, montre sur le telephone d'un secouriste connecte avec sa passkey :
     {"user": {"matricule", "session"}} -> lien badge?m=...&t=... valable 5 min, une seule fois, a scanner a la douchette
     d'un poste (qui ouvre une session normale). Seulement pour une session ouverte avec une passkey ; jamais pour un
@@ -170,7 +178,7 @@ def my_poste_login(request):
 
 @api_view(['POST'])
 @handle_errors
-def debug_passkeys(request):
+def debug_passkeys(request: Request) -> Response:
     """Passkeys des secouristes depuis l'outil de debug du web (admins) : {"user", "matricule", "action"?} :
     "list" (defaut) ou "delete" (toutes ses passkeys : la connexion par nom et PIN redevient possible). Note au
     journal."""

@@ -1,5 +1,10 @@
 """Tests du back : alertes et notifications web."""
 
+from __future__ import annotations
+
+from typing import Any
+from collections.abc import Callable
+
 from .base import *  # noqa: F401,F403
 from .base import setUpModule, tearDownModule  # noqa: F401 (PIN facultatif pendant ces tests)
 
@@ -8,10 +13,10 @@ class AlertTests(ApiTestCase):
     """Alertes des admins (notifications web, l'API SMS n'est plus maintenue) : une alerte par blocage, par etape
     d'expiration et par commande. Les envois de webpush sont remplaces : self.sent garde (evenement, texte)."""
 
-    def setUp(self):
+    def setUp(self) -> None:
         super().setUp()
         from .. import webpush
-        self.sent = []
+        self.sent: list[tuple[str, str]] = []
         self.reached = 1  # abonnements atteints par chaque envoi
         for name, record in (
                 ('notify_event', lambda field, title, body, **web: self.record(field, body)),
@@ -19,12 +24,12 @@ class AlertTests(ApiTestCase):
             self.addCleanup(setattr, webpush, name, getattr(webpush, name))
             setattr(webpush, name, record)
 
-    def record(self, event, text):
+    def record(self, event: str, text: str) -> int:
         if self.reached:
             self.sent.append((event, text))
         return self.reached
 
-    def test_settings_only_expose_warning_days(self):
+    def test_settings_only_expose_warning_days(self) -> None:
         code, body = self.call('GET', '/api/notifications/')
         self.assertEqual(body, {'key_expiry_warning_days': 30})
         code, _ = self.call('GET', '/api/notifications/', local=False)
@@ -34,7 +39,7 @@ class AlertTests(ApiTestCase):
                                    {'name': 'A', 'user': 'u1', 'password': 'p1'})[0], 404)
         self.assertEqual(self.call('POST', '/api/notifications/test/', {'user': 'M001'})[0], 404)
 
-    def test_pin_blocked_notified_once_per_block(self):
+    def test_pin_blocked_notified_once_per_block(self) -> None:
         self.call('PATCH', '/api/users/M001/', {'pin': '123456', 'pin_contact': 'P001'})
         self.user.refresh_from_db()
         badge = {'matricule': 'M001', 'key': self.user.new_key}
@@ -57,7 +62,7 @@ class AlertTests(ApiTestCase):
             self.call('POST', '/api/auth/', {**badge, 'pin': '123456'}, local=False)
         self.assertEqual(len(self.sent), 1)
 
-    def test_pin_blocked_after_failures_notifies(self):
+    def test_pin_blocked_after_failures_notifies(self) -> None:
         Secouristes.objects.create(matricule='M002', nom='Durand', prenom='Jeanne')  # homonyme : debut du nom
         self.call('PATCH', '/api/users/M001/', {'pin': '123456'})
         Secouristes.objects.filter(pk=self.user.pk).update(pin_failures_total=49)
@@ -69,14 +74,14 @@ class AlertTests(ApiTestCase):
         self.assertIn("Jeanne Dup. a son code PIN bloqué après trop d'essais", self.sent[0][1])
         self.assertNotIn('M001)', self.sent[0][1])
 
-    def test_key_renewals(self):
+    def test_key_renewals(self) -> None:
         self.assertEqual(self.call('POST', f'/api/lots/{self.lot.id}/rotate-key/')[0], 200)
         self.assertEqual(self.call('POST', '/api/users/M001/renew-key/')[0], 200)
         self.assertEqual(self.sent, [
             ('lot_key_renewed', 'étiquette clé du lot Sac A renouvelée par Admin'),
             ('badge_renewed', 'badge de Jeanne renouvelé par Admin')])
 
-    def test_key_expirations_once_per_stage(self):
+    def test_key_expirations_once_per_stage(self) -> None:
         from django.core.management import call_command
         models.ServerSettings.objects.update_or_create(pk=1, defaults={'declared_identity': True})  # cles qui expirent
         Lots.objects.filter(pk=self.lot.pk).update(verif_key_expires=self.today + timedelta(days=10))
@@ -102,7 +107,7 @@ class AlertTests(ApiTestCase):
         self.lot.refresh_from_db()
         self.assertEqual(self.lot.key_expiry_stage, 0)
 
-    def test_order_due_once_per_order(self):
+    def test_order_due_once_per_order(self) -> None:
         from django.core.management import call_command
         self.compresses.min_quantity = 5
         self.compresses.save()
@@ -115,7 +120,7 @@ class AlertTests(ApiTestCase):
         Verifs.objects.create(lot=self.lot, datetime=timezone.now() - timedelta(days=30), by='test')
         self.create(self.compresses, self.today + timedelta(days=300), 11)
 
-        def run():
+        def run() -> list[str]:
             self.sent.clear()
             call_command('check_alerts', stdout=StringIO())
             return [text for event, text in self.sent if event == 'order_due']
@@ -130,21 +135,21 @@ class AlertTests(ApiTestCase):
         self.assertEqual(run(), [])
         self.assertFalse(ItemType.objects.get(pk='compre').order_notified)
 
-    def test_verif_problem(self):
+    def test_verif_problem(self) -> None:
         self.call('POST', f'/api/lots/{self.lot.id}/verif/', {'items': [], 'user': 'M001'})
         messages = [text for event, text in self.sent if event == 'verif_problem']
         self.assertEqual(len(messages), 1)
         self.assertIn('vérif du lot Sac A incomplète', messages[0])
         self.assertIn('manque 2 Compresses', messages[0])
 
-    def test_expired_daily_summary(self):
+    def test_expired_daily_summary(self) -> None:
         from django.core.management import call_command
         expired = self.create(self.compresses, self.today - timedelta(days=1), 2)
         Items.objects.filter(iid__in=[item.iid for item in expired]).update(location=self.lot)
         call_command('check_alerts', stdout=StringIO())
         self.assertIn(('expired_daily', 'lots contenant des périmés : Sac A (2)'), self.sent)
 
-    def test_key_expiry_warning_days_setting(self):
+    def test_key_expiry_warning_days_setting(self) -> None:
         from django.core.management import call_command
         self.assertEqual(self.call('PATCH', '/api/notifications/', {'key_expiry_warning_days': 0})[0], 400)
         code, body = self.call('PATCH', '/api/notifications/', {'key_expiry_warning_days': 5})
@@ -152,7 +157,7 @@ class AlertTests(ApiTestCase):
         models.ServerSettings.objects.update_or_create(pk=1, defaults={'declared_identity': True})  # cles qui expirent
         Lots.objects.filter(pk=self.lot.pk).update(verif_key_expires=self.today + timedelta(days=10))
 
-        def lot_alerts():
+        def lot_alerts() -> list[str]:
             self.sent.clear()
             call_command('check_alerts', stdout=StringIO())
             return [text for event, text in self.sent if event == 'lot_key_expiring']
@@ -169,13 +174,13 @@ class AlertTests(ApiTestCase):
 class WebPushTests(ApiTestCase):
     """Notifications web : chiffrement RFC 8291, VAPID, abonnement des admins et alertes de stock."""
 
-    def setUp(self):
+    def setUp(self) -> None:
         super().setUp()
         from cryptography.hazmat.primitives.asymmetric import ec
 
         from .. import views, webpush
         self.webpush = webpush
-        self.sent = []   # (endpoint, corps chiffre, en-tetes)
+        self.sent: list[tuple[str, bytes, dict[str, str]]] = []   # (endpoint, corps chiffre, en-tetes)
         self.reply = 201
         original = webpush.post_push
         webpush.post_push = lambda endpoint, body, headers: (self.sent.append((endpoint, body, headers)) or self.reply)
@@ -188,15 +193,15 @@ class WebPushTests(ApiTestCase):
         self.browser_key = ec.generate_private_key(ec.SECP256R1())
         self.browser_auth = webpush.b64url(b'0123456789abcdef')
 
-    def subscription(self, endpoint='https://push.example.net/abc'):
+    def subscription(self, endpoint: str = 'https://push.example.net/abc') -> dict[str, Any]:
         return {'endpoint': endpoint, 'keys': {
             'p256dh': self.webpush.b64url(self.webpush._public_point(self.browser_key)), 'auth': self.browser_auth}}
 
-    def subscribe(self, **prefs):
+    def subscribe(self, **prefs: Any) -> tuple[int, Any]:
         return self.call('POST', '/api/push/subscription/',
                          {'user': self.badge, 'subscription': self.subscription(), **prefs}, local=False)
 
-    def decrypt(self, body):
+    def decrypt(self, body: bytes) -> dict[str, str]:
         """Dechiffrement cote navigateur (RFC 8291) pour verifier les messages envoyes."""
         from cryptography.hazmat.primitives.asymmetric import ec
         from cryptography.hazmat.primitives.ciphers.aead import AESGCM
@@ -214,14 +219,14 @@ class WebPushTests(ApiTestCase):
         self.assertEqual(plain[-1:], b'\x02')
         return json.loads(plain[:-1])
 
-    def messages(self):
+    def messages(self) -> list[dict[str, str]]:
         return [self.decrypt(body) for _, body, _ in self.sent]
 
-    def test_rfc8291_example(self):
+    def test_rfc8291_example(self) -> None:
         from cryptography.hazmat.primitives.asymmetric import ec
         webpush = self.webpush
 
-        def private(text):
+        def private(text: str) -> ec.EllipticCurvePrivateKey:
             return ec.derive_private_key(int.from_bytes(webpush.b64url_decode(text), 'big'), ec.SECP256R1())
         receiver = private('q1dXpw3UpT5VOmu_cf_v6ih07Aems3njxI-JWgLcM94')
         body = webpush.encrypt(b'When I grow up, I want to be a watermelon',
@@ -233,7 +238,7 @@ class WebPushTests(ApiTestCase):
                          'TlzAC8wEqKK6PBru3jl7A_yl95bQpu6cVPTpK4Mqgkf1CXztLVBSt2Ks3oZwbuwXPXLWyouBWLVWGNWQexSgSxsj_Qul'
                          'cy4a-fN')
 
-    def test_vapid_token_is_signed_by_the_published_key(self):
+    def test_vapid_token_is_signed_by_the_published_key(self) -> None:
         from cryptography.hazmat.primitives import hashes
         from cryptography.hazmat.primitives.asymmetric import ec
         from cryptography.hazmat.primitives.asymmetric.utils import encode_dss_signature
@@ -252,7 +257,7 @@ class WebPushTests(ApiTestCase):
         der = encode_dss_signature(int.from_bytes(raw[:32], 'big'), int.from_bytes(raw[32:], 'big'))
         public.verify(der, f'{header}.{claims}'.encode(), ec.ECDSA(hashes.SHA256()))  # leve si invalide
 
-    def test_gestion_and_admins_subscribe(self):
+    def test_gestion_and_admins_subscribe(self) -> None:
         code, body = self.call('POST', '/api/push/subscription/',
                                {'user': {'matricule': 'M001', 'key': self.user.new_key}, 'subscription': self.subscription()},
                                local=False)
@@ -266,12 +271,12 @@ class WebPushTests(ApiTestCase):
                             {'user': self.badge, 'subscription': self.subscription('http://insecure/')}, local=False)
         self.assertEqual(code, 400)
 
-    def now(self, function, *args, **kwargs):
+    def now(self, function: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
         """Appel dont les notifications partent tout de suite (envoyees a la validation de la transaction)."""
         with self.captureOnCommitCallbacks(execute=True):
             return function(*args, **kwargs)
 
-    def test_server_problem_off_by_default_admins_only(self):
+    def test_server_problem_off_by_default_admins_only(self) -> None:
         from .. import notifications
         self.subscribe()
         self.assertFalse(models.PushSubscription.objects.get().server_problem)  # desactivee par defaut
@@ -280,7 +285,7 @@ class WebPushTests(ApiTestCase):
         self.assertIn('server_problem', self.admin.push_role_types())
         self.assertNotIn('server_problem', Secouristes(role='gestion').push_role_types())
 
-    def test_server_problem_throttled_then_resolved(self):
+    def test_server_problem_throttled_then_resolved(self) -> None:
         from django.core.management import call_command
 
         from .. import notifications
@@ -308,7 +313,7 @@ class WebPushTests(ApiTestCase):
         self.assertTrue(problem('sync', 'toujours'))
         self.assertIn('2 erreurs depuis le', self.messages()[-1]['body'])
 
-    def test_server_errors_in_the_log_notify(self):
+    def test_server_errors_in_the_log_notify(self) -> None:
         import logging
         self.subscribe(server_problem=True)
         # erreurs provoquees : pas de traces dans la sortie des tests, le handler server_problem reste branche
@@ -324,7 +329,7 @@ class WebPushTests(ApiTestCase):
         self.assertIn('Internal Server Error: /api/verifs/ (RuntimeError : database is locked)', message['body'])
         self.assertIn('journalctl -u qrprotec', message['body'])
 
-    def test_remote_front_reports_backup_failure(self):
+    def test_remote_front_reports_backup_failure(self) -> None:
         self.subscribe(server_problem=True)
         code, _ = self.call('POST', '/api/server-problem/', {'source': 'autre'})
         self.assertEqual(code, 400)
@@ -339,7 +344,7 @@ class WebPushTests(ApiTestCase):
         # API publique : refuse
         self.assertNotEqual(self.call('POST', '/api/server-problem/', {'source': 'sync'}, local=False)[0], 200)
 
-    def test_subscribe_status_and_unsubscribe(self):
+    def test_subscribe_status_and_unsubscribe(self) -> None:
         code, body = self.subscribe(stock_low=False, stock_empty=True)
         self.assertEqual(code, 200)
         self.assertEqual((body['subscribed'], body['stock_low'], body['stock_empty']), (True, False, True))
@@ -354,7 +359,7 @@ class WebPushTests(ApiTestCase):
         self.assertFalse(body['subscribed'])
         self.assertEqual([row['type'] for row in body['types']][:3], ['stock_low', 'stock_empty', 'pin_blocked'])
 
-    def test_test_notification(self):
+    def test_test_notification(self) -> None:
         self.subscribe()
         with self.captureOnCommitCallbacks(execute=True):
             code, _ = self.call('POST', '/api/push/test/', {'user': self.badge, 'endpoint': self.subscription()['endpoint']},
@@ -366,7 +371,7 @@ class WebPushTests(ApiTestCase):
         self.assertTrue(headers['Authorization'].startswith('vapid t='))
         self.assertEqual(self.messages()[0]['title'], 'QRProtec : test')
 
-    def test_stock_low_and_empty_once_per_crossing(self):
+    def test_stock_low_and_empty_once_per_crossing(self) -> None:
         self.subscribe()
         self.create(self.garrot, None, 1)  # garrot 1/2 : bas mais pas vide ; compresses 0/10 : vide
         with self.captureOnCommitCallbacks(execute=True):
@@ -384,7 +389,7 @@ class WebPushTests(ApiTestCase):
             self.call('POST', f'/api/lots/{self.lot.id}/add/', {'items': [garrot.iid], 'user': 'M001'})
         self.assertEqual([m['body'] for m in self.messages()], ['Stock vide : Garrot'])
 
-    def test_preferences_and_expired_subscription(self):
+    def test_preferences_and_expired_subscription(self) -> None:
         self.subscribe(stock_low=True, stock_empty=False)
         with self.captureOnCommitCallbacks(execute=True):
             self.call('GET', '/api/stock/')
@@ -400,14 +405,14 @@ class WebPushTests(ApiTestCase):
         self.assertEqual(len(self.sent), 1)
         self.assertFalse(self.webpush.PushSubscription.objects.exists())
 
-    def test_demoted_admin_receives_nothing(self):
+    def test_demoted_admin_receives_nothing(self) -> None:
         self.subscribe()
         Secouristes.objects.filter(matricule='A001').update(role='normal')
         with self.captureOnCommitCallbacks(execute=True):
             self.call('GET', '/api/stock/')
         self.assertEqual(self.sent, [])
 
-    def test_gestion_receives_only_its_types(self):
+    def test_gestion_receives_only_its_types(self) -> None:
         self.subscribe(badge_renewed=True, lot_key_renewed=True)
         Secouristes.objects.filter(matricule='A001').update(role='gestion')
         with self.captureOnCommitCallbacks(execute=True):
@@ -415,7 +420,7 @@ class WebPushTests(ApiTestCase):
             self.call('POST', f'/api/lots/{self.lot.id}/rotate-key/')
         self.assertEqual([message['title'] for message in self.messages()], ['QRProtec : étiquette de lot renouvelée'])
 
-    def test_seal_opening_notified(self):
+    def test_seal_opening_notified(self) -> None:
         self.subscribe()
         code, body = self.call('POST', f'/api/lots/{self.lot.id}/seal/', {'user': 'M001', 'force': True})
         open_code = body['seal_open_url'].split('c=')[1]
@@ -445,7 +450,7 @@ class WebPushTests(ApiTestCase):
             self.call('POST', f'/api/lots/{self.lot.id}/unseal/', {'user': 'M001'})
         self.assertEqual(self.sent, [])
 
-    def test_device_manager(self):
+    def test_device_manager(self) -> None:
         self.subscribe()
         endpoint = self.subscription()['endpoint']
         other = self.webpush.PushSubscription.objects.create(
@@ -473,7 +478,7 @@ class WebPushTests(ApiTestCase):
         code, body = self.call('POST', '/api/push/devices/', {'user': badge}, local=False)
         self.assertEqual((body['devices'], len(body['types'])), ([], 9))
 
-    def test_admin_disables_types_per_user(self):
+    def test_admin_disables_types_per_user(self) -> None:
         self.subscribe()
         code, users = self.call('GET', '/api/users/')
         row = next(user for user in users if user['matricule'] == 'A001')
@@ -494,7 +499,7 @@ class WebPushTests(ApiTestCase):
             self.call('GET', '/api/stock/')
         self.assertEqual(len(self.sent), 1)
 
-    def test_device_name(self):
+    def test_device_name(self) -> None:
         name = self.webpush.device_name
         self.assertEqual(name('Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 Chrome/129.0 Mobile Safari/537.36'),
                          'Chrome · Android')
@@ -502,7 +507,7 @@ class WebPushTests(ApiTestCase):
                               'Mobile/15E148 Safari/604.1'), 'Safari · iPhone')
         self.assertEqual(name(''), 'Navigateur')
 
-    def test_pin_blocked(self):
+    def test_pin_blocked(self) -> None:
         code, body = self.subscribe(stock_low=False, stock_empty=False)
         self.assertTrue(body['pin_blocked'])
         self.call('PATCH', '/api/users/M001/', {'pin': '123456'})
@@ -524,7 +529,7 @@ class WebPushTests(ApiTestCase):
             self.call('POST', '/api/pin-forgot/', badge, local=False)
         self.assertEqual(self.sent, [])
 
-    def test_key_renewed(self):
+    def test_key_renewed(self) -> None:
         code, body = self.subscribe()
         self.assertFalse(body['lot_key_renewed'])
         with self.captureOnCommitCallbacks(execute=True):
@@ -540,7 +545,7 @@ class WebPushTests(ApiTestCase):
 
 
 class DefaultContactTests(ApiTestCase):
-    def test_default_admin_contact(self):
+    def test_default_admin_contact(self) -> None:
         admin = Secouristes(matricule='A001', nom='Ad', prenom='Min', role='admin')
         admin.renew_key()
         admin.save()

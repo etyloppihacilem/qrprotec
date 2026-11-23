@@ -1,23 +1,30 @@
 """Tests du back : sous-lots, scelles, contenu facultatif, cache de vérif."""
 
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Any
+
 from .base import *  # noqa: F401,F403
 from .base import setUpModule, tearDownModule  # noqa: F401 (PIN facultatif pendant ces tests)
 
+if TYPE_CHECKING:
+    from inventory.models import Items
+
 
 class SealTests(ApiTestCase):
-    def fill_lot(self):
+    def fill_lot(self) -> list[Items]:
         items = self.create(self.compresses, self.today + timedelta(days=60), 2)
         self.call('POST', f'/api/lots/{self.lot.id}/verif/', {'items': [item.iid for item in items], 'user': 'M001'})
         return items
 
-    def test_seal_requires_complete_lot(self):
+    def test_seal_requires_complete_lot(self) -> None:
         code, body = self.call('POST', f'/api/lots/{self.lot.id}/seal/', {'user': 'M001'})
         self.assertEqual(code, 400)
         code, body = self.call('POST', f'/api/lots/{self.lot.id}/seal/', {'user': 'M001', 'force': True})
         self.assertEqual(code, 200)
         self.assertTrue(body['is_sealed'])
 
-    def test_seal_qr_and_break(self):
+    def test_seal_qr_and_break(self) -> None:
         self.fill_lot()
         code, body = self.call('POST', f'/api/lots/{self.lot.id}/seal/', {'user': 'M001', 'seal_number': 'S123'})
         self.assertEqual(code, 200)
@@ -40,7 +47,7 @@ class SealTests(ApiTestCase):
         self.assertEqual(public['seal_check'], 'unsealed')
         self.assertIsNotNone(public['unsealed'])
 
-    def test_open_label_opens_seal_without_login(self):
+    def test_open_label_opens_seal_without_login(self) -> None:
         self.fill_lot()
         code, body = self.call('POST', f'/api/lots/{self.lot.id}/seal/', {'user': 'M001'})
         open_code = body['seal_open_url'].split('c=')[1]
@@ -80,7 +87,7 @@ class SealTests(ApiTestCase):
         self.lot.refresh_from_db()
         self.assertTrue(self.lot.is_sealed)
 
-    def test_open_label_recommends_verif(self):
+    def test_open_label_recommends_verif(self) -> None:
         self.fill_lot()
         sub_lot = Lots(lot_type=self.lot_type, name='Sac O2', name_short='O2', created_by='test', parent=self.lot)
         sub_lot.save()
@@ -100,7 +107,7 @@ class SealTests(ApiTestCase):
         self.lot.refresh_from_db()
         self.assertFalse(self.lot.verif_recommended)
 
-    def test_seal_required_lot_stays_red_until_resealed(self):
+    def test_seal_required_lot_stays_red_until_resealed(self) -> None:
         code, body = self.call('PATCH', f'/api/lot-types/{self.lot_type.type}/', {'seal_required': True})
         self.assertEqual(code, 200)
         self.assertTrue(body['seal_required'])
@@ -125,7 +132,7 @@ class SealTests(ApiTestCase):
         code, body = self.call('POST', f'/api/lots/{self.lot.id}/seal/', {'user': 'M001'})
         self.assertEqual(ser.lot_state(body)['kind'], 'ok')
 
-    def test_open_label_on_station_uses_logged_user(self):
+    def test_open_label_on_station_uses_logged_user(self) -> None:
         self.fill_lot()
         code, body = self.call('POST', f'/api/lots/{self.lot.id}/seal/', {'user': 'M001'})
         open_code = body['seal_open_url'].split('c=')[1]
@@ -134,7 +141,7 @@ class SealTests(ApiTestCase):
         self.assertTrue(body['identified'])
         self.assertEqual(body['lot']['unsealed_by'], 'Admin Poste')
 
-    def test_adding_items_breaks_seal(self):
+    def test_adding_items_breaks_seal(self) -> None:
         self.fill_lot()
         self.call('POST', f'/api/lots/{self.lot.id}/seal/', {'user': 'M001'})
         extra = self.create(self.garrot, None, 1)[0]
@@ -142,7 +149,7 @@ class SealTests(ApiTestCase):
         self.lot.refresh_from_db()
         self.assertFalse(self.lot.is_sealed)
 
-    def test_requirement_location(self):
+    def test_requirement_location(self) -> None:
         code, body = self.call('PUT', f'/api/lot-types/{self.lot_type.type}/requirements/', {
             'requirements': [{'type': 'compre', 'quantity': 2, 'location': 'Pochette bleue'}]
         })
@@ -154,7 +161,7 @@ class SealTests(ApiTestCase):
 class SubLotCase(ApiTestCase):
     """Lot global (B+) compose de sous-lots (sac de soin, sac d'O2), et rangements du stock."""
 
-    def setUp(self):
+    def setUp(self) -> None:
         super().setUp()
         self.o2 = ItemType.objects.create(type='bouo2x', name='Bouteille O2', perissable=False)
         self.global_type = LotType.objects.create(type='bplusx', name='B+')
@@ -169,17 +176,17 @@ class SubLotCase(ApiTestCase):
         self.keys = {lot.id: lot.verif_key for lot in Lots.objects.all()}
         self.badge = {'matricule': 'M001', 'key': self.user.new_key}
 
-    def fresh(self, count=2):
+    def fresh(self, count: int = 2) -> list[str]:
         return [item.iid for item in self.create(self.compresses, self.today + timedelta(days=90), count)]
 
-    def bottle(self):
+    def bottle(self) -> str:
         return self.create(self.o2, None, 1)[0].iid
 
 
 class SubLotTests(SubLotCase):
     """Lot global (B+) compose de sous-lots (sac de soin, sac d'O2), et rangements du stock."""
 
-    def test_lots_batch(self):
+    def test_lots_batch(self) -> None:
         """Creer N lots d'un coup : noms numerotes apres l'existant, sous-lots proposes d'apres les lots deja
         crees (et les rangements du referentiel), creation tout ou rien."""
         vps_type = LotType.objects.create(type='vpsxxx', name='VPS', unique=True)
@@ -214,7 +221,7 @@ class SubLotTests(SubLotCase):
         bplus3 = Lots.objects.get(name='B+ 3')
         self.assertEqual(sorted(child.name for child in bplus3.children.all()), ['Sac O2 B+ 3', 'Sac PSE B+ 3'])
 
-    def test_rangement_needs_parent_or_spare(self):
+    def test_rangement_needs_parent_or_spare(self) -> None:
         """Un lot d'un rangement (sac de soin du B+) se range dans un lot, sauf un sac de rechange ; un sac sorti
         d'un lot (remplace, libere) devient un sac de rechange."""
         self.global_type.referentiel = True
@@ -243,7 +250,7 @@ class SubLotTests(SubLotCase):
         code, body = self.call('PATCH', f"/api/lots/{self.sac_o2['id']}/update/", {'spare': True})
         self.assertFalse(body['spare'])
 
-    def test_distribution_per_lot(self):
+    def test_distribution_per_lot(self) -> None:
         """Repartition d'un referentiel entre les sacs d'un lot global, lot par lot : les types des sacs donnent le
         defaut, ce lot met la cardio-pompe dans son sac d'O2, un autre B+ garde le defaut."""
         cardio = ItemType.objects.create(type='cardio', name='Cardio-pompe', perissable=False)
@@ -284,7 +291,7 @@ class SubLotTests(SubLotCase):
             {'lot': self.soin['id'], 'type': 'compre', 'quantity': 1}]})
         self.assertEqual(code, 400)
 
-    def test_lot_type_slots(self):
+    def test_lot_type_slots(self) -> None:
         """Lots exiges : place fixe (vide = lot incomplet, remplacement par un lot non fixe puis retour de
         l'original) et place a l'assemblage (n'importe quel lot libre, jamais un lot fixe)."""
         code, body = self.call('PUT', '/api/lot-types/bplusx/slots/', {'slots': [
@@ -341,7 +348,7 @@ class SubLotTests(SubLotCase):
         self.assertEqual(code, 200)
         self.assertIsNone(Lots.objects.get(id=self.bplus['id']).parent_id)
 
-    def test_referentiel_coverage(self):
+    def test_referentiel_coverage(self) -> None:
         """Referentiel : liste obligatoire sans emplacements, repartie entre des rangements (les sacs) ; le lot du
         referentiel n'attend rien lui-meme, la couverture compare la somme de ses sacs a la liste."""
         code, body = self.call('GET', '/api/lot-types/saco2x/')
@@ -402,7 +409,7 @@ class SubLotTests(SubLotCase):
         code, body = self.call('PATCH', '/api/lot-types/sacpse/', {'part_of': ''})
         self.assertEqual(body['part_of'], '')
 
-    def test_tree_and_global_state(self):
+    def test_tree_and_global_state(self) -> None:
         code, lot = self.call('GET', f"/api/lots/{self.sac_o2['id']}/", local=False)
         self.assertEqual(lot['parent'], self.bplus['id'])
         self.assertEqual(lot['path'], [{'id': self.bplus['id'], 'name': 'B+ 1', 'hidden': False}])
@@ -428,7 +435,7 @@ class SubLotTests(SubLotCase):
         self.assertEqual([row['depth'] for row in lots if row['root'] == self.bplus['id']], [0, 1, 1])
         self.assertTrue(all(row['global']['kind'] == 'ok' for row in lots if row['root'] == self.bplus['id']))
 
-    def test_lots_to_handle_first(self):
+    def test_lots_to_handle_first(self) -> None:
         # seul le sac de soin est verifie : le sac O2 (jamais verifie) passe devant lui dans l'arborescence du B+
         self.call('POST', f"/api/lots/{self.soin['id']}/verif/", {'items': self.fresh(), 'user': 'M001'})
         code, lot = self.call('GET', f"/api/lots/{self.soin['id']}/", local=False)
@@ -445,7 +452,7 @@ class SubLotTests(SubLotCase):
         self.assertEqual([row['name'] for row in sorted(lots, key=lambda row: row['attention_order'])
                           if not row['storage']], names)
 
-    def test_custom_lot_order(self):
+    def test_custom_lot_order(self) -> None:
         """Ordre choisi (ecran « Ordre des lots ») : departage les lots de meme couleur, apres rouge > orange > vert,
         a chaque niveau (lots globaux entre eux, sous-lots d'un lot entre eux)."""
         names = lambda lots: [row['name'] for row in lots if not row['storage']]
@@ -485,7 +492,7 @@ class SubLotTests(SubLotCase):
         code, _ = self.call('POST', '/api/lots/order/', {'user': self.badge, 'lots': [self.bplus['id']]}, local=False)
         self.assertEqual(code, 403)
 
-    def test_global_verif_covers_sub_lots(self):
+    def test_global_verif_covers_sub_lots(self) -> None:
         bottle = self.bottle()
         code, report = self.call('POST', f"/api/lots/{self.bplus['id']}/verif/",
                                  {'items': self.fresh() + [bottle], 'key': self.keys[self.bplus['id']], 'user': self.badge},
@@ -497,7 +504,7 @@ class SubLotTests(SubLotCase):
         self.assertEqual({row['id'] for row in report['lots'] if row['verified']},
                          {self.bplus['id'], self.soin['id'], self.sac_o2['id']})
 
-    def test_two_private_labels_add_up(self):
+    def test_two_private_labels_add_up(self) -> None:
         bottle = self.bottle()
         payload = {'lots': [{'id': self.soin['id'], 'key': self.keys[self.soin['id']]},
                             {'id': self.sac_o2['id'], 'key': self.keys[self.sac_o2['id']]}],
@@ -530,7 +537,7 @@ class SubLotTests(SubLotCase):
         code, body = self.call('POST', '/api/verifs/', payload, local=False)
         self.assertEqual(code, 403)
 
-    def test_sealed_sub_lot_scanned_counts_as_verified(self):
+    def test_sealed_sub_lot_scanned_counts_as_verified(self) -> None:
         # sac O2 rempli et scelle
         self.call('POST', f"/api/lots/{self.sac_o2['id']}/verif/", {'items': [self.bottle()], 'user': 'M001'})
         code, sealed = self.call('POST', f"/api/lots/{self.sac_o2['id']}/seal/", {'user': 'M001'})
@@ -557,7 +564,7 @@ class SubLotTests(SubLotCase):
         code, body = self.call('POST', '/api/verifs/', payload, local=False)
         self.assertEqual(code, 400)
 
-    def test_verif_of_a_sealed_lot_by_its_seal_label(self):
+    def test_verif_of_a_sealed_lot_by_its_seal_label(self) -> None:
         """Vérif lancee sur le lot scelle lui-meme : l'etiquette du scelle seule suffit, sans rien scanner dedans."""
         self.call('POST', f"/api/lots/{self.sac_o2['id']}/verif/", {'items': [self.bottle()], 'user': 'M001'})
         code, sealed = self.call('POST', f"/api/lots/{self.sac_o2['id']}/seal/", {'user': 'M001'})
@@ -572,7 +579,7 @@ class SubLotTests(SubLotCase):
             self.assertEqual(report['sealed_lots'], ['Sac O2'])
             self.assertTrue(Lots.objects.get(id=self.sac_o2['id']).is_sealed)  # scelle garde
 
-    def test_badge_verif_with_a_sub_lot_label(self):
+    def test_badge_verif_with_a_sub_lot_label(self) -> None:
         """Avec un badge, l'etiquette d'un seul sous-lot (ou du lot qui le contient) suffit, pas celle d'un autre lot
         du meme lot global."""
         payload = {'lots': [{'id': self.bplus['id']}], 'items': self.fresh() + [self.bottle()], 'user': self.badge}
@@ -588,7 +595,7 @@ class SubLotTests(SubLotCase):
         code, body = self.call('POST', '/api/verifs/', dict(payload, labels=[self.bplus['id']]), local=False)
         self.assertEqual(code, 200, body)
 
-    def test_cascade_steps(self):
+    def test_cascade_steps(self) -> None:
         """Vérif en cascade du B+ : chaque sac est valide a part, avec la cle du B+ scannee au debut."""
         bplus_key = [{'id': self.bplus['id'], 'key': self.keys[self.bplus['id']]}]
         bottle = self.bottle()
@@ -624,7 +631,7 @@ class SubLotTests(SubLotCase):
                                                          'exclude': [self.sac_o2['id']]}, local=False)
         self.assertEqual(code, 400)
 
-    def test_debug_codes_reference_lot_has_no_label(self):
+    def test_debug_codes_reference_lot_has_no_label(self) -> None:
         """Outil de debug des codes : un lot de referentiel (B+, agregat de sacs) n'a ni etiquette publique ni cle ;
         un lot cache dans la cascade est signale pour que la suite de la vérif le saute."""
         from .. import debug_codes
@@ -636,7 +643,7 @@ class SubLotTests(SubLotCase):
         self.assertFalse(rows[self.soin['id']]['virtual'])
         self.assertEqual([code['kind'] for code in rows[self.soin['id']]['codes']], ['public', 'key'])
 
-    def test_unplaced_referentiel_line(self):
+    def test_unplaced_referentiel_line(self) -> None:
         """Ligne du referentiel dans aucun sac : le B+ est rouge (et son lot global), meme si ses sacs sont valides,
         et il reste affiche meme cache ; placee dans un sac par la repartition, le B+ redevient complet."""
         cardio = ItemType.objects.create(type='cardio', name='Cardio-pompe', perissable=False)
@@ -659,7 +666,7 @@ class SubLotTests(SubLotCase):
         self.assertEqual(lot['unplaced'], [])
         self.assertNotEqual(lot['state']['code'], 'unplaced')
 
-    def test_hidden_lot_in_cascade(self):
+    def test_hidden_lot_in_cascade(self) -> None:
         """B+ du VPS cache dans la vérif en cascade : ses sacs remontent dans le VPS (descendants 'hidden'), le B+
         (referentiel, sans etiquette) est valide par ses sacs, jamais par une etape a lui."""
         vps_type = LotType.objects.create(type='vpsxxx', name='VPS', unique=True)
@@ -703,7 +710,7 @@ class SubLotTests(SubLotCase):
         self.assertNotIn(self.bplus['id'], [row['id'] for row in report['lots']])
         self.assertEqual(Lots.objects.get(id=self.bplus['id']).last_verif, stamp)
 
-    def test_cascade_item_counted_where_found(self):
+    def test_cascade_item_counted_where_found(self) -> None:
         """Vérif en cascade : un item range dans un sous-lot, scanne pendant qu'on etait dans un autre, y est deplace."""
         content = self.fresh()
         self.call('POST', f"/api/lots/{self.soin['id']}/verif/", {'items': content, 'user': 'M001'})
@@ -722,12 +729,12 @@ class SubLotTests(SubLotCase):
         self.assertEqual(code, 200, report)
         self.assertEqual(Items.objects.get(iid=content[0]).location_id, self.sac_o2['id'])
 
-    def test_lots_must_share_global_lot(self):
+    def test_lots_must_share_global_lot(self) -> None:
         payload = {'lots': [{'id': self.soin['id']}, {'id': self.lot.id}], 'items': [], 'user': 'M001'}
         code, body = self.call('POST', '/api/verifs/', payload)
         self.assertEqual(code, 400)
 
-    def test_partial_verif_only_complete_lots(self):
+    def test_partial_verif_only_complete_lots(self) -> None:
         # contenu actuel : sac de soin rempli
         self.call('POST', f"/api/lots/{self.soin['id']}/verif/", {'items': self.fresh(), 'user': 'M001'})
         before = Lots.objects.get(id=self.soin['id']).last_verif
@@ -749,7 +756,7 @@ class SubLotTests(SubLotCase):
         self.assertEqual(Items.objects.get(iid=extra[0]).location_id, self.soin['id'])
         self.assertIsNotNone(Lots.objects.get(id=self.sac_o2['id']).last_verif)
 
-    def test_parent_rules(self):
+    def test_parent_rules(self) -> None:
         code, body = self.call('PATCH', f"/api/lots/{self.bplus['id']}/update/", {'parent': self.soin['id']})
         self.assertEqual(code, 400)  # boucle
         code, body = self.call('PATCH', f"/api/lots/{self.bplus['id']}/update/", {'active': False})
@@ -759,7 +766,7 @@ class SubLotTests(SubLotCase):
         self.assertIsNone(body['parent'])
         self.assertIsNone(body['global'])  # lot independant : pas de lot global
 
-    def test_sealed_global_lot(self):
+    def test_sealed_global_lot(self) -> None:
         bottle = self.bottle()
         self.call('POST', f"/api/lots/{self.bplus['id']}/verif/", {'items': self.fresh() + [bottle], 'user': 'M001'})
         code, body = self.call('POST', f"/api/lots/{self.bplus['id']}/seal/", {'user': 'M001'})
@@ -771,13 +778,13 @@ class SubLotTests(SubLotCase):
         self.assertTrue(report['unsealed'])
         self.assertFalse(Lots.objects.get(id=self.bplus['id']).is_sealed)
 
-    def test_seal_requires_complete_sub_lots(self):
+    def test_seal_requires_complete_sub_lots(self) -> None:
         self.call('POST', f"/api/lots/{self.soin['id']}/verif/", {'items': self.fresh(), 'user': 'M001'})
         code, body = self.call('POST', f"/api/lots/{self.bplus['id']}/seal/", {'user': 'M001'})
         self.assertEqual(code, 400)
         self.assertIn('Sac O2', body['error'])
 
-    def test_storage_counts_as_stock(self):
+    def test_storage_counts_as_stock(self) -> None:
         # un rangement est un lot unique : chaque armoire, chaque tiroir a son type, cree avec son lot
         code, body = self.call('POST', '/api/lot-types/', {'type': 'armoi1', 'name': 'Armoire 1', 'storage': True})
         self.assertEqual(code, 201)
@@ -810,7 +817,7 @@ class SubLotTests(SubLotCase):
         self.call('POST', f"/api/lots/{tiroir['id']}/add/", {'items': loose, 'user': 'M001'})
         self.assertFalse(Lots.objects.get(id=tiroir['id']).verif_recommended)
 
-    def test_storage_hierarchy_and_kind(self):
+    def test_storage_hierarchy_and_kind(self) -> None:
         # piece > armoire > tiroir, chacun avec son genre (« rangement » par defaut)
         code, body = self.call('POST', '/api/lot-types/', {'type': 'piece1', 'name': 'La TECH', 'storage': True,
                                                            'storage_kind': '  pièce '})
@@ -838,7 +845,7 @@ class SubLotTests(SubLotCase):
         kinds = {row['name']: row['storage_kind'] for row in body['global']['lots']}
         self.assertEqual(kinds['Armoire 1'], 'armoire')
 
-    def test_storage_is_unique_without_requirements_nor_expiry(self):
+    def test_storage_is_unique_without_requirements_nor_expiry(self) -> None:
         code, body = self.call('POST', '/api/lot-types/', {'type': 'armoi1', 'name': 'Armoire 1', 'storage': True})
         self.assertTrue(body['unique'])
         armoire = Lots.objects.get(id=body['lot'])
@@ -861,7 +868,7 @@ class SubLotTests(SubLotCase):
         report = notifications.check_key_expirations(self.today + timedelta(days=10000))
         self.assertNotIn(armoire.name, ' '.join(report['lot_key_expiring']))
 
-    def test_type_becomes_storage(self):
+    def test_type_becomes_storage(self) -> None:
         trousse_type = LotType.objects.create(type='trousx', name='Trousse')
         LotRequirements.objects.create(lot_type=trousse_type, item_type=self.compresses, quantity=2)
         self.call('POST', '/api/lots/', {'lot_type': 'trousx', 'name': 'Trousse 1'})
@@ -883,7 +890,7 @@ class SubLotTests(SubLotCase):
         self.assertIsNotNone(trousse.verif_key_expires)
         self.assertIsNone(trousse.parent)
 
-    def test_stock_groups_storage_lots(self):
+    def test_stock_groups_storage_lots(self) -> None:
         """Tous les rangements sont dans le stock (lot global, existe toujours) : on les verifie a la suite."""
         stock = Lots.stock()
         self.assertEqual(Lots.objects.filter(lot_type_id=STOCK_LOT_TYPE).count(), 1)
@@ -932,20 +939,20 @@ class OptionalContentTests(ApiTestCase):
     """Materiel facultatif a la verif (casques du VPS) : le lot se valide sans, mais on peut le scanner pour savoir ou
     il est ; non scanne, il reste ou il etait. Seulement du non consommable sans taches."""
 
-    def setUp(self):
+    def setUp(self) -> None:
         super().setUp()
         self.casque = ItemType.objects.create(type='casque', name='Casque', consumable=False)
         self.vps_type = LotType.objects.create(type='vpsxxx', name='VPS')
         code, self.vps = self.call('POST', '/api/lots/', {'lot_type': 'vpsxxx', 'name': 'VPS 1', 'user': 'M001'})
         self.assertEqual(code, 201)
 
-    def fresh(self, count=2):
+    def fresh(self, count: int = 2) -> list[str]:
         return [item.iid for item in self.create(self.compresses, self.today + timedelta(days=90), count)]
 
-    def set_requirements(self, rows):
+    def set_requirements(self, rows: list[dict[str, Any]]) -> tuple[int, dict[str, str]]:
         return self.call('PUT', '/api/lot-types/vpsxxx/requirements/', {'requirements': rows})
 
-    def test_only_non_consumable_without_tasks(self):
+    def test_only_non_consumable_without_tasks(self) -> None:
         code, body = self.set_requirements([{'type': 'compre', 'quantity': 2, 'optional': True}])
         self.assertEqual(code, 400)
         self.assertIn('ne peut pas être facultatif', body['error'] if 'error' in body else str(body))
@@ -964,7 +971,7 @@ class OptionalContentTests(ApiTestCase):
         code, lot = self.call('GET', f"/api/lots/{self.vps['id']}/")
         self.assertEqual((lot['requirements'][0]['optional'], lot['requirements'][0]['required']), (False, 4))
 
-    def test_lot_valid_without_optional_and_items_stay(self):
+    def test_lot_valid_without_optional_and_items_stay(self) -> None:
         self.set_requirements([{'type': 'compre', 'quantity': 2}, {'type': 'casque', 'quantity': 2, 'optional': True}])
         casques = [item.iid for item in self.create(self.casque, None, 2)]
         Items.objects.filter(iid__in=casques).update(location_id=self.vps['id'])
@@ -989,7 +996,7 @@ class OptionalContentTests(ApiTestCase):
         code, report = self.call('POST', f"/api/lots/{self.lot.id}/verif/", {'items': self.fresh(), 'user': 'M001'})
         self.assertEqual(report['loose'], [casques[0]])
 
-    def test_partial_verif_not_held_by_optional(self):
+    def test_partial_verif_not_held_by_optional(self) -> None:
         self.set_requirements([{'type': 'compre', 'quantity': 2}, {'type': 'casque', 'quantity': 2, 'optional': True}])
         casque = self.create(self.casque, None, 1)[0].iid
         Items.objects.filter(iid=casque).update(location_id=self.vps['id'])
@@ -997,7 +1004,7 @@ class OptionalContentTests(ApiTestCase):
         self.assertEqual([row['verified'] for row in verif['lots']], [True])
         self.assertEqual(Items.objects.get(iid=casque).location_id, self.vps['id'])
 
-    def test_optional_sub_lot(self):
+    def test_optional_sub_lot(self) -> None:
         rack_type = LotType.objects.create(type='rackxx', name='Râtelier casques')
         LotRequirements.objects.create(lot_type=rack_type, item_type=self.casque, quantity=4)
         code, rack = self.call('POST', '/api/lots/', {'lot_type': 'rackxx', 'name': 'Casques', 'user': 'M001'})
@@ -1024,7 +1031,7 @@ class OptionalContentTests(ApiTestCase):
         self.assertEqual(report['loose'], [])
         self.assertEqual(set(Items.objects.filter(iid__in=casques).values_list('location_id', flat=True)), {rack['id']})
 
-    def test_whole_sub_lot_optional_even_consumables(self):
+    def test_whole_sub_lot_optional_even_consumables(self) -> None:
         code, sac = self.call('POST', '/api/lots/', {'lot_type': 'sacpse', 'name': 'Sac de réserve',
                                                      'parent': self.vps['id'], 'user': 'M001'})
         code, sac = self.call('PATCH', f"/api/lots/{sac['id']}/update/", {'optional': True})
@@ -1037,7 +1044,7 @@ class OptionalContentTests(ApiTestCase):
         self.assertEqual(report['missing'], [])
         self.assertEqual(set(Items.objects.filter(iid__in=compresses).values_list('location_id', flat=True)), {sac['id']})
 
-    def test_full_verif_makes_everything_required(self):
+    def test_full_verif_makes_everything_required(self) -> None:
         self.set_requirements([{'type': 'compre', 'quantity': 2}, {'type': 'casque', 'quantity': 2, 'optional': True}])
         casques = [item.iid for item in self.create(self.casque, None, 2)]
         Items.objects.filter(iid__in=casques).update(location_id=self.vps['id'])
@@ -1053,23 +1060,23 @@ class OptionalContentTests(ApiTestCase):
 class VerifCacheTests(SubLotCase):
     """Cache de vérif des fronts (verif_cache) : tout charge au debut de la vérif, puis seulement ce qui a change."""
 
-    def setUp(self):
+    def setUp(self) -> None:
         super().setUp()  # lot global B+ avec un sac de soin et un sac O2
         from .. import verif_cache
         self.cache = verif_cache
         verif_cache.forget()
 
-    def load(self, known=None, local=False):
+    def load(self, known: dict[str, str] | None = None, local: bool = False) -> dict[str, Any]:
         self.cache.forget()
         code, body = self.call('POST', '/api/verifs/cache/', {'buckets': known or {}}, local=local)
         self.assertEqual(code, 200)
         return body
 
     @staticmethod
-    def records(body):
+    def records(body: dict[str, Any]) -> dict[str, Any]:
         return {key: value for bucket in body['buckets'].values() for key, value in bucket['records'].items()}
 
-    def test_full_then_only_changes(self):
+    def test_full_then_only_changes(self) -> None:
         soin = Lots.objects.get(id=self.soin['id'])
         iids = self.fresh(2)
         services.perform_verif(soin, iids, 'M:M001')
@@ -1102,7 +1109,7 @@ class VerifCacheTests(SubLotCase):
         self.assertTrue(item['reported'])
         self.assertTrue(item['unusable'])
 
-    def test_badge_checked_and_full_names_on_poste(self):
+    def test_badge_checked_and_full_names_on_poste(self) -> None:
         code, _ = self.call('POST', '/api/verifs/cache/', {'user': {'matricule': 'M001', 'key': 'faux'}}, local=False)
         self.assertNotEqual(code, 200)
         code, body = self.call('POST', '/api/verifs/cache/', {'user': self.badge}, local=False)

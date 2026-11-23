@@ -2,12 +2,15 @@
 creation, connexion, refus (signature, domaine, origine, defi rejoue, compteur), nom + PIN coupes, carte gardee, QR
 code de connexion au poste depuis une session passkey, suppression par un admin."""
 
+from __future__ import annotations
+
 import hashlib
 import json
 import struct
 import time
 from unittest import mock
 from urllib.parse import parse_qs, urlparse
+from typing import Any
 
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.asymmetric import ec
@@ -22,9 +25,9 @@ from .base import ApiTestCase, quiet_stderr
 ORIGIN = 'https://example.com'  # PUBLIC_BASE_URL des tests
 
 
-def cbor(value):
+def cbor(value: Any) -> bytes:
     """Encodeur CBOR minimal (entiers, octets, texte, listes, maps) pour fabriquer les reponses."""
-    def head(major, argument):
+    def head(major: int, argument: int) -> bytes:
         if argument < 24:
             return bytes([major << 5 | argument])
         for info, size in ((24, 1), (25, 2), (26, 4), (27, 8)):
@@ -51,27 +54,27 @@ def cbor(value):
 class FakeAuthenticator:
     """Telephone qui cree et utilise une passkey (attestation « none », comme demande par le serveur)."""
 
-    def __init__(self, rp='example.com', origin=ORIGIN):
+    def __init__(self, rp: str = 'example.com', origin: str = ORIGIN) -> None:
         self.rp, self.origin = rp, origin
         self.key = ec.generate_private_key(ec.SECP256R1())
         self.credential_id = b'cred-' + bytes(range(27))
         self.count = 0
         self.user_handle = b''
 
-    def cose(self):
+    def cose(self) -> bytes:
         numbers = self.key.public_key().public_numbers()
         return cbor({1: 2, 3: -7, -1: 1, -2: numbers.x.to_bytes(32, 'big'), -3: numbers.y.to_bytes(32, 'big')})
 
-    def auth_data(self, flags, credential=False):
+    def auth_data(self, flags: int, credential: bool = False) -> bytes:
         data = hashlib.sha256(self.rp.encode()).digest() + bytes([flags]) + struct.pack('>I', self.count)
         if credential:
             data += bytes(16) + struct.pack('>H', len(self.credential_id)) + self.credential_id + self.cose()
         return data
 
-    def client_data(self, kind, challenge, origin=None):
+    def client_data(self, kind: str, challenge: str, origin: str | None = None) -> bytes:
         return json.dumps({'type': kind, 'challenge': challenge, 'origin': origin or self.origin}).encode()
 
-    def create(self, options, flags=0x45, origin=None):
+    def create(self, options: dict[str, Any], flags: int = 0x45, origin: str | None = None) -> dict[str, Any]:
         self.user_handle = webauthn.b64decode(options['user']['id'])
         client = self.client_data('webauthn.create', options['challenge'], origin)
         attestation = cbor({'fmt': 'none', 'attStmt': {}, 'authData': self.auth_data(flags, credential=True)})
@@ -79,7 +82,8 @@ class FakeAuthenticator:
                 'response': {'clientDataJSON': webauthn.b64encode(client),
                              'attestationObject': webauthn.b64encode(attestation), 'transports': ['internal']}}
 
-    def get(self, options, flags=0x05, origin=None, count_step=1, tamper=False):
+    def get(self, options: dict[str, Any], flags: int = 0x05, origin: str | None = None, count_step: int = 1,
+            tamper: bool = False) -> dict[str, Any]:
         self.count += count_step
         client = self.client_data('webauthn.get', options['challenge'], origin)
         auth = self.auth_data(flags)
@@ -95,17 +99,17 @@ class FakeAuthenticator:
 
 class PasskeyTests(ApiTestCase):
 
-    def setUp(self):
+    def setUp(self) -> None:
         super().setUp()
         cache.clear()  # essais de connexion comptes par adresse (limite de 10)
         self.user.set_pin('432100')
         self.user.save()
         self.phone = FakeAuthenticator()
 
-    def card(self):
+    def card(self) -> dict[str, str]:
         return {'matricule': 'M001', 'key': self.user.new_key, 'session': views.session_token(self.user)}
 
-    def register(self, phone=None, **kwargs):
+    def register(self, phone: FakeAuthenticator | None = None, **kwargs: Any) -> tuple[int, Any]:
         phone = phone or self.phone
         code, body = self.call('POST', '/api/me/passkeys/', {'user': self.card(), 'action': 'options'}, local=False)
         self.assertEqual(code, 200, body)
@@ -117,7 +121,7 @@ class PasskeyTests(ApiTestCase):
         return self.call('POST', '/api/me/passkeys/', {'user': self.card(), 'action': 'create',
                                                        'credential': credential}, local=False)
 
-    def login(self, phone=None, **kwargs):
+    def login(self, phone: str | None = None, **kwargs: Any) -> tuple[int, dict[str, Any]]:
         phone = phone or self.phone
         code, body = self.call('POST', '/api/auth/passkey/options/', {}, local=False)
         self.assertEqual(code, 200)
@@ -125,10 +129,10 @@ class PasskeyTests(ApiTestCase):
         return self.call('POST', '/api/auth/passkey/', {'credential': phone.get(body['publicKey'], **kwargs)},
                          local=False)
 
-    def name_login(self):
+    def name_login(self) -> tuple[int, dict[str, Any]]:
         return self.call('POST', '/api/auth/name/', {'nom': 'Dupont', 'prenom': 'Jeanne', 'pin': '432100'}, local=False)
 
-    def test_register_then_login(self):
+    def test_register_then_login(self) -> None:
         code, body = self.register()
         self.assertEqual(code, 200, body)
         self.assertEqual(len(body['passkeys']), 1)
@@ -146,7 +150,7 @@ class PasskeyTests(ApiTestCase):
                                                        'web_prefs': {'scan_bubble': True}}, local=False)
         self.assertEqual(code, 200)
 
-    def test_passkey_disables_name_login_but_not_the_card(self):
+    def test_passkey_disables_name_login_but_not_the_card(self) -> None:
         code, _ = self.name_login()
         self.assertEqual(code, 200)
         self.register()
@@ -183,7 +187,7 @@ class PasskeyTests(ApiTestCase):
         code, _ = self.name_login()
         self.assertEqual(code, 200)
 
-    def test_refusals(self):
+    def test_refusals(self) -> None:
         with quiet_stderr():
             # utilisateur non verifie (pas d'empreinte ni de code)
             code, _ = self.register(flags=0x41)
@@ -223,14 +227,14 @@ class PasskeyTests(ApiTestCase):
             self.user.save()
             self.assertEqual(self.login()[0], 403)
 
-    def test_unknown_passkey(self):
+    def test_unknown_passkey(self) -> None:
         with quiet_stderr():
             code, body = self.login()
         self.assertEqual(code, 403)
         self.assertTrue(body['passkey_unknown'])
 
     @override_settings(DEBUG=True)
-    def test_localhost_in_development(self):
+    def test_localhost_in_development(self) -> None:
         phone = FakeAuthenticator(rp='localhost', origin='http://localhost:8000')
         _, body = self.call('POST', '/api/me/passkeys/', {'user': self.card(), 'action': 'options'}, local=False)
         self.assertEqual(body['publicKey']['rp']['id'], 'example.com')  # hote testserver : domaine configure
@@ -242,7 +246,7 @@ class PasskeyTests(ApiTestCase):
                                     content_type='application/json', HTTP_HOST='localhost:8000')
         self.assertEqual(response.status_code, 200, response.content)
 
-    def test_poste_login_qr_only_from_a_passkey_session(self):
+    def test_poste_login_qr_only_from_a_passkey_session(self) -> None:
         self.register()
         # session par la carte : pas de QR code
         code, _ = self.call('POST', '/api/me/poste-login/', {'user': self.card()}, local=False)
@@ -271,7 +275,7 @@ class PasskeyTests(ApiTestCase):
         code, _ = self.call('POST', '/api/auth/temp/', {'matricule': 'M001', 'token': token}, session=False)
         self.assertEqual(code, 403)
 
-    def test_admin_deletes_passkeys(self):
+    def test_admin_deletes_passkeys(self) -> None:
         self.register()
         admin = {'matricule': 'P001', 'key': self.operator.new_key, 'session': self.operator_session}
         code, _ = self.call('POST', '/api/debug/passkeys/', {'user': self.card(), 'matricule': 'M001'}, local=False)
@@ -292,7 +296,7 @@ class PasskeyTests(ApiTestCase):
         self.assertEqual(code, 200)
         self.assertEqual(row['passkeys'], 0)
 
-    def test_first_login_passkey_before_pin(self):
+    def test_first_login_passkey_before_pin(self) -> None:
         """Premiere connexion au web : passkey creee avec la carte seule tant que le code obligatoire n'est pas
         choisi, puis le code (Hippolyte, 2026-11-21)."""
         self.user.pin_hash = ''
@@ -324,7 +328,7 @@ class PasskeyTests(ApiTestCase):
         code, _ = self.call('POST', '/api/me/passkeys/', {'user': card, 'action': 'options'}, local=False)
         self.assertEqual(code, 403)
 
-    def test_first_login_passkey_offer_once(self):
+    def test_first_login_passkey_offer_once(self) -> None:
         self.user.pin_hash = ''
         self.user.set_pin_mode('required')
         self.user.web_prefs = {'passkey_offered': True}
@@ -336,7 +340,7 @@ class PasskeyTests(ApiTestCase):
 
 class CborTests(ApiTestCase):
 
-    def test_decoder(self):
+    def test_decoder(self) -> None:
         value = {1: -7, 'a': [b'\x01', 'é', True, None], -3: 2 ** 40}
         self.assertEqual(webauthn.cbor_loads(cbor(value)), value)
         with self.assertRaises(webauthn.PasskeyError):

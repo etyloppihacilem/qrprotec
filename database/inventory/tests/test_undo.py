@@ -1,13 +1,20 @@
 """Tests du back : annulation des operations du journal (undo.py)."""
 
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
 from .base import *  # noqa: F401,F403
 from .base import setUpModule, tearDownModule  # noqa: F401 (PIN facultatif pendant ces tests)
 from ..models import OperationChange, ProblemReport
 
+if TYPE_CHECKING:
+    from inventory.models import Operation
+
 
 @override_settings(QRPROTEC={**settings.QRPROTEC, 'NOTIFY_SYNC': True})
 class UndoTests(ApiTestCase):
-    def setUp(self):
+    def setUp(self) -> None:
         super().setUp()
         from .. import webpush
         original = webpush.notify_event
@@ -17,18 +24,18 @@ class UndoTests(ApiTestCase):
         self.items = self.create(self.compresses, self.today + timedelta(days=60), 3)
         Items.objects.filter(iid__in=[item.iid for item in self.items]).update(location=self.lot)
 
-    def last(self, kind):
+    def last(self, kind: str) -> Operation:
         return Operation.objects.filter(kind=kind).latest('id')
 
-    def cancel(self, operation, reason='Erreur de saisie', **kwargs):
+    def cancel(self, operation: Operation, reason: str = 'Erreur de saisie', **kwargs: Any) -> tuple[int, Any]:
         return self.call('POST', f'/api/operations/{operation.id}/cancel/', {'reason': reason}, **kwargs)
 
-    def verif(self, iids):
+    def verif(self, iids: list[str]) -> dict[str, Any]:
         code, report = self.call('POST', f'/api/lots/{self.lot.id}/verif/', {'items': iids})
         self.assertEqual(code, 200, report)
         return report
 
-    def test_mark_used_cancelled_then_restored(self):
+    def test_mark_used_cancelled_then_restored(self) -> None:
         code, _ = self.call('POST', f'/api/lots/{self.lot.id}/used/', {'user': self.badge}, local=False)
         self.assertEqual(code, 200)
         self.lot.refresh_from_db()
@@ -77,7 +84,7 @@ class UndoTests(ApiTestCase):
         self.lot.refresh_from_db()
         self.assertFalse(self.lot.verif_recommended)
 
-    def test_verif_cancelled_restores_lot_and_items(self):
+    def test_verif_cancelled_restores_lot_and_items(self) -> None:
         self.call('POST', f'/api/lots/{self.lot.id}/used/', {'user': self.badge}, local=False)
         missing = self.items[2]
         report = self.verif([item.iid for item in self.items[:2]])
@@ -97,7 +104,7 @@ class UndoTests(ApiTestCase):
         item = Items.objects.get(iid=missing.iid)
         self.assertEqual((item.missed_verifs, item.location_id), (0, self.lot.id))
 
-    def test_verif_with_restock_cancelled(self):
+    def test_verif_with_restock_cancelled(self) -> None:
         fresh = self.create(self.compresses, self.today + timedelta(days=90), 1)[0]  # en stock
         self.verif([self.items[0].iid, self.items[1].iid, fresh.iid])
         self.assertEqual(Items.objects.get(iid=fresh.iid).location_id, self.lot.id)
@@ -106,7 +113,7 @@ class UndoTests(ApiTestCase):
         self.assertIsNone(Items.objects.get(iid=fresh.iid).location_id)  # rendu au stock
         self.assertTrue(all(op.cancelled_by_id for op in Operation.objects.exclude(kind='cancel')))
 
-    def test_later_verif_kept(self):
+    def test_later_verif_kept(self) -> None:
         self.verif([item.iid for item in self.items[:2]])
         first = self.last('verif')
         report = self.verif([item.iid for item in self.items])
@@ -120,7 +127,7 @@ class UndoTests(ApiTestCase):
         self.assertEqual(Items.objects.get(iid=self.items[2].iid).missed_verifs, 0)
         self.assertIsNone(self.last('verif').cancelled_by_id)
 
-    def test_report_cancel_takes_replies(self):
+    def test_report_cancel_takes_replies(self) -> None:
         code, body = self.call('POST', '/api/reports/', {'user': self.badge, 'item': self.items[0].iid,
                                                           'usable': False, 'comment': 'Déchiré'}, local=False)
         self.assertEqual(code, 201, body)
@@ -150,7 +157,7 @@ class UndoTests(ApiTestCase):
         self.assertEqual((report.status, report.note), ('progress', 'Commandé'))
         self.assertTrue(Items.objects.get(iid=self.items[0].iid).unusable)
 
-    def test_rules(self):
+    def test_rules(self) -> None:
         self.call('POST', f'/api/lots/{self.lot.id}/used/', {'user': self.badge}, local=False)
         used = self.last('lot_used')
         code, _ = self.cancel(used, '  ')
@@ -176,14 +183,14 @@ class UndoTests(ApiTestCase):
 class GuestActivationUndoTests(ApiTestCase):
     """Annuler l'activation d'une carte d'invite annule tout ce que l'invite a fait ensuite, jusqu'a la reactivation."""
 
-    def setUp(self):
+    def setUp(self) -> None:
         super().setUp()
         from .. import webpush
         original = webpush.notify_event
         webpush.notify_event = lambda *args, **kwargs: 1
         self.addCleanup(setattr, webpush, 'notify_event', original)
 
-    def test_cancel_activation_cancels_guest_actions(self):
+    def test_cancel_activation_cancels_guest_actions(self) -> None:
         from urllib.parse import parse_qs, urlparse
         code, body = self.call('POST', '/api/users/guests/', {'count': 1})
         query = parse_qs(urlparse(body['cards'][0]['badge_url']).query)

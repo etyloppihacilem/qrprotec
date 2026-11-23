@@ -19,7 +19,10 @@ Utile a la premiere installation ou si tous les badges administrateur sont perdu
 propose aussi de creer le premier administrateur quand il n'y en a aucun.
 """
 
+from __future__ import annotations
+
 import sys
+from typing import TYPE_CHECKING, Any
 
 from django.core.management.base import BaseCommand, CommandError
 
@@ -27,11 +30,14 @@ from inventory.models import Role, Secouristes
 from inventory.serializers import user_dict
 from inventory.views import MATRICULE_RE
 
+if TYPE_CHECKING:
+    from django.core.management.base import CommandParser
+
 
 class Command(BaseCommand):
     help = "Cree un administrateur (mode privilegie complet) et affiche l'URL de son badge."
 
-    def add_arguments(self, parser):
+    def add_arguments(self, parser: CommandParser) -> None:
         parser.add_argument('matricule')
         parser.add_argument('nom', nargs='?')
         parser.add_argument('prenom', nargs='?')
@@ -40,7 +46,8 @@ class Command(BaseCommand):
                             help="Lit le PIN sur l'entree standard (une ligne) : il n'apparait pas dans la liste des "
                                  "processus, contrairement a --pin")
 
-    def handle(self, matricule, nom=None, prenom=None, pin=None, **options):
+    def handle(self, matricule: str, nom: str | None = None, prenom: str | None = None, pin: str | None = None,
+               **options: Any) -> None:
         if options.get('pin_stdin'):
             if pin:
                 raise CommandError("--pin et --pin-stdin ne vont pas ensemble")

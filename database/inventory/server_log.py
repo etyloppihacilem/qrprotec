@@ -12,6 +12,8 @@
 serveur » (notifications.server_problem). Module sans import de l'appli au chargement : le journal est configure
 avant que Django ait charge les modeles."""
 
+from __future__ import annotations
+
 import logging
 import threading
 
@@ -26,7 +28,7 @@ class ServerProblemHandler(logging.Handler):
 
     IGNORED = ('django.security', 'inventory.webpush')
 
-    def emit(self, record):
+    def emit(self, record: logging.LogRecord) -> None:
         if record.levelno < logging.ERROR or record.name.startswith(self.IGNORED):
             return
         if getattr(_state, 'active', False):  # erreur pendant l'enregistrement lui-meme : pas de boucle
@@ -46,7 +48,7 @@ class ServerProblemHandler(logging.Handler):
             threading.Thread(target=self.record, args=(text,), daemon=True).start()
 
     @staticmethod
-    def record(text, close=True):
+    def record(text: str, close: bool = True) -> None:
         from django.db import close_old_connections
 
         from . import notifications

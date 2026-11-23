@@ -10,6 +10,10 @@
 
 """Listes de materiel (checklists.py) : utilisateur connecte (badge ou session), droits de modification par liste."""
 
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
 from .common import *  # noqa: F401,F403
 from .common import _checklist_call
 from .public import *  # noqa: F401,F403
@@ -17,11 +21,14 @@ from .local import *  # noqa: F401,F403
 from .notif_settings import *  # noqa: F401,F403
 from .douchette import *  # noqa: F401,F403
 
+if TYPE_CHECKING:
+    from inventory.models import Checklist, Lots
+
 
 # Listes de materiel (checklists.py) : utilisateur connecte (badge ou session), droits de modification par liste
 # ----------------------------------------------------------------------------------------------------------------------
 
-def _checklist(checklist_id):
+def _checklist(checklist_id: str) -> Checklist:
     from ..models import Checklist
     return get_object_or_404(Checklist.objects.select_related('owner').prefetch_related(
         'members', 'lines__lot__lot_type', 'lines__item_type', 'scans__item__pack__item_type', 'scans__lot'),
@@ -32,7 +39,7 @@ def _checklist(checklist_id):
 
 @api_view(['POST'])
 @handle_errors
-def checklists_list(request):
+def checklists_list(request: Request) -> Response:
     """Listes : {"user", "show": "mine" (les siennes et celles qui lui sont attribuees) | "templates" (les modeles) |
     "all" (sans les modeles) | "assigned" (attribuees et pas encore rentrees, page « Départ »)} ; modeles et toutes les listes pour les chefs, la gestion et les admins."""
     from .. import checklists
@@ -49,14 +56,14 @@ def checklists_list(request):
 
 @api_view(['POST'])
 @handle_errors
-def checklists_users(request):
+def checklists_users(request: Request) -> Response:
     """Recherche de secouristes par prenom pour les attribuer a une liste : {"user", "q"} (chefs, gestion, admins)."""
     from .. import checklists
     user = connected_user(request)
     return Response({'users': _checklist_call(lambda: checklists.search_users(user, request.data.get('q')))})
 
 
-def _option_lot(lot):
+def _option_lot(lot: Lots) -> dict[str, Any]:
     """Lot de l'editeur de liste ; un sac d'un B+ de referentiel (sans etiquette) donne son B+ (`unit`) : le choisir
     ajoute le B+ entier."""
     from .. import checklists
@@ -69,7 +76,7 @@ def _option_lot(lot):
 
 @api_view(['POST'])
 @handle_errors
-def checklists_options(request):
+def checklists_options(request: Request) -> Response:
     """Choix de l'editeur de liste : lots actifs (hors rangements du stock) et types d'items non archives."""
     from .. import checklists
     from ..models import ItemType
@@ -82,7 +89,7 @@ def checklists_options(request):
     lot_types = LotType.objects.filter(archived=False, storage=False).order_by('name')
     # « Lot au choix » : seulement s'il y a un choix. Un type de lot unique (un VPS, meme referentiel) ou qui n'a
     # qu'un lot n'est pas propose : on ajoute son lot, propose comme lot.
-    counts = {}
+    counts: dict[str, int] = {}
     for code in Lots.objects.filter(active=True, lot_type__storage=False).values_list('lot_type_id', flat=True):
         counts[code] = counts.get(code, 0) + 1
     lot_types = [row for row in lot_types if not row.unique and counts.get(row.type, 0) != 1]
@@ -99,7 +106,7 @@ def checklists_options(request):
 
 @api_view(['POST'])
 @handle_errors
-def checklists_departure(request):
+def checklists_departure(request: Request) -> Response:
     """« Partir avec » (tout utilisateur connecte) : sans lot_type, les types de lots proposes avec le nombre de lots
     disponibles ; avec {"lot_type"}, cree la liste de depart (checklists.departure) et la renvoie. Page « Départ » :
     {"blocked": true} renvoie les lots qu'on ne peut pas cocher, {"lots": [ids]} cree la liste des lots coches."""
@@ -132,7 +139,7 @@ def checklists_departure(request):
 
 @api_view(['POST'])
 @handle_errors
-def checklists_create(request):
+def checklists_create(request: Request) -> Response:
     """Nouvelle liste : {"user", "name", "note", "template", "date" (AAAA-MM-JJ, aujourd'hui par defaut),
     "lines": [{"lot"} | {"type", "quantity"} | {"task"}]}."""
     from .. import checklists
@@ -146,7 +153,7 @@ def checklists_create(request):
 
 @api_view(['POST'])
 @handle_errors
-def checklist_action(request, checklist_id, action=''):
+def checklist_action(request: Request, checklist_id: str, action: str='') -> Response:
     """Une liste : {"user"} lit ; update {name, note, date, template, lines} ; duplicate {name, template} ; delete ;
     scan / unscan {item | lot} ; check {line, done} (tache libre) ; validate {partial} ; reopen (depart valide par
     erreur, 30 min) ; return-scan {item | lot} ; close-return ; add-lot {lot} (lot hors liste ajoute, ou a la place

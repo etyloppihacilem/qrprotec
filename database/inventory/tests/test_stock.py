@@ -1,13 +1,22 @@
 """Tests du back : stock, reassort, mouvements, types, consommables."""
 
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Any
+
 from .base import *  # noqa: F401,F403
 from .base import setUpModule, tearDownModule  # noqa: F401 (PIN facultatif pendant ces tests)
 from .. import tasks
 from ..models import StockOrder
 
+if TYPE_CHECKING:
+    from datetime import datetime
+    from django.db.models.query import QuerySet
+    from inventory.models import ItemType, Items, Lots
+
 
 class LostObjectTests(ApiTestCase):
-    def test_lost_object_fiche(self):
+    def test_lost_object_fiche(self) -> None:
         laptop = ItemType.objects.create(type='ordina', name='Ordinateur', consumable=False)
         item = self.create(laptop, None, 1)[0]
         Items.objects.filter(iid=item.iid).update(location=self.lot)
@@ -41,7 +50,7 @@ class LostObjectTests(ApiTestCase):
 
 
 class RestockTests(ApiTestCase):
-    def test_restock_recommends_verif(self):
+    def test_restock_recommends_verif(self) -> None:
         new = self.create(self.compresses, self.today + timedelta(days=90), 2)
         code, lot = self.call('GET', f'/api/lots/{self.lot.id}/', local=False)
         self.assertFalse(lot['verif_recommended'])
@@ -60,7 +69,7 @@ class RestockTests(ApiTestCase):
         self.assertFalse(lot['verif_recommended'])
         self.assertEqual(lot['restocked_count'], 0)
 
-    def test_restock_setting(self):
+    def test_restock_setting(self) -> None:
         # reglage du serveur coche par defaut : tout reassort recommande la verif (test ci-dessus)
         code, body = self.call('GET', '/api/server-settings/')
         self.assertTrue(body['restock_verif_recommended'])
@@ -73,10 +82,10 @@ class RestockTests(ApiTestCase):
         self.assertFalse(body['restock_verif_recommended'])
         Lots.objects.filter(id=self.lot.id).update(last_verif=timezone.now(), verif_recommended=False, outings=0)
 
-        def lot():
+        def lot() -> Any:
             return self.call('GET', f'/api/lots/{self.lot.id}/', local=False)[1]
 
-        def used_then_restock():
+        def used_then_restock() -> None:
             code, body = self.call('POST', f'/api/lots/{self.lot.id}/used/', {'user': 'M001'})
             self.assertEqual(code, 200, body)
             self.assertTrue(lot()['verif_recommended'])  # rentre sans reassort : orange
@@ -111,12 +120,13 @@ class MoveItemsRulesTests(ApiTestCase):
     """Reassort (move_items) : items supprimes, remplaces, perimes ou d'un autre lot refuses (audit, point 7), sauf
     options de debug d'un admin au poste."""
 
-    def add(self, items, lot=None, local=True, **payload):
+    def add(self, items: list[Items], lot: Lots | None = None, local: bool = True, **payload: Any
+           ) -> tuple[int, dict[str, Any]]:
         lot = lot or self.lot
         return self.call('POST', f'/api/lots/{lot.id}/add/', {'items': [item.iid for item in items], **payload},
                          local=local)
 
-    def test_deleted_replaced_and_expired_refused(self):
+    def test_deleted_replaced_and_expired_refused(self) -> None:
         fresh, deleted, replaced = self.create(self.compresses, self.today + timedelta(days=90), 3)
         Items.objects.filter(iid=deleted.iid).update(status=ItemStatus.DELETED)
         Items.objects.filter(iid=replaced.iid).update(status=ItemStatus.REPLACED)
@@ -136,7 +146,7 @@ class MoveItemsRulesTests(ApiTestCase):
         code, body = self.call('POST', '/api/items/to-stock/', {'items': [old.iid, deleted.iid]})
         self.assertEqual((code, body['moved']), (200, [old.iid]))
 
-    def test_declared_name_only_from_stock_or_own_lot(self):
+    def test_declared_name_only_from_stock_or_own_lot(self) -> None:
         self.call('PATCH', '/api/server-settings/', {'declared_identity': True})
         other = Lots(lot_type=self.lot_type, name='Sac B', name_short='B', created_by='test')
         other.save()
@@ -153,7 +163,7 @@ class MoveItemsRulesTests(ApiTestCase):
                               user={'matricule': 'M001', 'key': self.user.new_key})
         self.assertEqual((code, body['moved']), (200, [elsewhere.iid]))
 
-    def test_debug_options_for_admins_on_front(self):
+    def test_debug_options_for_admins_on_front(self) -> None:
         old = self.create(self.compresses, self.today - timedelta(days=1), 1)[0]
         deleted = self.create(self.compresses, self.today + timedelta(days=90), 1)[0]
         Items.objects.filter(iid=deleted.iid).update(status=ItemStatus.DELETED)
@@ -178,23 +188,23 @@ class MoveItemsRulesTests(ApiTestCase):
 class MovementTests(ApiTestCase):
     """Journal des mouvements : absences comptees comme utilisations, annulees si l'item est retrouve."""
 
-    def setUp(self):
+    def setUp(self) -> None:
         super().setUp()
         self.items = self.create(self.compresses, self.today + timedelta(days=200), 3)
         self.call('POST', f'/api/lots/{self.lot.id}/add/', {'items': [item.iid for item in self.items]})
 
-    def verif(self, items):
+    def verif(self, items: list[Items]) -> tuple[int, dict[str, Any]]:
         return self.call('POST', f'/api/lots/{self.lot.id}/verif/', {'items': [item.iid for item in items]})
 
-    def absences(self, item):
+    def absences(self, item: Items) -> QuerySet:
         return ItemMovement.objects.filter(item=item, kind__in=[MovementKind.USED, MovementKind.DISCARDED])
 
-    def test_restock_is_logged(self):
+    def test_restock_is_logged(self) -> None:
         moves = ItemMovement.objects.filter(kind=MovementKind.MOVE, to_lot=self.lot)
         self.assertEqual(moves.count(), 3)
         self.assertIsNone(moves.first().from_lot)
 
-    def test_absence_counted_once_and_cancelled_when_found(self):
+    def test_absence_counted_once_and_cancelled_when_found(self) -> None:
         lost = self.items[2]
         self.verif(self.items[:2])
         self.verif(self.items[:2])
@@ -211,7 +221,7 @@ class MovementTests(ApiTestCase):
         compresses = next(row for row in forecast.forecast()['types'] if row['type'] == 'compre')
         self.assertEqual(compresses['per_month'], 0)
 
-    def test_found_after_marked_missing_elsewhere(self):
+    def test_found_after_marked_missing_elsewhere(self) -> None:
         lost = self.items[2]
         for _ in range(3):
             self.verif(self.items[:2])
@@ -227,7 +237,7 @@ class MovementTests(ApiTestCase):
         self.verif(self.items[:2])
         self.assertEqual(self.absences(lost).filter(cancelled__isnull=True).count(), 1)
 
-    def test_expired_absence_is_discarded_and_restore_cancels(self):
+    def test_expired_absence_is_discarded_and_restore_cancels(self) -> None:
         old = self.create(self.compresses, self.today - timedelta(days=2), 1)[0]
         # perime dans le lot (il l'est devenu sur place : un reassort refuse un item perime)
         Items.objects.filter(iid=old.iid).update(location=self.lot)
@@ -239,7 +249,7 @@ class MovementTests(ApiTestCase):
         self.assertIsNotNone(self.absences(old).get().cancelled)
         self.assertEqual(ItemMovement.objects.filter(item=old, kind=MovementKind.RESTORED).count(), 1)
 
-    def test_history_reconstruction(self):
+    def test_history_reconstruction(self) -> None:
         lost, found = self.items[1], self.items[2]
         self.verif(self.items[:1])          # deux absents
         self.verif(self.items[:1] + [found])  # l'un d'eux est retrouve
@@ -252,13 +262,13 @@ class MovementTests(ApiTestCase):
 
 
 class ForecastTests(ApiTestCase):
-    def setUp(self):
+    def setUp(self) -> None:
         super().setUp()
         self.now = timezone.now()
         # historique de 6 mois : la consommation se mesure sur toute la periode
         Verifs.objects.create(lot=self.lot, datetime=self.now - timedelta(days=200), by='test')
 
-    def used(self, item_type, count, lot=None):
+    def used(self, item_type: ItemType, count: int, lot: Lots | None = None) -> None:
         item = self.create(item_type, self.today + timedelta(days=400) if item_type.perissable else None, 1)[0]
         ItemMovement.objects.bulk_create([
             ItemMovement(item=item, item_type=item_type, kind=MovementKind.USED, from_lot=lot,
@@ -268,23 +278,23 @@ class ForecastTests(ApiTestCase):
         item.status = ItemStatus.DELETED
         item.save()
 
-    def row(self, data, type_id='compre'):
+    def row(self, data: dict[str, Any], type_id: str = 'compre') -> dict[str, Any]:
         return next(row for row in data['types'] if row['type'] == type_id)
 
-    def test_simulate_first_expired_first_used(self):
+    def test_simulate_first_expired_first_used(self) -> None:
         fates, shortages = forecast.simulate([5.0, 10.0, 40.0, math.inf], [6.0, 12.0, 18.0, 24.0, 30.0], 60)
         # l'item qui expire au jour 5 est perdu, les suivants sont utilises dans l'ordre de leurs dates
         self.assertEqual(fates, [('lost', 5.0), ('used', 6.0), ('used', 12.0), ('used', 18.0)])
         self.assertEqual(shortages, [24.0, 30.0])
 
-    def test_latest_arrival(self):
+    def test_latest_arrival(self) -> None:
         # utilisations aux jours 10, 20 et 30 ; l'item perime au jour 25
         self.assertEqual(forecast.latest_arrival([], [10.0, 20.0, 30.0], 25.0), 20)
         # un item plus ancien deja sur place passe avant lui le jour 10
         self.assertEqual(forecast.latest_arrival([12.0], [10.0, 20.0, 30.0], 25.0), 20)
         self.assertIsNone(forecast.latest_arrival([], [30.0], 25.0))
 
-    def test_projection_order_and_below_min(self):
+    def test_projection_order_and_below_min(self) -> None:
         self.compresses.min_quantity = 10
         self.compresses.default_pack_size = 5
         self.compresses.save()
@@ -310,7 +320,7 @@ class ForecastTests(ApiTestCase):
         self.assertEqual(len(months), 3)
         self.assertEqual(sum(month['expiring']['stock'] for month in months), 6)
 
-    def test_order_explained_in_events_and_tasks(self):
+    def test_order_explained_in_events_and_tasks(self) -> None:
         """Commande recommandee : dans « À venir » (anticipable) et dans les taches, avec son detail : pourquoi,
         consommation mois par mois, stock semaine par semaine avec et sans la commande, besoin des lots."""
         self.compresses.min_quantity = 10
@@ -344,7 +354,7 @@ class ForecastTests(ApiTestCase):
         self.assertFalse([row for row in tasks.events(days=90)['events']
                           if row['kind'] == 'order' and row['type'] == 'compre'])
 
-    def test_order_explained_already_below(self):
+    def test_order_explained_already_below(self) -> None:
         self.compresses.min_quantity = 10
         self.compresses.save()
         self.create(self.compresses, self.today + timedelta(days=300), 3)
@@ -356,7 +366,7 @@ class ForecastTests(ApiTestCase):
                      if row['kind'] == 'order' and row['type'] == 'compre')
         self.assertEqual(event['level'], 'bad')
 
-    def test_lot_consumption_and_sealed_transfer(self):
+    def test_lot_consumption_and_sealed_transfer(self) -> None:
         sealed = Lots(lot_type=self.lot_type, name='Scellé', name_short='S', created_by='test', is_sealed=True)
         sealed.save()
         soon = self.create(self.compresses, self.today + timedelta(days=45), 2)
@@ -393,14 +403,14 @@ class ForecastTests(ApiTestCase):
         Items.objects.filter(iid__in=move['back']).update(location=sealed)
         self.assertEqual(forecast.forecast(months=6)['transfers'], [])
 
-    def test_unconfirmed_items_do_not_count(self):
+    def test_unconfirmed_items_do_not_count(self) -> None:
         items = self.create(self.compresses, self.today + timedelta(days=100), 3)
         Items.objects.filter(iid=items[0].iid).update(missed_verifs=1)
         row = self.row(forecast.forecast())
         self.assertEqual(row['stock_now'], 2)
         self.assertEqual(row['unconfirmed'], 1)
 
-    def test_routes(self):
+    def test_routes(self) -> None:
         code, body = self.call('GET', '/api/stock/forecast/?months=3&lead_days=7')
         self.assertEqual(code, 200)
         self.assertEqual((body['months'], body['lead_days']), (3, 7))
@@ -424,7 +434,7 @@ class ForecastTests(ApiTestCase):
 class TypeRulesTests(ApiTestCase):
     """Noms en double, types archives, lots uniques."""
 
-    def test_duplicate_names_refused(self):
+    def test_duplicate_names_refused(self) -> None:
         code, body = self.call('POST', '/api/item-types/', {'type': 'compr2', 'name': ' compresses '})
         self.assertEqual(code, 409)
         self.assertIn('Compresses', body['error'])
@@ -444,7 +454,7 @@ class TypeRulesTests(ApiTestCase):
         code, _ = self.call('PATCH', f"/api/lots/{other['id']}/update/", {'active': True})
         self.assertEqual(code, 409)  # le nom est repris par le nouveau lot
 
-    def test_archive_item_and_lot_types(self):
+    def test_archive_item_and_lot_types(self) -> None:
         code, body = self.call('PATCH', '/api/item-types/compre/', {'archived': True})
         self.assertEqual(code, 400)  # encore attendu dans le Sac PSE
         code, body = self.call('PATCH', '/api/item-types/garrot/', {'archived': True})
@@ -469,7 +479,7 @@ class TypeRulesTests(ApiTestCase):
         code, _ = self.call('PATCH', f'/api/lots/{self.lot.id}/update/', {'active': True})
         self.assertEqual(code, 200)
 
-    def test_unique_lot_type(self):
+    def test_unique_lot_type(self) -> None:
         code, vps = self.call('POST', '/api/lot-types/', {'type': 'vpsxxx', 'name': 'VPS', 'unique': True,
                                                           'name_short': 'autre', 'user': 'M001'})
         self.assertEqual(code, 201)
@@ -504,12 +514,12 @@ class TypeRulesTests(ApiTestCase):
 class TearOffTests(ApiTestCase):
     """Sachet de serums phy etiquete une fois : l'etiquette est dechiree a l'ouverture."""
 
-    def setUp(self):
+    def setUp(self) -> None:
         super().setUp()
         self.serum = ItemType.objects.create(type='serphy', name='Sachet sérum phy', tear_off=True)
         LotRequirements.objects.create(lot_type=self.lot_type, item_type=self.serum, quantity=1)
 
-    def test_unscanned_tear_off_item_is_used_at_once(self):
+    def test_unscanned_tear_off_item_is_used_at_once(self) -> None:
         fresh = [item.iid for item in self.create(self.compresses, self.today + timedelta(days=90), 2)]
         sachet = self.create(self.serum, None, 1)[0]
         Items.objects.filter(iid__in=fresh + [sachet.iid]).update(location=self.lot)
@@ -526,7 +536,7 @@ class TearOffTests(ApiTestCase):
         code, report = self.call('POST', f'/api/lots/{self.lot.id}/verif/', {'items': fresh + [new.iid]})
         self.assertTrue(report['complete'])
 
-    def test_partial_verif_ignores_torn_items(self):
+    def test_partial_verif_ignores_torn_items(self) -> None:
         """Un lot qui ne contient qu'un sachet dechire peut etre valide par une verif partielle sans scan."""
         storage_type = LotType.objects.create(type='trousx', name='Trousse')
         trousse = Lots(lot_type=storage_type, name='Trousse', name_short='T', created_by='test', parent=self.lot)
@@ -545,20 +555,20 @@ class TearOffTests(ApiTestCase):
 class NonConsumableTests(ApiTestCase):
     """Lecteur de glycemie : non consommable, absent a la verif de son lot il passe hors lot au lieu d'etre perdu."""
 
-    def setUp(self):
+    def setUp(self) -> None:
         super().setUp()
         code, body = self.call('POST', '/api/item-types/', {'type': 'glycem', 'name': 'Lecteur de glycémie',
                                                              'consumable': False})
         self.assertEqual((code, body['consumable']), (201, False))
         self.glycemie = ItemType.objects.get(type='glycem')
 
-    def test_flag_editable(self):
+    def test_flag_editable(self) -> None:
         code, body = self.call('PATCH', '/api/item-types/glycem/', {'consumable': True})
         self.assertTrue(body['consumable'])
         self.assertTrue(ItemType.objects.get(type='glycem').consumable)
         self.assertTrue(ItemType.objects.get(type='garrot').consumable)  # consommable par defaut
 
-    def test_missing_from_lot_is_loose(self):
+    def test_missing_from_lot_is_loose(self) -> None:
         fresh = [item.iid for item in self.create(self.compresses, self.today + timedelta(days=90), 2)]
         lecteur = self.create(self.glycemie, None, 1)[0]
         Items.objects.filter(iid__in=fresh + [lecteur.iid]).update(location=self.lot)
@@ -589,7 +599,7 @@ class NonConsumableTests(ApiTestCase):
         lecteur.refresh_from_db()
         self.assertEqual((lecteur.status, lecteur.location_id), (ItemStatus.ACTIVE, None))
 
-    def test_manual_return_to_stock(self):
+    def test_manual_return_to_stock(self) -> None:
         lecteur = self.create(self.glycemie, None, 1)[0]
         Items.objects.filter(iid=lecteur.iid).update(location=self.lot)
         self.call('POST', f'/api/lots/{self.lot.id}/verif/', {'items': [], 'user': 'M001'})
@@ -599,7 +609,7 @@ class NonConsumableTests(ApiTestCase):
         lecteur.refresh_from_db()
         self.assertEqual((lecteur.status, lecteur.location_id), (ItemStatus.ACTIVE, None))
 
-    def test_partial_verif_not_held_by_non_consumable(self):
+    def test_partial_verif_not_held_by_non_consumable(self) -> None:
         fresh = [item.iid for item in self.create(self.compresses, self.today + timedelta(days=90), 2)]
         lecteur = self.create(self.glycemie, None, 1)[0]
         Items.objects.filter(iid=lecteur.iid).update(location=self.lot)
@@ -609,7 +619,7 @@ class NonConsumableTests(ApiTestCase):
         self.assertIn(self.lot.id, {row['id'] for row in report['lots'] if row['verified']})
         self.assertEqual(report['loose'], [lecteur.iid])
 
-    def test_missing_from_storage_is_missing(self):
+    def test_missing_from_storage_is_missing(self) -> None:
         storage_type = LotType.objects.create(type='armoir', name='Armoire', storage=True)
         armoire = Lots(lot_type=storage_type, name='Armoire', name_short='A', created_by='test')
         armoire.save()
@@ -621,7 +631,7 @@ class NonConsumableTests(ApiTestCase):
         self.assertEqual(report['missing'], [lecteur.iid])
         self.assertEqual(Items.objects.get(iid=lecteur.iid).location_id, armoire.id)
 
-    def test_out_is_never_counted_used(self):
+    def test_out_is_never_counted_used(self) -> None:
         lecteur = self.create(self.glycemie, None, 1)[0]
         code, body = self.call('POST', '/api/items/out/', {'items': [lecteur.iid]})
         self.assertEqual((code, body['until']), (200, None))
@@ -634,7 +644,7 @@ class NonConsumableTests(ApiTestCase):
 class ItemOutTests(ApiTestCase):
     """Materiel sorti du stock sans lot : statut « sorti », compte comme utilise s'il ne revient pas."""
 
-    def test_out_then_back_in_a_verif(self):
+    def test_out_then_back_in_a_verif(self) -> None:
         item = self.create(self.garrot, None, 1)[0]
         code, body = self.call('POST', '/api/items/out/', {'items': [item.iid, 'inconnu']})
         self.assertEqual(code, 200)
@@ -658,13 +668,13 @@ class ItemOutTests(ApiTestCase):
         self.assertIn(item.iid, report['reactivated'])
         self.assertEqual(services.expire_out_items(timezone.now() + timedelta(days=60)), [])
 
-    def local_noon(self, days):
+    def local_noon(self, days: int) -> datetime:
         # midi heure locale, `days` jours apres aujourd'hui : now + timedelta(days=N) tombe la veille pres de minuit
         # quand l'intervalle traverse un changement d'heure (le delai est compte en jours calendaires)
         day = datetime.combine(self.today + timedelta(days=days), datetime.min.time())
         return timezone.make_aware(day + timedelta(hours=12))
 
-    def test_not_seen_counts_as_used(self):
+    def test_not_seen_counts_as_used(self) -> None:
         fresh = self.create(self.garrot, None, 1)[0]
         soon = self.create(self.compresses, self.today + timedelta(days=5), 1)[0]
         self.call('POST', '/api/items/out/', {'items': [fresh.iid, soon.iid]})
@@ -684,7 +694,7 @@ class ItemOutTests(ApiTestCase):
         self.assertIsNotNone(used.cancelled)
         self.assertEqual(Items.objects.get(iid=fresh.iid).status, ItemStatus.ACTIVE)
 
-    def test_only_stock_items_go_out(self):
+    def test_only_stock_items_go_out(self) -> None:
         in_lot, in_stock = self.create(self.garrot, None, 2)
         Items.objects.filter(iid=in_lot.iid).update(location=self.lot)
         code, body = self.call('POST', '/api/items/out/', {'items': [in_lot.iid, in_stock.iid]})
@@ -697,7 +707,7 @@ class ItemOutTests(ApiTestCase):
         code, body = self.call('POST', '/api/items/out/', {'items': [in_stock.iid]}, session=False)
         self.assertEqual(code, 403)
 
-    def test_check_alerts_expires_out_items(self):
+    def test_check_alerts_expires_out_items(self) -> None:
         item = self.create(self.garrot, None, 1)[0]
         self.call('POST', '/api/items/out/', {'items': [item.iid]})
         Items.objects.filter(iid=item.iid).update(last_seen=timezone.now() - timedelta(days=31))
@@ -708,7 +718,7 @@ class ItemOutTests(ApiTestCase):
 class ConsumableTests(ApiTestCase):
     """Consommables d'etiquettes : references, receptions, inventaires, stock estime d'apres les impressions."""
 
-    def setUp(self):
+    def setUp(self) -> None:
         super().setUp()
         self.vellum = self.ref({'kind': 'labels', 'name': 'Vélin 40x30', 'supplier': 'Fournisseur', 'width_mm': 40,
                                 'height_mm': 30, 'support': 'direct', 'per_roll': 2000, 'per_box': 12,
@@ -716,12 +726,13 @@ class ConsumableTests(ApiTestCase):
         self.ribbon = self.ref({'kind': 'ribbon', 'name': 'Cire-résine 57 mm', 'length_m': 74, 'per_box': 25,
                                 'box_price': '62.50'})
 
-    def ref(self, data):
+    def ref(self, data: dict[str, Any]) -> dict[str, Any]:
         code, body = self.call('POST', '/api/consumables/refs/', data)
         self.assertEqual(code, 201, body)
         return next(ref for ref in body['refs'] if ref['name'] == data['name'])
 
-    def move(self, ref, kind, boxes=0, rolls=0, loose=0, days_ago=0):
+    def move(self, ref: dict[str, Any], kind: str, boxes: int = 0, rolls: int = 0, loose: int = 0, days_ago: int = 0
+            ) -> dict[str, Any]:
         code, body = self.call('POST', '/api/consumables/moves/', {'ref': ref['id'], 'kind': kind, 'boxes': boxes,
                                                                    'rolls': rolls, 'loose': loose})
         self.assertEqual(code, 201, body)
@@ -730,14 +741,14 @@ class ConsumableTests(ApiTestCase):
                 created=timezone.now() - timedelta(days=days_ago))
         return body
 
-    def printed(self, days_ago, count, width=40, height=30, support='direct'):
+    def printed(self, days_ago: int, count: int, width: int = 40, height: int = 30, support: str = 'direct') -> None:
         PrintCount.objects.create(day=self.today - timedelta(days=days_ago), width_mm=width, height_mm=height,
                                   support=support, count=count)
 
-    def pool(self, key):
+    def pool(self, key: str) -> dict[str, Any]:
         return next(pool for pool in self.call('GET', '/api/consumables/')[1]['pools'] if pool['key'] == key)
 
-    def test_stock_from_reception_minus_prints(self):
+    def test_stock_from_reception_minus_prints(self) -> None:
         self.assertEqual(self.pool('40x30-direct')['level'], 'unknown')
         self.move(self.vellum, 'reception', boxes=1, days_ago=30)  # 24 000 etiquettes
         self.printed(31, 500)  # avant la reception : pas comptee
@@ -754,7 +765,7 @@ class ConsumableTests(ApiTestCase):
         self.assertAlmostEqual(pool['monthly_cost'], round(float(Decimal(3600) / 32 * Decimal('30.44')) * 57 / 24000, 2),
                                places=2)
 
-    def test_inventory_resets_stock_and_alert_task(self):
+    def test_inventory_resets_stock_and_alert_task(self) -> None:
         self.move(self.vellum, 'reception', boxes=2, days_ago=60)
         self.move(self.vellum, 'inventory', rolls=1, loose=500, days_ago=5)  # 2 500 etiquettes comptees
         self.printed(3, 900)
@@ -773,7 +784,7 @@ class ConsumableTests(ApiTestCase):
         self.assertEqual(self.call('PATCH', '/api/consumables/', {'alert_days': 5})[0], 200)
         self.assertEqual(self.pool('40x30-direct')['level'], 'ok')
 
-    def test_ribbon_used_by_transfer_labels_length(self):
+    def test_ribbon_used_by_transfer_labels_length(self) -> None:
         self.move(self.ribbon, 'reception', rolls=2, days_ago=20)  # 148 m
         self.printed(5, 1000, 60, 40, 'transfer')  # 1 000 x (40 + 3) mm = 43 m
         self.printed(5, 5000)  # thermique direct : pas de ruban
@@ -781,7 +792,7 @@ class ConsumableTests(ApiTestCase):
         self.assertEqual(pool['stock'], 148000 - 43000)
         self.assertIn('105 m', pool['stock_text'])
 
-    def test_refs_moves_and_errors(self):
+    def test_refs_moves_and_errors(self) -> None:
         code, _ = self.call('POST', '/api/consumables/refs/', {'kind': 'labels', 'name': 'X', 'width_mm': 40})
         self.assertEqual(code, 400)
         code, body = self.call('PATCH', f"/api/consumables/refs/{self.vellum['id']}/", {'box_price': '', 'per_box': 6})
@@ -799,7 +810,7 @@ class ConsumableTests(ApiTestCase):
         self.assertEqual(self.call('POST', '/api/consumables/moves/', {'ref': self.vellum['id'], 'kind': 'reception',
                                                                        'boxes': 1})[0], 400)
 
-    def test_decimal_comma_or_point(self):
+    def test_decimal_comma_or_point(self) -> None:
         # « 2,5 » comme « 2.5 » : virgule ou point dans tous les champs a virgule
         ref = self.ref({'kind': 'labels', 'name': 'Vélin 50,5', 'width_mm': '50,5', 'height_mm': '25.5',
                         'support': 'direct', 'per_roll': 1000, 'per_box': 6, 'box_price': '57,50'})
@@ -811,7 +822,7 @@ class ConsumableTests(ApiTestCase):
             code, body = self.call('PATCH', f"/api/consumables/refs/{self.vellum['id']}/", {'box_price': bad})
             self.assertEqual(code, 400, (bad, body))
 
-    def test_access(self):
+    def test_access(self) -> None:
         self.assertEqual(self.call('GET', '/api/consumables/', local=False)[0], 404)
         self.assertEqual(self.call('GET', '/api/consumables/', session=False)[0], 403)
         self.assertEqual(self.call('GET', '/api/consumables/', session=views.session_token(self.user))[0], 403)
@@ -821,7 +832,7 @@ class UnitGroupTests(ApiTestCase):
     """Attentes en quantite (« 200 mL de sérum phy ») : un type a unites rempli par des sous-types interchangeables
     (sachet de 5 dosettes de 5 mL : 25 mL, flacon : 50 mL), avec un minimum d'un sous-type compris dedans."""
 
-    def setUp(self):
+    def setUp(self) -> None:
         super().setUp()
         code, body = self.call('POST', '/api/item-types/', {'type': 'serphy', 'name': 'Sérum phy', 'unit': 'mL'})
         self.assertEqual(code, 201)
@@ -840,14 +851,14 @@ class UnitGroupTests(ApiTestCase):
         self.flacon = ItemType.objects.get(type='serfla')
         self.later = self.today + timedelta(days=200)
 
-    def require(self, rows):
+    def require(self, rows: list[dict[str, Any]]) -> None:
         code, body = self.call('PUT', '/api/lot-types/sacpse/requirements/', {'requirements': rows})
         self.assertEqual(code, 200, body)
 
-    def row(self, body, type_id):
+    def row(self, body: dict[str, Any], type_id: str) -> dict[str, Any]:
         return next(row for row in body['requirements'] if row['type'] == type_id)
 
-    def test_rules(self):
+    def test_rules(self) -> None:
         # un type a unites n'a pas d'etiquette : ni reception, ni peremption, ni sous-type d'un autre
         with self.assertRaises(ValueError):
             self.create(self.serphy, None, 1)
@@ -864,7 +875,7 @@ class UnitGroupTests(ApiTestCase):
         self.create(self.garrot, None, 1)
         self.assertEqual(self.call('PATCH', '/api/item-types/garrot/', {'unit': 'u'})[0], 400)
 
-    def test_requirement_in_units(self):
+    def test_requirement_in_units(self) -> None:
         """200 mL dont 2 sachets : les sachets comptent dans les 200 mL, un flacon ne remplit que le reste."""
         self.require([{'type': 'compre', 'quantity': 2}, {'type': 'serphy', 'quantity': 200},
                       {'type': 'sersac', 'quantity': 2}])
@@ -891,7 +902,7 @@ class UnitGroupTests(ApiTestCase):
         self.assertEqual(self.row(report, 'serphy')['present'], 200)
         self.assertNotIn('suggest', self.row(report, 'serphy'))
 
-    def test_split_sachet_into_dosettes(self):
+    def test_split_sachet_into_dosettes(self) -> None:
         """Un sachet de 5 dosettes (25 mL) se decoupe en 5 dosettes (5 mL) etiquetees une par une : meme peremption,
         meme lot ; le sachet est remplace et ne revient plus."""
         code, body = self.call('POST', '/api/item-types/', {'type': 'serdos', 'name': 'Dosette sérum 5 mL',
@@ -921,10 +932,10 @@ class UnitGroupTests(ApiTestCase):
         self.assertEqual(self.call('POST', url, {'type': 'serdos'})[0], 400)
         self.assertEqual(self.call('GET', f"/api/items/{body['items'][0]['iid']}/split/")[1]['targets'], [])
 
-    def dosette(self):
+    def dosette(self) -> ItemType:
         return ItemType.objects.get(type='serdos')
 
-    def test_newcomers_fill_units(self):
+    def test_newcomers_fill_units(self) -> None:
         """Verif groupee de deux lots : les items venus du stock vont la ou il manque des unites."""
         self.require([{'type': 'compre', 'quantity': 2}, {'type': 'serphy', 'quantity': 50}])
         other = Lots(lot_type=self.lot_type, name='Sac B', name_short='B', created_by='test')
@@ -936,7 +947,7 @@ class UnitGroupTests(ApiTestCase):
         self.assertEqual(target[flacons[0].iid], self.lot.id)
         self.assertEqual({target[i.iid] for i in sachets}, {other.id})
 
-    def test_expired_replaced_by_units(self):
+    def test_expired_replaced_by_units(self) -> None:
         """Un sachet perime est remplace (jete) des que le lot a ses mL frais, meme en flacons."""
         self.require([{'type': 'compre', 'quantity': 2}, {'type': 'serphy', 'quantity': 50}])
         compresses = self.create(self.compresses, self.later, 2)
@@ -948,7 +959,7 @@ class UnitGroupTests(ApiTestCase):
         self.assertEqual(report['replaced'], [old[0].iid])
         self.assertTrue(report['complete'])
 
-    def test_stock_in_units(self):
+    def test_stock_in_units(self) -> None:
         """Etat des stocks : le type a unites additionne les mL de ses sous-types ; son minimum (en mL) et celui de
         chaque sous-type (en items) alertent chacun ; la commande proposee porte sur le sous-type par defaut."""
         ItemType.objects.filter(type='serphy').update(min_quantity=200)
@@ -967,7 +978,7 @@ class UnitGroupTests(ApiTestCase):
         self.assertEqual(row['order']['quantity'] % 4, 0)
         self.assertGreaterEqual(row['order']['quantity'] * 25, row['order']['units'])
 
-    def test_checklist_line_in_units(self):
+    def test_checklist_line_in_units(self) -> None:
         """Liste de matériel « 100 mL de sérum phy » : n'importe quel sous-type, compté en mL."""
         code, body = self.call('POST', '/api/checklists/', {'user': 'M001', 'name': 'Poste', 'lines': [
             {'type': 'serphy', 'quantity': 100}]})
@@ -987,7 +998,7 @@ class UnitGroupTests(ApiTestCase):
         self.assertEqual((line['scanned'], line['quantity'], line['unit']), (100, 100, 'mL'))
         self.assertTrue(body['complete'])
 
-    def test_coverage_in_units(self):
+    def test_coverage_in_units(self) -> None:
         """Couverture d'un referentiel en mL : 8 sachets ranges dans un sac couvrent 200 mL."""
         referentiel = LotType.objects.create(type='refbpl', name='B+', referentiel=True)
         LotRequirements.objects.create(lot_type=referentiel, item_type=self.serphy, quantity=200)
@@ -999,7 +1010,7 @@ class UnitGroupTests(ApiTestCase):
         self.assertEqual(line['lines'][0]['placed'], 200)
         self.assertEqual(line['extra'], [])
 
-    def test_distribution_in_units(self):
+    def test_distribution_in_units(self) -> None:
         """Repartition d'un referentiel en mL : 20 mL de serum phy dans la liste, 4 dosettes de 5 mL attendues dans
         un sac valident la ligne ; 3 seulement (15 mL) la laissent dans aucun sac."""
         dosette = ItemType.objects.create(type='serdos', name='Dosette sérum 5 mL', perissable=True, group=self.serphy,
@@ -1035,7 +1046,7 @@ class GroupWithoutUnitTests(ApiTestCase):
     """Type parent sans unite (« Bandes » rempli par « Bandes L » et « Bandes S ») : chaque item d'un sous-type
     compte pour 1, n'importe lequel remplit l'attendu du parent."""
 
-    def setUp(self):
+    def setUp(self) -> None:
         super().setUp()
         code, body = self.call('POST', '/api/item-types/', {'type': 'bandes', 'name': 'Bandes', 'is_group': True})
         self.assertEqual(code, 201, body)
@@ -1049,14 +1060,14 @@ class GroupWithoutUnitTests(ApiTestCase):
         self.small = ItemType.objects.get(type='bandsm')
         self.group = ItemType.objects.get(type='bandes')
 
-    def require(self, rows):
+    def require(self, rows: list[dict[str, Any]]) -> None:
         code, body = self.call('PUT', '/api/lot-types/sacpse/requirements/', {'requirements': rows})
         self.assertEqual(code, 200, body)
 
-    def row(self, body, type_id):
+    def row(self, body: dict[str, Any], type_id: str) -> dict[str, Any]:
         return next(row for row in body['requirements'] if row['type'] == type_id)
 
-    def test_rules(self):
+    def test_rules(self) -> None:
         with self.assertRaises(ValueError):
             self.create(self.group, None, 1)
         self.assertEqual(self.call('PATCH', '/api/item-types/bandes/', {'perissable': True})[0], 400)
@@ -1068,7 +1079,7 @@ class GroupWithoutUnitTests(ApiTestCase):
         code, body = self.call('PATCH', '/api/item-types/bandes/', {'unit': 'u'})
         self.assertEqual((code, body['is_group'], body['unit']), (200, True, 'u'))
 
-    def test_requirement_any_subtype(self):
+    def test_requirement_any_subtype(self) -> None:
         """4 bandes dont 1 bande L : 3 bandes S et 1 L completent ; 4 S ne suffisent pas (il manque la L)."""
         self.require([{'type': 'compre', 'quantity': 2}, {'type': 'bandes', 'quantity': 4},
                       {'type': 'bandel', 'quantity': 1}])
@@ -1090,7 +1101,7 @@ class GroupWithoutUnitTests(ApiTestCase):
         self.assertEqual(services.lacking_text({'type_name': 'Bandes', 'required': 4, 'present': 1, 'is_group': True,
                                                 'unit': ''}), '3 × Bandes')
 
-    def test_stock_and_checklist(self):
+    def test_stock_and_checklist(self) -> None:
         ItemType.objects.filter(type='bandes').update(min_quantity=5)
         self.create(self.large, None, 2)
         smalls = self.create(self.small, None, 1)

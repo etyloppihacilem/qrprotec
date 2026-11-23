@@ -22,6 +22,8 @@ Le module `cryptography` (paquet python3-cryptography) est necessaire ; sans lui
 web sont simplement indisponibles.
 """
 
+from __future__ import annotations
+
 import base64
 import hashlib
 import hmac
@@ -34,11 +36,16 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+from typing import TYPE_CHECKING, Any
 
 from django.db import IntegrityError, close_old_connections, transaction
 from django.utils import timezone
 
 from .models import PushKeys, PushSubscription, Role, qrprotec_setting
+
+if TYPE_CHECKING:
+    from cryptography.hazmat.primitives.asymmetric import ec
+    from django.db.models.query import QuerySet
 
 logger = logging.getLogger(__name__)
 
@@ -60,7 +67,7 @@ def b64url(data: bytes) -> str:
     return base64.urlsafe_b64encode(data).rstrip(b'=').decode()
 
 
-def b64url_decode(text) -> bytes:
+def b64url_decode(text: str) -> bytes:
     text = str(text).strip()
     return base64.urlsafe_b64decode(text + '=' * (-len(text) % 4))
 
@@ -68,12 +75,12 @@ def b64url_decode(text) -> bytes:
 # ----------------------------------------------------------------------------------------------------------------------
 # Cles VAPID
 
-def _public_point(private_key) -> bytes:
+def _public_point(private_key: ec.EllipticCurvePrivateKey) -> bytes:
     from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
     return private_key.public_key().public_bytes(Encoding.X962, PublicFormat.UncompressedPoint)
 
 
-def server_keys():
+def server_keys() -> tuple[ec.EllipticCurvePrivateKey, str]:
     """(cle privee, cle publique base64url), generees et enregistrees au premier appel."""
     from cryptography.hazmat.primitives.asymmetric import ec
     from cryptography.hazmat.primitives.serialization import (
@@ -95,11 +102,11 @@ def public_key() -> str:
     return server_keys()[1]
 
 
-def subject() -> str:
+def subject() -> Any:
     return qrprotec_setting('WEB_PUSH_SUBJECT') or qrprotec_setting('PUBLIC_BASE_URL')
 
 
-def vapid_authorization(endpoint, now=None) -> str:
+def vapid_authorization(endpoint: str, now: int | None = None) -> str:
     from cryptography.hazmat.primitives import hashes
     from cryptography.hazmat.primitives.asymmetric import ec
     from cryptography.hazmat.primitives.asymmetric.utils import decode_dss_signature
@@ -120,12 +127,13 @@ def vapid_authorization(endpoint, now=None) -> str:
 # ----------------------------------------------------------------------------------------------------------------------
 # Chiffrement (RFC 8291)
 
-def _hkdf(salt, ikm, info, length):
+def _hkdf(salt: bytes, ikm: bytes, info: bytes, length: int) -> bytes:
     prk = hmac.new(salt, ikm, hashlib.sha256).digest()
     return hmac.new(prk, info + b'\x01', hashlib.sha256).digest()[:length]
 
 
-def encrypt(payload: bytes, p256dh, auth, salt=None, sender_key=None) -> bytes:
+def encrypt(payload: bytes, p256dh: str, auth: str, salt: bytes | None = None,
+            sender_key: ec.EllipticCurvePrivateKey | None = None) -> bytes:
     """Corps aes128gcm pour l'abonnement (p256dh, auth en base64url). salt et sender_key : pour les tests."""
     from cryptography.hazmat.primitives.asymmetric import ec
     from cryptography.hazmat.primitives.ciphers.aead import AESGCM
@@ -142,7 +150,7 @@ def encrypt(payload: bytes, p256dh, auth, salt=None, sender_key=None) -> bytes:
     return salt + struct.pack('!IB', RECORD_SIZE, len(sender_point)) + sender_point + record
 
 
-def valid_subscription_keys(p256dh, auth) -> bool:
+def valid_subscription_keys(p256dh: str, auth: str) -> bool:
     try:
         return len(b64url_decode(p256dh)) == 65 and len(b64url_decode(auth)) == 16
     except (ValueError, TypeError):
@@ -152,7 +160,7 @@ def valid_subscription_keys(p256dh, auth) -> bool:
 # ----------------------------------------------------------------------------------------------------------------------
 # Envoi
 
-def post_push(endpoint, body: bytes, headers, timeout=10):
+def post_push(endpoint: str, body: bytes, headers: dict[str, str], timeout: float = 10) -> int:
     """POST vers le service de notifications du navigateur ; retourne le code HTTP. Remplacee dans les tests."""
     request = urllib.request.Request(endpoint, data=body, headers=headers, method='POST')
     try:
@@ -162,7 +170,7 @@ def post_push(endpoint, body: bytes, headers, timeout=10):
         return exc.code
 
 
-def send_one(subscription, message: dict):
+def send_one(subscription: PushSubscription, message: dict) -> tuple[bool, str]:
     """Envoie a un abonnement ; retourne (ok, statut lisible). Supprime l'abonnement s'il a expire."""
     payload = json.dumps(message, ensure_ascii=False).encode()
     if len(payload) > MAX_PAYLOAD:
@@ -184,7 +192,7 @@ def send_one(subscription, message: dict):
     return 200 <= code < 300, 'Envoyé' if 200 <= code < 300 else f'Code {code}'
 
 
-def _deliver(jobs):
+def _deliver(jobs: list[tuple[int, dict[str, str]]]) -> None:
     close_old_connections()
     try:
         for subscription_id, message in jobs:
@@ -202,11 +210,11 @@ def _deliver(jobs):
         close_old_connections()
 
 
-_threads = set()
+_threads: set[threading.Thread] = set()
 _threads_lock = threading.Lock()
 
 
-def _run(jobs):
+def _run(jobs: list[tuple[int, dict[str, str]]]) -> None:
     try:
         _deliver(jobs)
     finally:
@@ -214,7 +222,7 @@ def _run(jobs):
             _threads.discard(threading.current_thread())
 
 
-def _dispatch(jobs):
+def _dispatch(jobs: list[tuple[int, dict[str, str]]]) -> None:
     # envoi dans la requete (tests) ou dans un thread
     if qrprotec_setting('NOTIFY_SYNC'):
         _deliver(jobs)
@@ -225,7 +233,7 @@ def _dispatch(jobs):
         thread.start()
 
 
-def flush(timeout=60):
+def flush(timeout: int = 60) -> None:
     """Attend la fin des envois en cours. A appeler a la fin d'une commande (check_alerts, server_problem) : le
     processus s'arrete ensuite, et avec lui les threads d'envoi qui n'ont pas fini (notifications perdues)."""
     deadline = time.monotonic() + timeout
@@ -239,7 +247,7 @@ def flush(timeout=60):
             return
 
 
-def queue(jobs):
+def queue(jobs: list[tuple[int, dict[str, str]]]) -> int:
     """jobs : [(id d'abonnement, message)], envoyes apres la validation de la transaction."""
     if not jobs or not available():
         return 0
@@ -247,18 +255,18 @@ def queue(jobs):
     return len(jobs)
 
 
-def active_subscriptions():
+def active_subscriptions() -> QuerySet:
     # un utilisateur retrogade ou desactive ne recoit plus rien (son abonnement reste, inactif)
     return (PushSubscription.objects.filter(user__active=True, user__role__in=(Role.GESTION, Role.ADMIN))
             .select_related('user'))
 
 
-def subscriptions_for(name):
+def subscriptions_for(name: str) -> list[PushSubscription]:
     """Abonnements qui ont choisi ce type, et dont l'utilisateur peut le recevoir (role, choix de l'admin)."""
     return [subscription for subscription in active_subscriptions().filter(**{name: True}) if subscription.wants(name)]
 
 
-def notify_stock(low, empty):
+def notify_stock(low: list[tuple[str, int, str | int]], empty: list[str]) -> int:
     """low : [(nom, stock, minimum)] passes sous le minimum ; empty : [nom] arrives a 0.
 
     Un message par abonnement, selon ses choix ; un type a la fois vide et bas n'apparait qu'une fois
@@ -286,7 +294,7 @@ def notify_stock(low, empty):
     return queue(jobs)
 
 
-def notify_pin_blocked(text, url):
+def notify_pin_blocked(text: str, url: str) -> int:
     """PIN d'un utilisateur bloque : le clic ouvre le lien de deblocage (connexion avec le badge admin)."""
     return queue([(subscription.id, {
         'title': 'QRProtec : PIN bloqué',
@@ -297,7 +305,7 @@ def notify_pin_blocked(text, url):
     }) for subscription in subscriptions_for('pin_blocked')])
 
 
-def notify_event(field, title, body, url='../', tag='', tab=''):
+def notify_event(field: str, title: str, body: str, url: str = '../', tag: str = '', tab: str = '') -> int:
     """Evenement simple (renouvellement, expiration, signalement) vers les abonnements qui l'ont choisi. tab : page
     du front web ouverte au clic quand il est deja ouvert (voir web/app/settings.js)."""
     message = {'title': title, 'body': body, 'tag': tag or field, 'url': url}
@@ -306,7 +314,7 @@ def notify_event(field, title, body, url='../', tag='', tab=''):
     return queue([(subscription.id, dict(message)) for subscription in subscriptions_for(field)])
 
 
-def device_name(user_agent):
+def device_name(user_agent: str | None) -> str:
     """Nom court de l'appareil d'apres le User-Agent (pour reconnaitre ses abonnements), ex. « Chrome · Android »."""
     agent = str(user_agent or '')
     browsers = (('Edg/', 'Edge'), ('OPR/', 'Opera'), ('SamsungBrowser', 'Samsung Internet'), ('Firefox/', 'Firefox'),

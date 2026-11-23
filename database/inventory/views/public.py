@@ -10,16 +10,30 @@
 
 """Vues publiques (disponibles sur les deux API) : vérif, fiches, connexion, suivi, notifications web, signalements."""
 
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Any
+
 from .common import *  # noqa: F401,F403
 from .common import _checklist_call
 from ..version import release_version
+
+if TYPE_CHECKING:
+    from datetime import datetime
+    from django.http.request import QueryDict
+    from django.http.response import HttpResponse
+    from inventory.models import Lots, PushSubscription, Role, Secouristes
+    from inventory.views.common import ApiError
+    from rest_framework.request import Request
+    from collections.abc import Iterable
+    from django.http import HttpRequest
 
 
 # Vues publiques (disponibles sur les deux API)
 # ----------------------------------------------------------------------------------------------------------------------
 
 @api_view(['GET'])
-def health(request):
+def health(request: Request) -> Response:
     return Response({
         'status': 'ok',
         'api': 'local' if is_front(request) else 'public',
@@ -50,25 +64,25 @@ def health(request):
 PIN_RESET_SALT = 'qrprotec.pin-reset'
 
 
-def pin_reset_token(user):
+def pin_reset_token(user: Secouristes) -> str:
     """Jeton du lien de deblocage (signature courte, pour un QR code lisible) : lie au blocage en cours, il ne sert
     qu'une fois."""
     return signing.Signer(salt=PIN_RESET_SALT).signature(f'{user.matricule}:{user.pin_blocked.timestamp():.6f}')
 
 
-def pin_reset_token_valid(user, token):
+def pin_reset_token_valid(user: Secouristes, token: str) -> bool:
     if user.pin_blocked is None or not isinstance(token, str):
         return False
     return hmac.compare_digest(pin_reset_token(user).encode(), token.encode())
 
 
-def pin_contact_name(user):
+def pin_contact_name(user: Secouristes) -> str:
     """Admin a contacter : celui choisi pour l'utilisateur, sinon l'admin par defaut (vide : un administrateur)."""
     contact = user.contact_admin()
     return short_name(contact.matricule) if contact else ''
 
 
-def apply_default_contact(user, data):
+def apply_default_contact(user: Secouristes, data: dict[str, Any]) -> None:
     """Case « admin a contacter par defaut » : un seul admin actif a la fois."""
     if 'default_contact' in data:
         user.default_contact = bool(data['default_contact'])
@@ -78,7 +92,7 @@ def apply_default_contact(user, data):
         Secouristes.objects.filter(default_contact=True).exclude(matricule=user.matricule).update(default_contact=False)
 
 
-def pin_reset_info(user):
+def pin_reset_info(user: Secouristes) -> dict[str, Any]:
     """Lien de deblocage (et son QR code sur le telephone) a envoyer a un admin."""
     return {
         'url': ser.public_url('pinreset', m=user.matricule, t=pin_reset_token(user)),
@@ -89,7 +103,7 @@ def pin_reset_info(user):
     }
 
 
-def pin_blocked_error(user):
+def pin_blocked_error(user: Secouristes) -> ApiError:
     """PIN bloque : previent les admins (une seule fois par blocage) et renvoie le lien de deblocage."""
     info = pin_reset_info(user)
     info['notified'] = notifications.notify_pin_blocked(user, info['url'])
@@ -98,7 +112,7 @@ def pin_blocked_error(user):
     return ApiError(message, status.HTTP_403_FORBIDDEN, pin_required=True, pin_blocked=True, pin_reset=info)
 
 
-def pin_setup_extra(user):
+def pin_setup_extra(user: Secouristes) -> dict[str, Any]:
     """Champs de l'erreur « choisissez votre code » : la case « Demander a chaque connexion » est cochee par defaut
     quand le code est obligatoire, et imposee pour un admin. `passkey_offer` : premiere connexion au web, le front
     ouvre l'ecran de bienvenue (passkey d'abord, puis le code ; web/app/welcome.js)."""
@@ -107,18 +121,18 @@ def pin_setup_extra(user):
             'prenom': user.prenom}
 
 
-def passkey_offer(user):
+def passkey_offer(user: Secouristes) -> bool:
     """Passkey a proposer a la connexion : jamais proposee a ce compte (reglage web passkey_offered), aucune passkey,
     pas une carte d'invite."""
     return not user.guest and not user.web_pref('passkey_offered') and not user.passkeys.exists()
 
 
-def pin_setup_pending(user):
+def pin_setup_pending(user: Secouristes) -> bool:
     """Connexion par la carte qui n'attend plus que le code PIN obligatoire a choisir (pas de code bloque)."""
     return user.pin_required and not user.has_pin and not user.pin_blocked and not user.pin_locked()
 
 
-def verify_pin(user, data):
+def verify_pin(user: Secouristes, data: dict[str, Any]) -> None:
     """Controle du PIN a la connexion (obligatoire pour un admin, ou si l'utilisateur en a un).
 
     Un admin sans PIN (compte cree avant les PIN, ou par createadmin) le choisit a sa connexion
@@ -158,7 +172,7 @@ def verify_pin(user, data):
 
 @api_view(['POST'])
 @handle_errors
-def auth(request):
+def auth(request: Request) -> Response:
     """Confirme l'identite d'un secouriste : cle du badge (valable un an), puis PIN si besoin.
 
     La reponse contient un jeton `session` (12 h) que le front web renvoie pour les lectures reservees
@@ -188,7 +202,7 @@ def auth(request):
     return Response(login_response(request, user, method=request.qrprotec_auth))
 
 
-def guest_used_message(card):
+def guest_used_message(card: Secouristes) -> str:
     """Carte d'invite deja activee qui ne marche plus (expiree ou desactivee) : elle n'est qu'a son invite. Prenom
     seul (jamais de nom de famille sur le web)."""
     antenna = f' de {card.guest_antenna}' if card.guest_antenna else ''
@@ -196,7 +210,7 @@ def guest_used_message(card):
             "personne. Utilisez une autre carte d'invité.")
 
 
-def guest_refusal(card):
+def guest_refusal(card: Secouristes) -> str:
     """Message d'une carte d'invite qui ne connecte plus personne."""
     state = card.guest_state()
     if state == 'disabled':
@@ -206,7 +220,8 @@ def guest_refusal(card):
     return "Carte d'invité expirée : demandez une autre carte au TECH"
 
 
-def guest_card_action(card, action, data, admin, by, web=False):
+def guest_card_action(card: Secouristes, action: str, data: dict[str, Any], admin: Secouristes, by: str,
+                      web: bool = False) -> None:
     """Reprise du numero d'une carte jamais activee (`reuse`) ou nouvelle periode pour un invite qui revient
     (`reactivate` {"guest_hours", "new_card"}), notees au journal. Depuis le web, toujours une nouvelle cle (QR code a
     l'ecran) et 24 h pour activer une carte reprise."""
@@ -227,7 +242,7 @@ def guest_card_action(card, action, data, admin, by, web=False):
         raise ApiError(str(exc))
 
 
-def activate_guest_card(request, card):
+def activate_guest_card(request: Request, card: Secouristes) -> None:
     """Premiere connexion avec une carte d'invite : {"guest_nom", "guest_prenom"} la nomment et lancent sa duree de
     vie. Sans eux, erreur `guest_name_required` : le front demande le nom et le prenom puis renvoie la connexion."""
     if card.guest_activated is not None:
@@ -250,7 +265,8 @@ def activate_guest_card(request, card):
                        matricule=card.matricule, guest_activation=True)
 
 
-def login_response(request, user, temporary=False, passkey=False, method=''):
+def login_response(request: Request, user: Secouristes, temporary: bool = False, passkey: bool = False, method: str = ''
+                  ) -> dict[str, Any]:
     """Reponse d'une connexion reussie, notee au journal des operations (type « Connexion », jamais annulable : voir
     l'historique des connexions de la page Utilisateurs du poste). `method` : moyen de connexion (sessions.AUTH_METHODS),
     garde dans le jeton de session pour que le journal dise aussi comment la personne a fait chaque operation."""
@@ -286,12 +302,12 @@ NAME_LOGIN_ADDRESS_PERIOD = 15 * 60
 
 
 @functools.cache
-def dummy_pin_hash():
+def dummy_pin_hash() -> str:
     """Hache d'un PIN quelconque : meme temps de reponse que le nom existe ou non."""
     return make_password('0000')
 
 
-def client_address(request):
+def client_address(request: Request) -> str:
     """Adresse du client ; derriere le reverse proxy local (Caddy), celle qu'il transmet."""
     address = request.META.get('REMOTE_ADDR', '') or ''
     forwarded = request.META.get('HTTP_X_FORWARDED_FOR', '')
@@ -300,14 +316,14 @@ def client_address(request):
     return address[:64]
 
 
-def login_name_key(name):
+def login_name_key(name: str) -> str:
     """Forme d'un nom pour la connexion : name_key sans aucun separateur (espaces, tirets, apostrophes de toutes
     sortes). « Jean-Pierre », « jean pierre », « Jean–Pierre » et « jeanpierre » sont le meme prenom ; le PIN
     reste exige, donc pas de risque de confondre deux secouristes."""
     return ''.join(character for character in name_key(name) if character.isalnum())
 
 
-def name_login_candidates(nom, prenom, passkey=False):
+def name_login_candidates(nom: str, prenom: str, passkey: bool = False) -> list[Secouristes]:
     """Secouristes de ce nom (sans accents, casse ni separateurs) qui peuvent se connecter par nom et PIN (passkey :
     ceux qui ne le peuvent plus parce qu'ils ont une passkey)."""
     key = (login_name_key(nom), login_name_key(prenom))
@@ -315,7 +331,7 @@ def name_login_candidates(nom, prenom, passkey=False):
             if (login_name_key(user.nom), login_name_key(user.prenom)) == key]
 
 
-def name_login_candidates_queryset(passkey=False):
+def name_login_candidates_queryset(passkey: bool = False) -> list[Secouristes]:
     """Secouristes qui peuvent se connecter sans badge (nom ou matricule seul, puis PIN) : PIN defini et utilisable,
     badge valide, connexion sans badge pas en pause, pas de passkey (elle remplace le nom et le PIN ; la carte reste).
     passkey=True : les memes, mais qui ont une passkey."""
@@ -328,7 +344,8 @@ PASSKEY_INSTEAD_ERROR = ("Vous avez une passkey : connectez-vous avec elle (« S
                          "avec votre carte. Sur le web, le nom et le code PIN ne marchent plus pour vous (au poste, si).")
 
 
-def pin_login_or_passkey_hint(request, candidates, passkey_candidates, pin, error, **extra):
+def pin_login_or_passkey_hint(request: Request, candidates: list[Secouristes], passkey_candidates: list[Secouristes], pin: str, error: str,
+                              **extra: Any) -> Secouristes:
     """pin_login ; s'il echoue mais que le PIN est celui d'un secouriste qui a une passkey, le refus le lui dit (le
     PIN juste prouve deja que c'est lui : on ne revele rien a un inconnu).
 
@@ -346,7 +363,7 @@ def pin_login_or_passkey_hint(request, candidates, passkey_candidates, pin, erro
 
 @api_view(['POST'])
 @handle_errors
-def auth_name(request):
+def auth_name(request: Request) -> Response:
     """Connexion sans badge : {"nom", "prenom", "pin"}, pour un secouriste qui a un code PIN. Meme reponse que
     /api/auth/ (jeton `session` a renvoyer a la place de la cle du badge).
 
@@ -366,7 +383,7 @@ def auth_name(request):
 
 @api_view(['POST'])
 @handle_errors
-def auth_temp(request):
+def auth_temp(request: Request) -> Response:
     """Connexion de depannage : {"matricule", "token"} d'un QR code temporaire montre par un admin (outil de debug)
     a un secouriste qui a oublie sa carte. Le QR code vaut 1 h ; la session ouverte (sans cle de badge ni PIN, l'admin
     s'en porte garant) vaut 24 h."""
@@ -397,16 +414,16 @@ def auth_temp(request):
     return Response(login_response(request, user, temporary=True, method='temp_qr'))
 
 
-def check_login_address(request):
+def check_login_address(request: Request) -> None:
     if cache.get(login_address_key(request), 0) >= NAME_LOGIN_ADDRESS_LIMIT:
         raise ApiError("Trop d'essais : réessayez dans quelques minutes", status.HTTP_429_TOO_MANY_REQUESTS)
 
 
-def login_address_key(request):
+def login_address_key(request: Request) -> str:
     return 'qrprotec.name-login.' + client_address(request)
 
 
-def reserve_login_attempt(address_key):
+def reserve_login_attempt(address_key: str) -> None:
     """Compte l'essai pour l'adresse avant de verifier le PIN (et non apres un echec) : des essais envoyes en meme
     temps ne passent pas tous le controle. L'essai est rendu s'il reussit. cache.incr est atomique."""
     cache.add(address_key, 0, NAME_LOGIN_ADDRESS_PERIOD)
@@ -419,14 +436,14 @@ def reserve_login_attempt(address_key):
         raise ApiError("Trop d'essais : réessayez dans quelques minutes", status.HTTP_429_TOO_MANY_REQUESTS)
 
 
-def release_login_attempt(address_key):
+def release_login_attempt(address_key: str) -> None:
     try:
         cache.decr(address_key)
     except ValueError:
         pass
 
 
-def matricule_login(request, matricule):
+def matricule_login(request: Request, matricule: str) -> Secouristes:
     """Connexion par matricule seul et PIN (sans la cle du badge) : memes regles que la connexion par nom (compteurs
     d'essais a part du PIN du badge, limite par adresse, refus qui ne dit pas si le matricule existe). Sans PIN
     envoye, toujours « PIN requis », que le matricule existe ou non."""
@@ -442,7 +459,7 @@ def matricule_login(request, matricule):
                                      pin_required=True)
 
 
-def name_login_allowed(user):
+def name_login_allowed(user: Secouristes) -> bool:
     """Le candidat peut-il encore se connecter sans badge (meme filtre que name_login_candidates_queryset) ?"""
     now = timezone.now()
     return (user.active and bool(user.pin_hash) and user.pin_blocked is None and not user.pin_locked()
@@ -455,7 +472,7 @@ NAME_LOGIN_STATE_FIELDS = ['active', 'pin_hash', 'pin_blocked', 'pin_locked_unti
                            'name_login_failures', 'name_login_locked_until']
 
 
-def pin_login(request, candidates, pin, error, **extra):
+def pin_login(request: Request, candidates: list[Secouristes], pin: str, error: str, **extra: Any) -> Secouristes:
     """Connexion sans badge parmi des candidats (nom ou matricule) : PIN verifie, essais faux comptes.
 
     Essais simultanes : l'adresse est comptee avant le controle, et chaque candidat est relu sous verrou
@@ -490,7 +507,7 @@ def pin_login(request, candidates, pin, error, **extra):
 
 @api_view(['POST'])
 @handle_errors
-def pin_forgot(request):
+def pin_forgot(request: Request) -> None:
     """Code oublie : {"matricule", "key"} (badge) -> PIN bloque jusqu'a sa reinitialisation par un admin.
 
     Meme reponse qu'apres 50 essais faux (403 pin_blocked + lien de deblocage) ; les admins sont prevenus
@@ -509,7 +526,7 @@ def pin_forgot(request):
 
 @api_view(['POST'])
 @handle_errors
-def pin_reset(request):
+def pin_reset(request: Request) -> Response:
     """Deblocage d'un PIN par un admin (lien envoye par l'utilisateur bloque) :
     {"user": badge admin, "matricule", "token"} -> fiche de l'utilisateur ; avec "confirm": true -> PIN reinitialise,
     l'utilisateur en choisira un nouveau a sa prochaine connexion."""
@@ -537,7 +554,7 @@ def pin_reset(request):
 
 @api_view(['GET'])
 @handle_errors
-def item_detail(request, iid):
+def item_detail(request: Request, iid: str) -> Response:
     item = get_object_or_404(Items.objects.select_related('pack__item_type', 'location__lot_type'), iid=iid)
     if item.pack.item_type.lost_object:
         # objet qu'on peut perdre (ordinateur...) : fiche ouverte par la personne qui l'a trouve, avec le message
@@ -552,7 +569,7 @@ def item_detail(request, iid):
 
 @api_view(['POST'])
 @handle_errors
-def item_revision(request, iid):
+def item_revision(request: Request, iid: str) -> Response:
     """Revision ou desinfection d'un item (materiel non consommable), roles gestion et admin seulement : {"user",
     "kind": "revision" (par defaut) ou "disinfection", "tasks": taches cochees (toutes), "next_due": date de la
     prochaine (par defaut aujourd'hui + la periodicite du type), "note"}."""
@@ -574,7 +591,7 @@ def item_revision(request, iid):
 
 @api_view(['POST'])
 @handle_errors
-def item_maintenance_date(request, iid):
+def item_maintenance_date(request: Request, iid: str) -> Response:
     """Date de revision ou de desinfection saisie a la main (roles gestion et admin, web ou poste), sans entretien
     fait : {"user", "kind", "last_done": derniere faite (facultatif), "next_due": prochaine (par defaut last_done + la
     periodicite), "note"}. Sert a recaler le cycle (materiel revise ailleurs, date connue)."""
@@ -595,7 +612,7 @@ def item_maintenance_date(request, iid):
 
 @api_view(['GET'])
 @handle_errors
-def revisions_due(request):
+def revisions_due(request: Request) -> Response:
     """Materiel a reviser (en retard ou dans les `days` jours, 30 par defaut), pour les postes."""
     days = parse_int(request.query_params.get('days', 30), 'days', 0, 366)
     return Response([ser.item_dict(item) for item in services.revisions_due(days=days)])
@@ -603,7 +620,7 @@ def revisions_due(request):
 
 @api_view(['GET'])
 @handle_errors
-def lot_detail(request, lot_id):
+def lot_detail(request: Request, lot_id: str) -> Response:
     lot = get_object_or_404(Lots.objects.select_related('lot_type'), id=lot_id)
     if not is_front(request) and not lot.active:
         raise ApiError("Lot inconnu", status.HTTP_404_NOT_FOUND)
@@ -625,7 +642,7 @@ def lot_detail(request, lot_id):
     return Response(data)
 
 
-def lot_sheet_pdf(request, lot_id):
+def lot_sheet_pdf(request: HttpRequest, lot_id: str) -> HttpResponse:
     """Fiche d'inventaire papier du lot et de ses sous-lots (PDF A4, liste de controle, une page par sous-lot). Meme
     acces que le detail public du lot : la fiche ne contient que les items attendus, jamais les cles."""
     if request.method != 'GET':
@@ -642,7 +659,7 @@ def lot_sheet_pdf(request, lot_id):
 
 @api_view(['POST'])
 @handle_errors
-def lot_state_report(request, lot_id):
+def lot_state_report(request: Request, lot_id: str) -> HttpResponse:
     """Rapport d'etat du lot et de ses sous-lots a une date donnee (PDF A4), admins seulement, depuis le front web :
     {"user": badge admin, "at": "AAAA-MM-JJTHH:MM" (heure locale, passee), "antenna": nom de l'antenne}. Derniere
     verif, items avec iid et peremption, qui a edite le rapport et quand, case « Certifié par le TECH <antenne> ».
@@ -680,7 +697,7 @@ def lot_state_report(request, lot_id):
 
 @api_view(['POST'])
 @handle_errors
-def lot_unseal(request, lot_id):
+def lot_unseal(request: Request, lot_id: str) -> Response:
     """Scelle brise (ouverture du lot). Sur l'API publique, exige la cle du lot (etiquette privee)."""
     lot = get_object_or_404(Lots.objects.select_related('lot_type'), id=lot_id)
     require_lot_key(request, lot)
@@ -692,7 +709,7 @@ def lot_unseal(request, lot_id):
 
 @api_view(['POST'])
 @handle_errors
-def lot_return(request, lot_id):
+def lot_return(request: Request, lot_id: str) -> Response:
     """Bouton « Retour de ce lot » de la fiche (tout utilisateur connecte) : le lot parti avec une liste sortie est
     scanne rentre sur cette liste (checklists.lot_return) ; renvoie l'identifiant de la liste pour l'ouvrir."""
     from .. import checklists
@@ -704,7 +721,7 @@ def lot_return(request, lot_id):
 
 @api_view(['POST'])
 @handle_errors
-def lot_used(request, lot_id):
+def lot_used(request: Request, lot_id: str) -> Response:
     """Bouton « Marquer ce lot comme utilisé (demander une vérif) » : tout secouriste identifie (badge, ou nom declare
     si le serveur l'autorise), sans cle du lot. Le lot et ses sous-lots non scelles passent en verif recommandee."""
     lot = get_object_or_404(Lots.objects.select_related('lot_type'), id=lot_id)
@@ -724,7 +741,7 @@ def lot_used(request, lot_id):
 
 @api_view(['POST'])
 @handle_errors
-def lot_seal_open(request, lot_id):
+def lot_seal_open(request: Request, lot_id: str) -> Response:
     """Etiquette d'ouverture du scelle (rangee dans le lot) : son scan ouvre le scelle, sans cle ni connexion.
     L'ouverture est attribuee a l'utilisateur s'il est identifie ; sinon elle est anonyme et peut etre signee
     par un nouvel appel juste apres la connexion."""
@@ -748,7 +765,7 @@ def lot_seal_open(request, lot_id):
     })
 
 
-def verif_targets(request, entries, identity):
+def verif_targets(request: Request, entries: list[dict[str, str | None]], identity: str) -> list[Lots]:
     """Lots d'une verif ([{"id", "key"}, ...]) : tous du meme lot global. Sur l'API publique, sans badge (nom declare,
     option du serveur), une cle valide d'un seul de ces lots suffit pour toute la verif : celle du lot global, d'un
     lot ajoute ou d'un de leurs sous-lots (envoye dans la liste avec sa cle, il fait deja partie de la verif). Avec un
@@ -758,7 +775,8 @@ def verif_targets(request, entries, identity):
 
 
 
-def verif_lots(entries, local, holders=(), verified=False):
+def verif_lots(entries: list[Any], local: bool, holders: tuple[()] | list[tuple[Lots, str]] = (), verified: bool = False
+              ) -> list[Lots]:
     """verif_targets hors requete (vérif à plusieurs enregistree par le serveur, live.py). holders : [(lot, cle)]
     autres lots du meme lot global dont l'etiquette cle a ete scannee pendant la vérif (key_holders). verified :
     secouriste reconnu, l'etiquette cle n'est plus exigee (seulement pour une identite declaree)."""
@@ -795,7 +813,8 @@ def verif_lots(entries, local, holders=(), verified=False):
     return lots
 
 
-def require_label(lots, data, holders=(), sealed=(), extra=()):
+def require_label(lots: list[Lots], data: dict[str, Any], holders: Iterable[tuple[Lots, str]] = (),
+                  sealed: Iterable[Lots] = (), extra: Iterable[str] = ()) -> None:
     """API publique : l'etiquette (publique ou cle) d'au moins un des lots verifies, d'un de leurs sous-lots ou d'un
     lot qui les contient a ete scannee pendant la verif, pour ne pas valider la verif d'un autre lot. "labels" : [id]
     des lots dont l'etiquette a ete scannee ; une cle valide envoyee (lots, keys) ou le scelle intact d'un sous-lot
@@ -813,7 +832,7 @@ def require_label(lots, data, holders=(), sealed=(), extra=()):
     raise ApiError(label_error(lots), status.HTTP_403_FORBIDDEN, label_required=True)
 
 
-def de_name(name):
+def de_name(name: str) -> str:
     """« de » devant un nom de lot : « de Sac de soin », « d'Armoire 1 », « du Sac O2 » (pour « Le Sac O2 »), « des … »,
     « de la … », « de l'… ». Meme regle que deName (web/app/utils.js) et de_name (french.hpp)."""
     lower = name.lower()
@@ -823,7 +842,7 @@ def de_name(name):
     return ("d'" if name[:1].lower() in 'aeiouyàâéèêëîïôöùûü' and name else 'de ') + name
 
 
-def de_names(names):
+def de_names(names: list[str]) -> str:
     """« de A », « de A ou de B », « de A, de B ou de C »."""
     names = [de_name(name) for name in names]
     if not names:
@@ -831,7 +850,7 @@ def de_names(names):
     return names[0] if len(names) == 1 else ', '.join(names[:-1]) + ' ou ' + names[-1]
 
 
-def label_error(lots):
+def label_error(lots: list[Lots]) -> str:
     """Le nom des lots a scanner, pas « lot ou sous-lot » : « de B+ (ou celle de Sac de soin ou de Sac O2) »."""
     if len(lots) > 3:
         target = de_name(lots[0].name) + " ou d'un des autres lots de la vérif"
@@ -846,7 +865,7 @@ def label_error(lots):
     return f"Scannez l'étiquette {target} pour valider : c'est elle qui montre que la vérif est bien celle de ce lot."
 
 
-def key_holders(data, extra=None):
+def key_holders(data: dict[str, Any], extra: dict[str, str] | None = None) -> list[tuple[Lots, str]]:
     """"keys" d'une vérif en cascade : [{"id", "key"}], etiquettes cles d'autres lots du meme lot global scannees
     plus tot dans la vérif (ex : celle du VPS, puis la vérif d'une de ses armoires). Elles valident la vérif sans que
     ces lots en fassent partie. extra : {lot id: cle} gardees par la vérif à plusieurs (live.py)."""
@@ -864,7 +883,7 @@ def key_holders(data, extra=None):
     return [(lot, wanted[lot.id]) for lot in lots]
 
 
-def excluded_lots(data, lots):
+def excluded_lots(data: dict[str, Any], lots: list[Lots]) -> list[Lots]:
     """"exclude" d'une vérif en cascade : [id], sous-lots des lots verifies laisses de cote avec leurs sous-lots
     (services.perform_verif). Un lot verifie lui-meme ne peut pas etre exclu."""
     ids = data.get('exclude') or []
@@ -881,7 +900,7 @@ def excluded_lots(data, lots):
     return result
 
 
-def sealed_targets(data, lots):
+def sealed_targets(data: dict[str, Any], lots: list[Lots]) -> list[Lots]:
     """"sealed" d'une verif : [{"id", "code"}], lots scelles dont l'etiquette du scelle a ete scannee pendant la verif
     (services.perform_verif). Le code du scelle prouve le scan (il remplace la cle, rangee dans le lot scelle). Un lot
     d'un autre lot global, au scelle brise ou a l'etiquette d'un ancien scelle est refuse."""
@@ -889,7 +908,7 @@ def sealed_targets(data, lots):
     if not isinstance(entries, list):
         raise ApiError("sealed : liste [{id, code}] attendue")
     roots = {lot.root().id for lot in lots}
-    result = []
+    result: list[Lots] = []
     for entry in entries:
         if not isinstance(entry, dict):
             raise ApiError("sealed : liste [{id, code}] attendue")
@@ -907,7 +926,7 @@ def sealed_targets(data, lots):
 
 @api_view(['POST'])
 @handle_errors
-def lot_verif(request, lot_id):
+def lot_verif(request: Request, lot_id: str) -> Response:
     """Verif d'un lot et de ses sous-lots (cle du lot). 'partial' : voir verifs()."""
     identity = operation_identity(request)
     lots = verif_targets(request, [{'id': lot_id, 'key': request.data.get('key')}], identity)
@@ -922,7 +941,7 @@ def lot_verif(request, lot_id):
 
 @api_view(['POST'])
 @handle_errors
-def verifs(request):
+def verifs(request: Request) -> Response:
     """Verif de plusieurs lots d'un meme lot global : {"lots": [{"id", "key"}], "items": [...], "partial": bool}.
 
     Chaque lot est verifie avec ses sous-lots. En verif partielle, seuls les lots que les items scannes rendent
@@ -974,7 +993,7 @@ def verifs(request):
 VERIF_SENT_GAP = ser.VERIF_SENT_GAP
 
 
-def _client_time(value):
+def _client_time(value: str | None) -> datetime | None:
     if not isinstance(value, str) or not value:
         return None
     try:
@@ -986,7 +1005,7 @@ def _client_time(value):
     return parsed if timezone.is_aware(parsed) else timezone.make_aware(parsed)
 
 
-def verif_time(data):
+def verif_time(data: dict[str, Any]) -> datetime | None:
     """Heure de la verif d'apres l'appareil : "done_at" (validation, juste apres les scans) recale sur l'horloge du
     serveur par "sent_at" (heure de l'appareil a l'envoi) : seul compte le temps ecoule sur l'appareil entre les deux,
     pas son heure, souvent fausse. Jamais dans le futur ; None (heure de reception) sans "done_at" ou si la verif est
@@ -1011,7 +1030,7 @@ CASCADE_GAP = timedelta(minutes=30)
 
 @api_view(['POST'])
 @handle_errors
-def verifs_cache(request):
+def verifs_cache(request: Request) -> Response:
     """Cache de vérif des fronts (verif_cache) : {"buckets": {seau: empreinte deja connue}} -> seaux changes seulement
     (tout au premier appel). Public comme le detail d'un lot ou d'un item ; un badge envoye doit etre valide. Ni
     cles de lots ni codes de scelles."""
@@ -1022,7 +1041,7 @@ def verifs_cache(request):
 
 @api_view(['POST'])
 @handle_errors
-def verifs_recent(request):
+def verifs_recent(request: Request) -> Response:
     """Dernieres verifs de lots (page « Suivi des vérifs ») : tout badge valide. Une verif groupee (meme instant,
     meme personne) et les etapes d'une verif en cascade forment une seule ligne avec la liste de ses lots ; "ids" :
     une verif par etape, que le compte rendu reunit."""
@@ -1030,7 +1049,7 @@ def verifs_recent(request):
     limit = parse_int(request.data.get('limit', RECENT_VERIFS), 'limit', 1, 100)
     parents = dict(Lots.objects.values_list('id', 'parent_id'))
 
-    def root(lot_id):
+    def root(lot_id: str) -> str:
         seen = set()
         while parents.get(lot_id) and lot_id not in seen:
             seen.add(lot_id)
@@ -1038,13 +1057,13 @@ def verifs_recent(request):
         return lot_id
 
     # etapes : verifs au meme instant par la meme personne (verif groupee d'un lot et de ses sous-lots)
-    steps = []
+    steps: list[list[Verifs]] = []
     for verif in Verifs.objects.select_related('lot').filter(lot__isnull=False).order_by('-datetime', '-id')[:limit * 20]:
         if steps and (steps[-1][0].datetime, steps[-1][0].by) == (verif.datetime, verif.by):
             steps[-1].append(verif)
         else:
             steps.append([verif])
-    rows = []
+    rows: list[dict[str, Any]] = []
     for step in steps:
         head = step[0]
         roots = {root(verif.lot_id) for verif in step}
@@ -1090,7 +1109,7 @@ REPORT_OPERATION_KINDS = (OperationKind.RESTOCK, OperationKind.REMOVE, Operation
 
 @api_view(['POST'])
 @handle_errors
-def verif_report(request, verif_id):
+def verif_report(request: Request, verif_id: int) -> Response:
     """Compte rendu d'une verif passee (clic sur une ligne de « Vérifs récentes ») : tout badge valide, comme la
     liste. Une verif groupee (meme instant, meme personne) est rendue en entier, un lot par sous-lot verifie."""
     badge_user(request)
@@ -1100,13 +1119,13 @@ def verif_report(request, verif_id):
     by_lot = {verif.lot_id: verif for verif in verifs}
     operations = list(Operation.objects.filter(at=first.datetime, by=first.by).order_by('id'))
     details = {op.details.get('verif'): op.details for op in operations if op.kind == OperationKind.VERIF}
-    entries = defaultdict(lambda: defaultdict(Counter))
+    entries: defaultdict[int, defaultdict[str, Counter[tuple[str, date | None]]]] = defaultdict(lambda: defaultdict(Counter))
     for entry in VerifItem.objects.filter(verif__in=verifs).select_related('item__pack__item_type'):
         pack = entry.item.pack
         section = 'expired' if entry.result == VerifResult.PRESENT and entry.expired else entry.result
         entries[entry.verif_id][section][(pack.item_type.name, pack.peremption)] += 1
 
-    def depth(lot):
+    def depth(lot: Lots) -> int:
         level, parent = 0, lot.parent_id
         while parent in by_lot and level < len(by_lot):
             level += 1
@@ -1162,7 +1181,7 @@ def verif_report(request, verif_id):
 
 @api_view(['POST'])
 @handle_errors
-def items_out(request):
+def items_out(request: Request) -> Response:
     """Items sortis du stock sans lot : {"items": [...]}. Ils comptent comme utilises s'ils ne sont pas revus a une
     verif dans QRPROTEC['OUT_DAYS'] jours (ou a leur peremption). Meme identite qu'une verif."""
     identity = operation_identity(request)
@@ -1171,7 +1190,7 @@ def items_out(request):
 
 @api_view(['POST'])
 @handle_errors
-def lot_add_items(request, lot_id):
+def lot_add_items(request: Request, lot_id: str) -> Response:
     """Reassort d'un lot. Sur l'API publique : sa cle sous un nom declare, l'etiquette du lot avec un badge (verif)."""
     lot = get_object_or_404(Lots, id=lot_id)
     identity = operation_identity(request)
@@ -1185,7 +1204,7 @@ def lot_add_items(request, lot_id):
 
 @api_view(['POST'])
 @handle_errors
-def lots_summary(request):
+def lots_summary(request: Request) -> Response:
     """Liste des lots actifs et de leur etat (lecture seule) : page « État des lots » et choix d'un lot a verifier.
     Publique comme le detail d'un lot (etiquettes publiques) ; un badge envoye doit etre valide. Les cles des lots
     ne sont jamais renvoyees."""
@@ -1200,7 +1219,7 @@ def lots_summary(request):
 
 @api_view(['POST'])
 @handle_errors
-def lots_order(request):
+def lots_order(request: Request) -> Response:
     """Ordre choisi des lots d'un meme niveau (onglet « Ordre des lots » de la Gestion des lots, au poste seulement :
     c'est de la gestion des lots, Hippolyte 2026-11-11 ; gestion et admin) :
     {"parent": id du lot (vide : les lots globaux), "lots": [ids dans l'ordre voulu]} ; les freres absents de la liste
@@ -1243,7 +1262,7 @@ def lots_order(request):
     return Response(_with_out(ser.lot_list(queryset, local=True)))  # meme liste que GET /api/lots/
 
 
-def _with_out(rows):
+def _with_out(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """État des lots (web et poste) : `out_with` = nom de la liste avec laquelle le lot est en poste (parti avec une
     liste sortie, pas encore rentre ; sous-lots compris, avec leur lot), '' sinon."""
     from .. import checklists
@@ -1259,14 +1278,14 @@ def _with_out(rows):
 
 @api_view(['POST'])
 @handle_errors
-def stock_summary(request):
+def stock_summary(request: Request) -> Response:
     """Etat des stocks en lecture seule, reserve aux roles gestion et admin (badge)."""
     badge_user(request, (Role.GESTION, Role.ADMIN))
     soon = parse_int(request.data.get('soon_days', 30), 'soon_days', 0, 3650)
     return Response(services.stock_status(soon))
 
 
-def forecast_params(params):
+def forecast_params(params: dict[str, Any] | QueryDict) -> dict[str, int | None]:
     return {
         'months': parse_int(params.get('months', 6), 'months', 1, 24),
         'lead_days': parse_int(params['lead_days'], 'lead_days', 0, 365) if 'lead_days' in params else None,
@@ -1277,7 +1296,7 @@ def forecast_params(params):
 
 @api_view(['POST'])
 @handle_errors
-def stock_forecast_summary(request):
+def stock_forecast_summary(request: Request) -> Response:
     """Previsions de stock en lecture seule pour le front web, reservees aux roles gestion et admin (badge)."""
     badge_user(request, (Role.GESTION, Role.ADMIN))
     return Response(forecast.forecast(**forecast_params(request.data)))
@@ -1285,7 +1304,7 @@ def stock_forecast_summary(request):
 
 @api_view(['POST'])
 @handle_errors
-def tasks_summary(request):
+def tasks_summary(request: Request) -> Response:
     """Liste de taches de la gestion (« Gestion de la TECH » du front web), roles gestion et admin (badge)."""
     badge_user(request, GESTION)
     return Response(tasks.todo())
@@ -1293,7 +1312,7 @@ def tasks_summary(request):
 
 @api_view(['POST'])
 @handle_errors
-def orders_create(request):
+def orders_create(request: Request) -> Response:
     """Case « Commandé » d'une commande suggeree (taches du TECH, web ou poste) : {"user", "type", "quantity"}. La
     suggestion ne revient plus tant que la commande n'est pas livree (receptions de ce type) ou decochee."""
     connected_user(request, GESTION)
@@ -1308,7 +1327,7 @@ def orders_create(request):
 
 @api_view(['POST'])
 @handle_errors
-def orders_cancel(request, order_id):
+def orders_cancel(request: Request, order_id: int) -> Response:
     """Decoche une commande passee (erreur, ou elle ne viendra pas) : la suggestion revient si elle tient toujours."""
     connected_user(request, GESTION)
     identity = operation_identity(request)
@@ -1325,7 +1344,7 @@ def orders_cancel(request, order_id):
 
 @api_view(['POST'])
 @handle_errors
-def debug_codes_list(request):
+def debug_codes_list(request: Request) -> Response:
     """Outil de debug des codes du front web (cache derriere 5 appuis sur « État des stocks ») : contenu de toutes
     les etiquettes imprimables, sauf les badges. Administrateurs seulement, verifie ici et pas seulement par le front."""
     connected_user(request, ADMIN)
@@ -1334,7 +1353,7 @@ def debug_codes_list(request):
 
 @api_view(['POST'])
 @handle_errors
-def fun_stats_view(request):
+def fun_stats_view(request: Request) -> Response:
     """Stats fun de l'annee (front web, cache derriere 5 appuis sur « Prévisions ») : {"user", "period"?: "last12" ou
     une annee}. Roles gestion et admin, verifie ici et pas seulement par le front."""
     connected_user(request, GESTION)
@@ -1346,7 +1365,7 @@ def fun_stats_view(request):
 
 @api_view(['POST'])
 @handle_errors
-def debug_temp_login(request):
+def debug_temp_login(request: Request) -> Response:
     """QR code de connexion de depannage d'un secouriste (outil de debug, admins) : {"user", "matricule"} -> lien
     badge?m=...&t=... valable 1 h, qui ouvre une session de 24 h sur le telephone qui le scanne. Jamais pour un
     admin (son PIN est obligatoire). Chaque QR code cree est note au journal."""
@@ -1369,7 +1388,7 @@ def debug_temp_login(request):
 
 @api_view(['POST'])
 @handle_errors
-def debug_guest_cards(request):
+def debug_guest_cards(request: Request) -> Response:
     """Cartes d'invites depuis l'outil de debug du web (admins) : {"user", "action"?}.
     - sans action (ou "list") : toutes les cartes, avec l'admin qui a cree chacune ;
     - "create" : nouvelle carte montree a l'ecran (lien badge?m=...&key=... en QR code), a activer dans les 24 h,
@@ -1410,7 +1429,7 @@ def debug_guest_cards(request):
 
 @api_view(['GET'])
 @handle_errors
-def tasks_list(request):
+def tasks_list(request: Request) -> Response:
     """Liste de taches de la gestion pour le poste (fenetre Gestion de la TECH), roles gestion et admin."""
     require_front(request, GESTION)
     return Response(tasks.todo(consumables_tasks=True))
@@ -1418,7 +1437,7 @@ def tasks_list(request):
 
 @api_view(['POST'])
 @handle_errors
-def lot_disinfection(request, lot_id):
+def lot_disinfection(request: Request, lot_id: str) -> Response:
     """Desinfection d'un lot lui-meme (cellule du VPS...), roles gestion et admin, web ou poste : {"user", "months"
     (periodicite, 0 : aucune), "done": true (faite maintenant, "next_due" facultatif), ou "last_done" / "next_due"
     (dates saisies a la main), "note"}. Repond la desinfection du lot (serializers.lot_disinfection)."""
@@ -1439,7 +1458,7 @@ def lot_disinfection(request, lot_id):
 
 @api_view(['GET'])
 @handle_errors
-def maintenance_overview(request):
+def maintenance_overview(request: Request) -> Response:
     """Onglet Materiel de l'Inventaire du poste (gestion, admin) : materiel non consommable suivi (revision,
     desinfection) et lots a desinfecter."""
     require_front(request, GESTION)
@@ -1452,13 +1471,13 @@ def maintenance_overview(request):
                               .order_by('disinfection_due', 'name')]})
 
 
-def _events_days(value):
+def _events_days(value: str) -> int:
     return parse_int(value if value not in (None, '') else tasks.EVENTS_DAYS, 'days', 1, 400)
 
 
 @api_view(['POST'])
 @handle_errors
-def events_summary(request):
+def events_summary(request: Request) -> Response:
     """Evenements a venir de la gestion (« Gestion de la TECH » du front web, onglet À venir), roles gestion et admin
     (badge) : {"user", "days": horizon en jours}."""
     badge_user(request, GESTION)
@@ -1467,7 +1486,7 @@ def events_summary(request):
 
 @api_view(['GET'])
 @handle_errors
-def events_list(request):
+def events_list(request: Request) -> Response:
     """Evenements a venir pour le poste (fenetre Gestion de la TECH, onglet À venir), roles gestion et admin."""
     require_front(request, GESTION)
     return Response(tasks.events(days=_events_days(request.query_params.get('days'))))
@@ -1475,23 +1494,23 @@ def events_list(request):
 
 # Notifications web (roles gestion et admin, depuis le front web)
 
-def push_available():
+def push_available() -> None:
     if not webpush.available():
         raise ApiError("Notifications web indisponibles sur ce serveur (module python3-cryptography absent)",
                        status.HTTP_503_SERVICE_UNAVAILABLE)
 
 
-def push_types_list(user):
+def push_types_list(user: Secouristes) -> list[dict[str, str]]:
     """Types de notifications web que l'utilisateur peut choisir, dans l'ordre d'affichage."""
     allowed = user.push_types()
     return [{'type': name, 'label': label} for name, (label, _, _) in PUSH_TYPES.items() if name in allowed]
 
 
-def push_options(subscription):
+def push_options(subscription: PushSubscription) -> dict[str, bool]:
     return {name: getattr(subscription, name) for name in PUSH_TYPES}
 
 
-def push_subscription_dict(subscription, user):
+def push_subscription_dict(subscription: PushSubscription | None, user: Secouristes) -> dict[str, Any]:
     data = {'subscribed': subscription is not None, 'types': push_types_list(user)}
     if subscription is None:
         data.update({name: default for name, (_, _, default) in PUSH_TYPES.items()})
@@ -1504,7 +1523,7 @@ def push_subscription_dict(subscription, user):
     }
 
 
-def push_device_dict(subscription, endpoint=''):
+def push_device_dict(subscription: PushSubscription, endpoint: str = '') -> dict[str, Any]:
     return {
         'id': subscription.id,
         'device': subscription.device or 'Appareil',
@@ -1516,12 +1535,12 @@ def push_device_dict(subscription, endpoint=''):
     }
 
 
-def push_devices_dict(user, endpoint=''):
+def push_devices_dict(user: Secouristes, endpoint: str = '') -> dict[str, Any]:
     devices = user.push_subscriptions.order_by('-created')
     return {'types': push_types_list(user), 'devices': [push_device_dict(device, endpoint) for device in devices]}
 
 
-def apply_push_options(subscription, data):
+def apply_push_options(subscription: PushSubscription, data: dict[str, Any]) -> None:
     for name in PUSH_TYPES:
         if name in data:
             setattr(subscription, name, bool(data[name]))
@@ -1529,7 +1548,7 @@ def apply_push_options(subscription, data):
 
 @api_view(['GET'])
 @handle_errors
-def push_key(request):
+def push_key(request: Request) -> Response:
     """Cle publique VAPID (applicationServerKey) a donner au navigateur pour s'abonner."""
     push_available()
     return Response({'public_key': webpush.public_key()})
@@ -1537,7 +1556,7 @@ def push_key(request):
 
 @api_view(['POST'])
 @handle_errors
-def push_subscription(request):
+def push_subscription(request: Request) -> Response:
     """Etat de l'abonnement de ce navigateur (endpoint), ou creation / mise a jour si `subscription` est donne.
 
     {"user": badge, "endpoint": ...} -> etat ; {"user": badge, "subscription": {endpoint, keys: {p256dh, auth}},
@@ -1572,7 +1591,7 @@ def push_subscription(request):
 
 @api_view(['POST'])
 @handle_errors
-def push_devices(request):
+def push_devices(request: Request) -> Response:
     """Gestionnaire des notifications : les appareils abonnes de l'utilisateur connecte.
 
     {"user": badge, "endpoint": celui de ce navigateur (facultatif, pour le reperer)} -> {types, devices}.
@@ -1583,7 +1602,7 @@ def push_devices(request):
 
 @api_view(['POST'])
 @handle_errors
-def push_device(request, device_id):
+def push_device(request: Request, device_id: int) -> Response:
     """Un appareil de l'utilisateur connecte : {"user": badge, types: bool} change ses alertes,
     {"user": badge, "delete": true} le desabonne. Repond la liste a jour, comme push/devices/."""
     user = badge_user(request, GESTION)
@@ -1598,7 +1617,7 @@ def push_device(request, device_id):
 
 @api_view(['POST'])
 @handle_errors
-def push_unsubscribe(request):
+def push_unsubscribe(request: Request) -> Response:
     """Desabonnement de ce navigateur : l'endpoint suffit (il n'est connu que du navigateur et du serveur)."""
     deleted, _ = PushSubscription.objects.filter(endpoint=str(request.data.get('endpoint', ''))).delete()
     return Response({'subscribed': False, 'deleted': bool(deleted)})
@@ -1606,7 +1625,7 @@ def push_unsubscribe(request):
 
 @api_view(['POST'])
 @handle_errors
-def push_test(request):
+def push_test(request: Request) -> Response:
     """Notification de test vers ce navigateur."""
     user = badge_user(request, GESTION)
     push_available()
@@ -1625,7 +1644,7 @@ def push_test(request):
 # Signalements de problemes (voir reports.py) : utilisateur connecte, sur le front web (badge ou session) comme
 # sur un poste (session du poste)
 
-def connected_user(request, roles=None):
+def connected_user(request: Request, roles: tuple[Role] | tuple[Role, Role] | None = None) -> Secouristes:
     if is_front(request):
         return require_front(request, roles or ALL_ROLES)
     return badge_user(request, roles)
@@ -1633,7 +1652,7 @@ def connected_user(request, roles=None):
 
 @api_view(['POST'])
 @handle_errors
-def reports_create(request):
+def reports_create(request: Request) -> Response:
     """Nouveau signalement : {"user", "lot"?, "item"?, "type"?, "pack"? (paquet ferme), "comment", "usable"}. Envoye aux admins, independant
     de toute verif. Repond le signalement et l'item a jour (signale inutilisable : a remplacer)."""
     user = connected_user(request)
@@ -1654,7 +1673,7 @@ def reports_create(request):
 
 @api_view(['POST'])
 @handle_errors
-def reports_list(request):
+def reports_list(request: Request) -> Response:
     """Signalements en lecture seule pour tout utilisateur connecte : {"user", "show": "open" | "all"}.
     `can_manage` : l'utilisateur est admin (prise en charge, statut, reponse)."""
     user = connected_user(request)
@@ -1664,7 +1683,7 @@ def reports_list(request):
 
 @api_view(['POST'])
 @handle_errors
-def report_update(request, report_id):
+def report_update(request: Request, report_id: int) -> Response:
     """Prise en charge par un admin : {"user", "status": new|progress|resolved, "usable": bool, "note": reponse en
     cours (remplacee), "resolution": ok|disabled|removed (issue pour l'item, en resolvant), "resolution_note": reponse
     de la resolution}."""
@@ -1679,6 +1698,6 @@ def report_update(request, report_id):
 
 @api_view(['GET'])
 @handle_errors
-def sealed_pack_detail(request, pack_id):
+def sealed_pack_detail(request: Request, pack_id: str) -> Response:
     sealed_pack = get_object_or_404(SealedPacks.objects.select_related('item_type'), id=pack_id)
     return Response(ser.sealed_pack_dict(sealed_pack))

@@ -14,9 +14,16 @@ Le front web et le poste renvoient ce jeton au lieu de redemander le PIN. Apres 
 telephone n'a pas la cle du badge : le jeton la remplace dans les identifiants {"matricule", "session"}.
 """
 
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Any
+
 from django.core import signing
 
 from .models import Secouristes
+
+if TYPE_CHECKING:
+    from rest_framework.request import Request
 
 SESSION_SALT = 'qrprotec.session'
 SESSION_MAX_AGE = 12 * 3600  # jeton de session apres verification du PIN
@@ -44,7 +51,7 @@ AUTH_METHODS = {
 }
 
 
-def session_token(user, temporary=False, passkey=False, method=''):
+def session_token(user: Secouristes, temporary: bool = False, passkey: bool = False, method: str = '') -> str:
     # lie au badge courant : renouveler le badge invalide les sessions. `pk` : session ouverte avec une passkey (le
     # web propose alors le QR code de connexion au poste). `a` : moyen de connexion (AUTH_METHODS), pour le journal
     data = {'m': user.matricule, 'k': user.key_hash[-8:]}
@@ -55,13 +62,13 @@ def session_token(user, temporary=False, passkey=False, method=''):
     return signing.dumps(data, salt=TEMP_SESSION_SALT if temporary else SESSION_SALT)
 
 
-def session_method(token):
+def session_method(token: str) -> str | None:
     """Moyen de connexion d'un jeton de session valide ('' : jeton d'avant ce suivi), None si le jeton est invalide."""
     data = _session_data(token)
     return None if data is None else str(data.get('a') or '')
 
 
-def auth_label(request):
+def auth_label(request: Request | None) -> str:
     """Moyen d'authentification d'une requete, pour le journal des operations : « Web : passkey », « Poste principal :
     carte + PIN », « Poste distant (clé API « Borne B ») : nom + PIN ». '' sans requete ni personne connectee."""
     if request is None:
@@ -90,13 +97,13 @@ def auth_label(request):
     return f'Poste distant (clé API « {name} ») : {label}' if name else f'Poste principal : {label}'
 
 
-def passkey_session(user, token) -> bool:
+def passkey_session(user: Secouristes, token: str) -> bool:
     """Jeton de session valide de cet utilisateur, ouvert avec une passkey ?"""
     data = _session_data(token)
     return data is not None and data.get('pk') == 1 and session_valid(user, token)
 
 
-def _session_data(token):
+def _session_data(token: str | None) -> dict[str, Any] | None:
     """Contenu d'un jeton de session (normale 12 h, ou de depannage 24 h), None s'il est invalide ou expire."""
     for salt, max_age in ((SESSION_SALT, SESSION_MAX_AGE), (TEMP_SESSION_SALT, TEMP_SESSION_MAX_AGE)):
         try:
@@ -106,7 +113,7 @@ def _session_data(token):
     return None
 
 
-def temp_login_token(user, passkey=False):
+def temp_login_token(user: Secouristes, passkey: bool = False) -> str:
     """Jeton du QR code de connexion de depannage (1 h), lie au badge courant comme les sessions. `passkey` : QR code
     de connexion au poste montre par le secouriste lui-meme, connecte avec sa passkey (5 min)."""
     data = {'m': user.matricule, 'k': user.key_hash[-8:]}
@@ -115,7 +122,7 @@ def temp_login_token(user, passkey=False):
     return signing.dumps(data, salt=TEMP_LOGIN_SALT)
 
 
-def temp_login_data(token):
+def temp_login_data(token: str) -> dict[str, Any] | None:
     """Contenu d'un jeton de QR code de connexion valide (1 h, 5 min s'il vient d'une passkey), None sinon."""
     try:
         data = signing.loads(str(token or ''), salt=TEMP_LOGIN_SALT, max_age=TEMP_LOGIN_MAX_AGE)
@@ -126,7 +133,7 @@ def temp_login_data(token):
     return data
 
 
-def temp_login_user(matricule, token):
+def temp_login_user(matricule: str, token: str) -> Secouristes | None:
     """Secouriste d'un QR code de depannage valide (moins d'1 h, meme badge, PIN non bloque), None sinon."""
     data = temp_login_data(token)
     if data is None:
@@ -138,7 +145,7 @@ def temp_login_user(matricule, token):
     return user
 
 
-def session_user(token):
+def session_user(token: str) -> Secouristes | None:
     """Utilisateur d'un jeton de session valide (badge valide, PIN non bloque), None sinon."""
     data = _session_data(token)
     if data is None:
@@ -149,7 +156,7 @@ def session_user(token):
     return user
 
 
-def session_valid(user, token):
+def session_valid(user: Secouristes, token: str | None) -> bool:
     data = _session_data(token)
     if data is None:
         return False
@@ -157,7 +164,7 @@ def session_valid(user, token):
     return data.get('m') == user.matricule and data.get('k') == user.key_hash[-8:] and user.pin_blocked is None
 
 
-def credentials_user(credentials):
+def credentials_user(credentials: str | dict[str, str] | None) -> Secouristes | None:
     """Secouriste d'identifiants {"matricule", "key"} (badge) ou {"matricule", "session"} (jeton de connexion, seul
     identifiant du telephone apres une connexion par nom et PIN). None s'ils ne sont pas valides."""
     if not isinstance(credentials, dict):

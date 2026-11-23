@@ -10,13 +10,21 @@
 
 """Journal des operations : qui fait quoi et quand (verifs, scelles, reassorts, receptions, gestion...)."""
 
+from __future__ import annotations
+
 import threading
 from collections import Counter
+from typing import TYPE_CHECKING, Any
 
 from django.utils import timezone
 
 from .idendity import SOURCE_VERIFIED
 from .models import Operation, Secouristes
+
+if TYPE_CHECKING:
+    from datetime import datetime
+    from inventory.models import Items, Lots, OperationKind
+    from rest_framework.request import Request
 
 MAX_LISTED_ITEMS = 500  # iids gardes dans le detail d'une operation
 
@@ -25,14 +33,15 @@ MAX_LISTED_ITEMS = 500  # iids gardes dans le detail d'une operation
 _current = threading.local()
 
 
-def set_request(request):
+def set_request(request: Request | None) -> Request | None:
     """Pose la requete en cours et rend la precedente (a remettre a la fin)."""
     previous = getattr(_current, 'request', None)
     _current.request = request
     return previous
 
 
-def record(kind, by, summary='', lot=None, at=None, **details):
+def record(kind: OperationKind, by: str, summary: str = '', lot: Lots | None = None, at: datetime | None = None,
+           **details: Any) -> Operation:
     """Ajoute une operation au journal. `lot` : le lot concerne (son nom est garde tel qu'il etait). `details.auth` :
     moyen d'authentification de la requete en cours (web : moyen de connexion ; poste principal : carte, PIN... ;
     poste distant : en plus le nom de sa cle API), voir sessions.auth_label."""
@@ -47,27 +56,27 @@ def record(kind, by, summary='', lot=None, at=None, **details):
     )
 
 
-def types_summary(items):
+def types_summary(items: list[Items]) -> str:
     """« 3 × Compresse, 1 × Gants » pour une liste d'items (pack.item_type charge)."""
     counts = Counter(item.pack.item_type.name for item in items)
     return ', '.join(f'{count} × {name}' for name, count in sorted(counts.items()))
 
 
-def item_ids(items):
+def item_ids(items: list[Items]) -> list[str]:
     return [item.iid for item in items][:MAX_LISTED_ITEMS]
 
 
-def pl(count, word, plural_form=None):
+def pl(count: int, word: str, plural_form: str | None = None) -> str:
     """Accord en nombre : singulier pour 0 et 1, pluriel au-dela (par defaut le mot suivi d'un s)."""
     return (plural_form or word + 's') if count > 1 else word
 
 
-def plural(count, word, plural_form=None):
+def plural(count: int, word: str, plural_form: str | None = None) -> str:
     """« 3 items », « 1 item », « 0 item »."""
     return f'{count} {pl(count, word, plural_form)}'
 
 
-def names(identities):
+def names(identities: set[str] | list[str]) -> dict[str, str]:
     """Noms affiches des identites stockees (une seule requete pour tous les matricules)."""
     identities = set(identities)
     matricules = {value.partition(':')[2] for value in identities if value.startswith(SOURCE_VERIFIED + ':')}

@@ -10,9 +10,13 @@
 
 """Logique metier de l'inventaire : verifs, mouvements d'items, etat des stocks."""
 
+from __future__ import annotations
+
 from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
+from typing import TYPE_CHECKING, Any
+from collections.abc import Callable
 
 from django.db import transaction
 from django.db.models import Count, F, Q
@@ -28,6 +32,10 @@ from .models import (
     qrprotec_setting, revision_blocked_q,
 )
 
+if TYPE_CHECKING:
+    from django.db.models.query import QuerySet
+    from collections.abc import Collection, Iterable, Iterator, Mapping, Sequence
+
 
 class VerifTitles:
     """Noms qui resument une verif (ligne de « Vérifs récentes », carte terminee du suivi en direct) : les lots
@@ -36,41 +44,41 @@ class VerifTitles:
     non facultatifs. Un lot verifie dont les sous-lots n'y sont pas tous, sans contenu a lui (le Stock, 0 item) et
     avec un sous-lot nomme n'est qu'un cadre : ni nomme ni compte."""
 
-    def __init__(self, parents=None):
+    def __init__(self, parents: dict[str, str | None] | None = None) -> None:
         self.parents = dict(Lots.objects.values_list('id', 'parent_id')) if parents is None else parents
         self.children = defaultdict(list)
-        self.lots = {}
+        self.lots: dict[str, Lots | None] = {}
         for lot in Lots.objects.select_related('lot_type').filter(active=True, parent__isnull=False):
             if not optional_lot(lot):
                 self.children[lot.parent_id].append(lot.id)
-        self.no_own = {}
+        self.no_own: dict[str, bool] = {}
 
-    def _lot(self, lot_id):
+    def _lot(self, lot_id: str) -> Lots | None:
         if lot_id not in self.lots:
             self.lots[lot_id] = Lots.objects.select_related('lot_type').filter(id=lot_id).first()
         return self.lots[lot_id]
 
-    def _without_content(self, lot_id):
+    def _without_content(self, lot_id: str) -> bool:
         # lot sans contenu a lui (B+ de referentiel, lot cache) : verifie par ses sous-lots, pas d'etape a lui
         if lot_id not in self.no_own:
             lot = self._lot(lot_id)
             self.no_own[lot_id] = bool(lot) and (virtual_lot(lot) or hidden_in_verif(lot))
         return self.no_own[lot_id]
 
-    def _ancestors(self, lot_id):
+    def _ancestors(self, lot_id: str) -> Iterator[str]:
         seen = set()
         while self.parents.get(lot_id) and lot_id not in seen:
             seen.add(lot_id)
             lot_id = self.parents[lot_id]
             yield lot_id
 
-    def names(self, lots):
+    def names(self, lots: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], set[str]]:
         """lots : [{'id', 'name', 'complete', 'parent', '_own' (contenu a lui compte)}] -> (lots qui nomment la
         verif, ids des lots cadres a ne pas compter)."""
         verified = {lot['id'] for lot in lots}
         memo = {}
 
-        def covered(lot_id):
+        def covered(lot_id: str) -> bool:
             if lot_id not in memo:
                 memo[lot_id] = False  # garde contre une boucle
                 kids = self.children.get(lot_id, [])
@@ -78,7 +86,7 @@ class VerifTitles:
                                     and all(covered(kid) for kid in kids))
             return memo[lot_id]
 
-        def top_covered(lot_id):
+        def top_covered(lot_id: str) -> str:
             while self.parents.get(lot_id) and covered(self.parents[lot_id]):
                 lot_id = self.parents[lot_id]
             return lot_id
@@ -106,11 +114,11 @@ class VerifTitles:
         return result, frames
 
     @staticmethod
-    def row(verif):
+    def row(verif: Verifs) -> dict[str, Any]:
         return {'id': verif.lot_id, 'name': verif.lot.name, 'complete': verif.complete, 'parent': verif.lot.parent_id,
                 '_own': verif.present_count + verif.missing_count + verif.expired_count > 0}
 
-    def for_verifs(self, verif_ids):
+    def for_verifs(self, verif_ids: list[int]) -> tuple[list[dict[str, Any]], int]:
         """Verifs enregistrees (une par etape d'une cascade, chacune avec sa verif groupee : meme instant, meme
         personne) -> (noms, nombre de lots verifies sans les cadres)."""
         heads = list(Verifs.objects.filter(id__in=verif_ids, lot__isnull=False))
@@ -119,7 +127,7 @@ class VerifTitles:
         query = Q()
         for head in heads:
             query |= Q(datetime=head.datetime, by=head.by)
-        by_lot = {}
+        by_lot: dict[str, dict[str, Any]] = {}
         for verif in Verifs.objects.select_related('lot').filter(query, lot__isnull=False).order_by('datetime', 'id'):
             by_lot.pop(verif.lot_id, None)
             by_lot[verif.lot_id] = self.row(verif)  # lot revu a plusieurs etapes : sa derniere verif
@@ -128,7 +136,7 @@ class VerifTitles:
         return names, len(lots) - len(frames)
 
 
-def restock_credit(lot, settings_row=None):
+def restock_credit(lot: Lots, settings_row: ServerSettings | None = None) -> dict[str, Any] | None:
     """Credit de confiance du reassort (reglage restock_verif_recommended decoche) : {'outings_left', 'until'} tant
     que le lot n'a pas eu plus de restock_credit_outings sorties ni plus de restock_credit_days jours depuis sa
     derniere verif complete, sinon None. None aussi quand le reglage est coche (tout reassort recommande la verif),
@@ -143,7 +151,7 @@ def restock_credit(lot, settings_row=None):
     return {'outings_left': left, 'until': until}
 
 
-def apply_restock(lot, identity, now, count):
+def apply_restock(lot: Lots, identity: str, now: datetime, count: int) -> list[str]:
     """Reassort de `count` items dans `lot` sans verif complete. Reglage du serveur coche (defaut) : verif
     recommandee pour les suivants dans tous les cas. Decoche : sous le credit de confiance (restock_credit), le lot
     revient au vert (« réassorti »), meme rentre d'une liste ou marque utilise ; credit epuise : verif recommandee.
@@ -168,22 +176,22 @@ def apply_restock(lot, identity, now, count):
     return fields
 
 
-def count_outing(lots):
+def count_outing(lots: list[Lots]) -> None:
     """Une sortie de plus (liste de depart validee, lot marque utilise) pour le credit de confiance du reassort."""
     ids = [lot.id for lot in lots if not lot.is_sealed and not lot.lot_type.storage]
     if ids:
         Lots.objects.filter(id__in=ids).update(outings=F('outings') + 1)
 
 
-def display_name(identity):
+def display_name(identity: str | None) -> str:
     return parse_identity(identity)['display_name'] if identity else '?'
 
 
-def _items_queryset():
+def _items_queryset() -> QuerySet:
     return Items.objects.select_related('pack__item_type', 'location__lot_type')
 
 
-def save_items(items, fields):
+def save_items(items: list[Items], fields: list[str]) -> None:
     """Enregistre `fields` de chaque item, comme Items.objects.bulk_update, en un UPDATE par groupe d'items qui
     prennent les memes valeurs. bulk_update ecrit un CASE WHEN par champ et par item : pour une verif de 30 items, sa
     construction coutait plus cher que la verif elle-meme (processeur de portable, Python sur un coeur). Les items
@@ -198,16 +206,16 @@ def save_items(items, fields):
             Items.objects.filter(pk__in=pks[start:start + 500]).update(**dict(zip(attnames, values)))
 
 
-def _location_filter(lot):
+def _location_filter(lot: Lots | None) -> Q:
     return Q(location=lot) if lot is not None else Q(location__isnull=True)
 
 
-def in_stock_q(prefix=''):
+def in_stock_q(prefix: str = '') -> Q:
     """Items en stock : hors de tout lot, ou ranges dans un rangement du stock (armoire, tiroir...)."""
     return Q(**{f'{prefix}location__isnull': True}) | Q(**{f'{prefix}location__lot_type__storage': True})
 
 
-def last_storage(item_type):
+def last_storage(item_type: ItemType) -> str | None:
     """Dernier rangement du stock (actif) ou des items de ce type ont ete ranges : reception directement dans le
     rangement, ou items deplaces dedans ensuite. None si ce type n'a jamais ete range nulle part."""
     places = Lots.objects.filter(lot_type__storage=True, active=True).exclude(lot_type_id=STOCK_LOT_TYPE)
@@ -219,7 +227,7 @@ def last_storage(item_type):
     return latest[1] if latest else None
 
 
-def storage_of_origin(iids):
+def storage_of_origin(iids: list[str]) -> dict[str, Lots | None]:
     """Rangement du stock d'ou chaque item est sorti (sa derniere sortie), s'il est toujours actif : {iid: lot}, None
     pour un item sorti du stock sans rangement (ou d'un rangement supprime depuis). Au retour d'une liste, chaque item
     y est remis : on fait confiance aux secouristes pour le ranger a sa place."""
@@ -232,7 +240,7 @@ def storage_of_origin(iids):
     return {iid: origin.get(iid) for iid in iids}
 
 
-def return_to_origin(iids, identity, context):
+def return_to_origin(iids: list[str], identity: str, context: SeenWhile) -> dict[str, Lots | None]:
     """Remet des items rentres dans le rangement d'ou ils sont sortis (ou dans le stock sans rangement), voir
     storage_of_origin. Rend {iid: lot ou None} de ce qui a ete range."""
     by_place = defaultdict(list)
@@ -247,7 +255,7 @@ def return_to_origin(iids, identity, context):
     return done
 
 
-def clean_location(location):
+def clean_location(location: str | None) -> str:
     return ' '.join(str(location or '').split())[:64]
 
 
@@ -267,36 +275,36 @@ class Requirement:
     names: dict = field(default_factory=dict)
 
     @property
-    def unit(self):
+    def unit(self) -> str:
         return self.item_type.unit
 
     @property
-    def is_group(self):
+    def is_group(self) -> bool:
         """Attendu d'un type parent (a unites, ou sans unite comme « Bandes ») rempli par ses sous-types."""
         return self.item_type.is_unit_group
 
     @property
-    def item_type_id(self):
+    def item_type_id(self) -> str:
         return self.item_type.pk
 
     @property
-    def required(self):
+    def required(self) -> int:
         """Minimum qui retient le lot : 0 pour un attendu facultatif (quantity reste le nombre prevu)."""
         return 0 if self.optional else self.quantity
 
 
-def unit_members(preload=None):
+def unit_members(preload: LotPreload | None = None) -> dict[str, dict[str, tuple[int, str]]]:
     """Sous-types des types a unites : {type a unites: {sous-type: (unites remplies, nom)}} (ItemType.group)."""
     if preload is not None:
         return preload.unit_members
-    result = defaultdict(dict)
+    result: defaultdict[str, dict[str, tuple[int, str]]] = defaultdict(dict)
     for group_id, type_id, fills, name in (ItemType.objects.filter(group__isnull=False)
                                            .values_list('group_id', 'type', 'fills', 'name')):
         result[group_id][type_id] = (max(1, fills), name)
     return dict(result)
 
 
-def with_units(rows, preload=None):
+def with_units(rows: list[Requirement], preload: LotPreload | None = None) -> list[Requirement]:
     """Complete les attendus d'un type a unites avec ses sous-types (Requirement.fills et names)."""
     if not any(row.item_type.is_unit_group for row in rows):
         return rows
@@ -309,12 +317,12 @@ def with_units(rows, preload=None):
     return rows
 
 
-def amount_text(count, unit, name, times=' × '):
+def amount_text(count: int, unit: str, name: str, times: str = ' × ') -> str:
     """Quantite d'un type : « 50 mL de Sérum phy » pour un type a unites, « 3 × Bandes » sinon."""
     return f"{count} {unit} de {name}" if unit else f"{count}{times}{name}"
 
 
-def lacking_text(row, times=' × '):
+def lacking_text(row: dict[str, Any], times: str = ' × ') -> str:
     """Ce qui manque sur une ligne de requirements_status : « 3 × Compresses », ou pour un type parent
     « 50 mL de Sérum phy (2 × Sachet…) » / « 3 × Bandes (3 × Bandes L) » avec le sous-type a prendre."""
     lacking = row['required'] - row['present']
@@ -325,7 +333,7 @@ def lacking_text(row, times=' × '):
     return text + (f" ({suggest['count']} × {suggest['type_name']})" if suggest else '')
 
 
-def row_weights(fills, required, type_id):
+def row_weights(fills: dict[str, dict[str, int]], required: dict[str, int], type_id: str) -> list[tuple[str, int]]:
     """Attendus d'un lot que remplit un item de ce type et combien d'unites il y compte : [(attendu, unites)].
     `required` : {attendu: quantite} du lot, `fills` : {attendu a unites: {sous-type: unites}}. Un item compte pour
     son propre type (1) et pour le type a unites dont il est un sous-type (ses unites) : « 200 mL, dont 2 sachets »."""
@@ -336,7 +344,7 @@ def row_weights(fills, required, type_id):
     return result
 
 
-def main_row(weights, type_id):
+def main_row(weights: list[tuple[str, int]], type_id: str) -> tuple[str, int]:
     """Attendu principal d'un item parmi ses row_weights : celui du type a unites s'il y en a un, sinon son type."""
     for row, units in weights:
         if row != type_id:
@@ -344,13 +352,13 @@ def main_row(weights, type_id):
     return type_id, 1
 
 
-def optional_lot(lot) -> bool:
+def optional_lot(lot: Lots) -> bool:
     """Sous-lot facultatif a la verif de son lot parent (Lots.optional), un lot global ou un rangement ne l'est
     jamais."""
     return bool(lot.optional and lot.parent_id and not lot.lot_type.storage)
 
 
-def hidden_in_verif(lot, core=None) -> bool:
+def hidden_in_verif(lot: Lots, core: dict[str, Any] | None = None) -> bool:
     """Lot cache dans la hierarchie de la vérif en cascade (Lots.hidden_in_verif, ex : le B+ du VPS) : ses sous-lots
     y apparaissent comme s'ils etaient directement dans son parent. Seulement un sous-lot (pas un lot global) qui n'a
     ni contenu attendu ni item a lui : sinon on ne pourrait plus le verifier, il reste affiche. `core` : ligne deja
@@ -364,7 +372,7 @@ def hidden_in_verif(lot, core=None) -> bool:
             and not unplaced_lines(lot))
 
 
-def virtual_lot(lot) -> bool:
+def virtual_lot(lot: Lots) -> bool:
     """Lot d'un referentiel (B+) : il n'existe pas physiquement, c'est l'ensemble de ses sacs. Pas d'etiquette a lui ;
     il n'est verifie qu'en verifiant tous ses sacs (verify_hidden_parents). Seulement s'il n'a ni contenu attendu
     ni item a lui."""
@@ -372,7 +380,7 @@ def virtual_lot(lot) -> bool:
             and not lot_requirements(lot) and not lot.items.filter(status=ItemStatus.ACTIVE).exists())
 
 
-def verify_hidden_parents(lots, identity, now):
+def verify_hidden_parents(lots: list[Lots], identity: str, now: datetime) -> list[tuple[Lots, Verifs]]:
     """Vérif en cascade : un lot cache (hidden_in_verif) ou un lot de referentiel (virtual_lot) n'a pas d'etape a lui, il est valide des que tous ses
     sous-lots l'ont ete depuis sa derniere verif (ex : les deux sacs du B+ du VPS). Complet si leurs dernieres
     verifs le sont. Remonte les lots caches imbriques."""
@@ -416,14 +424,15 @@ def verify_hidden_parents(lots, identity, now):
     return done
 
 
-def optional_in_lot(lot, item_type, requirement_optional=False) -> bool:
+def optional_in_lot(lot: Lots, item_type: ItemType, requirement_optional: bool = False) -> bool:
     """Un type d'item est facultatif dans un lot : marque facultatif dans le contenu du type de lot
     (requirement_optional, seulement du materiel non consommable sans taches), ou range dans un sous-lot facultatif
     (tout son contenu l'est)."""
     return (requirement_optional and item_type.can_be_optional) or optional_lot(lot)
 
 
-def optional_types(lot, requirements=None, strict=False):
+def optional_types(lot: Lots, requirements: Iterable[Requirement] | None = None, strict: bool = False
+                  ) -> tuple[set[str], Callable[[Items], bool]]:
     """Types d'items facultatifs d'un lot (attendus marques facultatifs), et fonction item -> facultatif dans ce
     lot (attendu facultatif, ou tout item d'un sous-lot facultatif). strict : vérif complete demandee par un admin,
     rien n'est facultatif."""
@@ -434,33 +443,35 @@ def optional_types(lot, requirements=None, strict=False):
     types = {row.item_type_id for row in requirements if row.optional}
     whole = optional_lot(lot)
 
-    def check(item):
+    def check(item: Items) -> bool:
         return whole or item.pack.item_type_id in types
     return types, check
 
 
-def sort_requirements(requirements, locations=()):
+def sort_requirements(requirements: Iterable[LotRequirements | Requirement], locations: Sequence[str] = ()
+                     ) -> list[LotRequirements | Requirement]:
     """Exigences regroupees par emplacement, dans l'ordre choisi par la TECH (locations), « sans emplacement » en
     dernier, et les types d'items par nom dans chaque emplacement."""
-    order = {}
+    order: dict[str, int] = {}
     for name in locations or []:
         order.setdefault(name_key(name), len(order))
 
-    def key(requirement):
+    def key(requirement: LotRequirements | Requirement) -> tuple[bool, int, str, str, str]:
         place = name_key(requirement.location)
         return (place == '', order.get(place, len(order)), place, name_key(requirement.item_type.name),
                 requirement.item_type_id)
     return sorted(requirements, key=key)
 
 
-def ordered_requirements(lot_type, requirements=None):
+def ordered_requirements(lot_type: LotType, requirements: QuerySet[LotRequirements] | None = None
+                         ) -> list[LotRequirements | Requirement]:
     """Exigences d'un type de lot, dans l'ordre de ses emplacements (LotType.locations)."""
     if requirements is None:
         requirements = LotRequirements.objects.select_related('item_type').filter(lot_type=lot_type)
     return sort_requirements(requirements, lot_type.locations)
 
 
-def lot_type_content_snapshot(lot_type):
+def lot_type_content_snapshot(lot_type: LotType) -> tuple[list[tuple[str, int, str, bool]], list[str]]:
     """Contenu attendu d'un type de lot, comparable avant/apres un enregistrement (exigences et ordre des
     emplacements)."""
     rows = sorted((row.item_type_id, row.quantity, row.location, row.optional)
@@ -468,13 +479,13 @@ def lot_type_content_snapshot(lot_type):
     return rows, list(lot_type.locations or [])
 
 
-def lot_content_snapshot(lot):
+def lot_content_snapshot(lot: Lots) -> tuple[list[tuple[str, int, int, str | None]], list[str]]:
     """Contenu propre d'un lot, comparable avant/apres un enregistrement."""
     rows = sorted((row.item_type_id, row.extra, row.removed, row.location) for row in LotContent.objects.filter(lot=lot))
     return rows, list(lot.locations or [])
 
 
-def bump_lot_type_version(lot_type):
+def bump_lot_type_version(lot_type: LotType) -> bool:
     """Contenu du type de lot modifie : nouvelle version seulement si une verif d'un lot de ce type a ete faite sur
     la version en cours ; sinon la version en cours est corrigee en place. Renvoie vrai si la version a change (a
     enregistrer ensuite)."""
@@ -486,7 +497,7 @@ def bump_lot_type_version(lot_type):
     return True
 
 
-def bump_lot_version(lot):
+def bump_lot_version(lot: Lots) -> bool:
     """Contenu propre du lot modifie : nouvelle version seulement si une verif de ce lot a ete faite sur la version
     en cours. Renvoie vrai si la version a change (a enregistrer ensuite)."""
     if not Verifs.objects.filter(lot=lot, lot_version=lot.version).exists():
@@ -495,7 +506,7 @@ def bump_lot_version(lot):
     return True
 
 
-def lot_requirements(lot, preload=None, strict=False):
+def lot_requirements(lot: Lots, preload: LotPreload | None = None, strict: bool = False) -> list[Requirement]:
     """Contenu attendu d'un lot (Requirement) : celui de son type, plus son contenu propre (LotContent : items en
     plus, emplacements de ce lot), dans l'ordre des emplacements du lot (Lots.locations, sinon ceux du type).
     `preload` (LotPreload) : exigences et contenus deja lus pour une liste de lots. strict : vérif complete demandee
@@ -527,7 +538,7 @@ def lot_requirements(lot, preload=None, strict=False):
     return with_units(sort_requirements(rows, lot_locations(lot)), preload)
 
 
-def distribution_sacs(lot):
+def distribution_sacs(lot: Lots) -> defaultdict[LotType | None, list[Lots]]:
     """Sacs d'un lot global par referentiel : ses sous-lots actifs dont le type est un rangement (le sac de soin et
     le sac d'O2 du B+), {referentiel: [sacs]} dans l'ordre des noms."""
     groups = defaultdict(list)
@@ -537,7 +548,7 @@ def distribution_sacs(lot):
     return groups
 
 
-def unplaced_lines(lot):
+def unplaced_lines(lot: Lots) -> list[dict[str, Any]]:
     """Lot d'un referentiel reparti entre ses sacs (le B+) : lignes de la liste que ses sacs ne placent pas en
     entier, attendues nulle part ([{type, type_name, missing}]). Le lot est incomplet tant qu'il y en a."""
     if not lot.lot_type.referentiel or lot.lot_type.storage or not lot.active:
@@ -551,7 +562,7 @@ def unplaced_lines(lot):
     return result
 
 
-def lot_distribution(lot):
+def lot_distribution(lot: Lots) -> list[dict[str, Any]]:
     """Repartition du contenu d'un referentiel entre les sacs d'un lot global : pour chaque ligne du referentiel, la
     quantite et l'emplacement dans chaque sac (contenu attendu du sac : son type, puis ce que ce lot y change), et ce
     qui est place en tout. Le type de chaque rangement donne la repartition par defaut. Une ligne d'un type a unites
@@ -595,7 +606,7 @@ def lot_distribution(lot):
     return result
 
 
-def carried_by_rangements(lot_type, preload=None) -> bool:
+def carried_by_rangements(lot_type: LotType, preload: LotPreload | None = None) -> bool:
     """Un referentiel dont des rangements se partagent la liste (ex : le B+, reparti entre le sac de soin et le sac
     O2) : ses lots n'attendent rien eux-memes, leur contenu est porte par leurs sous-lots."""
     if not lot_type.referentiel:
@@ -605,7 +616,7 @@ def carried_by_rangements(lot_type, preload=None) -> bool:
     return LotType.objects.filter(part_of=lot_type).exists()
 
 
-def share_packs(items):
+def share_packs(items: QuerySet[Items]) -> QuerySet[Items]:
     """Items (lus sans select_related) dont chaque pack et chaque type d'item sont lus une fois et partages :
     select_related('pack__item_type') construit un pack et un ItemType complet (en decodant ses champs JSON) pour
     chaque item, ce qui dominait le temps de l'« État des lots » (2 400 items pour 600 packs et 40 types). Les items
@@ -625,7 +636,7 @@ class LotPreload:
     « État des lots », Gestion de la TECH, liste des lots du poste) au lieu de cinq requetes par lot : items actifs
     par lot, exigences par type de lot, contenu propre par lot, et l'arborescence (parents, sous-lots actifs)."""
 
-    def __init__(self, lots):
+    def __init__(self, lots: list[Lots]) -> None:
         ids = [lot.id for lot in lots]
         self.settings = ServerSettings.get()  # credit de confiance du reassort (restock_credit)
         self.items = defaultdict(list)
@@ -661,7 +672,7 @@ class LotPreload:
             if lot.active and lot.parent_id is not None:
                 self.children[lot.parent_id].append(lot)
 
-    def ancestors(self, lot):
+    def ancestors(self, lot: Lots) -> list[Lots]:
         """Comme Lots.ancestors : du parent direct au lot global."""
         chain = []
         seen = {lot.id}
@@ -673,7 +684,8 @@ class LotPreload:
         return chain
 
 
-def assign_slots(slots, children):
+def assign_slots(slots: list[LotTypeSlot], children: list[Lots]
+                ) -> tuple[list[tuple[LotTypeSlot, list[Lots]]], list[Lots]]:
     """Repartit les sous-lots actifs d'un lot entre les lots exiges de son type, dans l'ordre des places : une place
     fixe prend les sous-lots ranges pour de bon, une place a l'assemblage les sous-lots assembles, d'un type accepte.
     Renvoie [(place, [sous-lots])] et les sous-lots sans place (simples sous-lots, comme avant)."""
@@ -688,7 +700,7 @@ def assign_slots(slots, children):
     return result, left
 
 
-def fixed_slots_missing(lot, preload=None):
+def fixed_slots_missing(lot: Lots, preload: LotPreload | None = None) -> list[str]:
     """Places fixes non facultatives du type du lot qui ne sont pas toutes occupees : « Sac de soin » ou
     « Kit AES (3/5) ». Un lot auquel il en manque est incomplet."""
     slots = preload.slots.get(lot.lot_type_id, []) if preload is not None else list(lot.lot_type.slots.all())
@@ -704,7 +716,7 @@ def fixed_slots_missing(lot, preload=None):
     return missing
 
 
-def fixed_place(lot):
+def fixed_place(lot: Lots) -> bool:
     """Le lot tient-il une place fixe dans son parent ? Un lot fixe n'est jamais propose ailleurs (assemblage,
     remplacement) : on ne part pas avec le sac du VPS pour un lot A."""
     if lot.parent_id is None or lot.assembled:
@@ -717,7 +729,7 @@ def fixed_place(lot):
     return any(lot.id in {child.id for child in taken} for _, taken in assign_slots(slots, children)[0])
 
 
-def slot_candidates(lot, slot):
+def slot_candidates(lot: Lots, slot: LotTypeSlot) -> list[Lots]:
     """Lots qu'on peut mettre dans une place du lot : pour une place a l'assemblage, les lots libres (sans parent)
     d'un type accepte ; pour une place fixe (remplacement), tous les lots d'un type accepte qui ne tiennent pas
     eux-memes une place fixe. Jamais le lot lui-meme, ses lots parents ou ses sous-lots."""
@@ -729,7 +741,7 @@ def slot_candidates(lot, slot):
     return [other for other in queryset if not fixed_place(other)]
 
 
-def coverage_lots(referentiel):
+def coverage_lots(referentiel: LotType) -> list[Lots]:
     """Lots qui doivent couvrir la liste d'un referentiel : ses lots (ex : B+ 1, B+ 2), et les lots d'un de ses
     rangements qui ne sont pas dans un lot du referentiel (ex : un kit range sans lot global)."""
     lots = list(Lots.objects.select_related('lot_type', 'parent').filter(
@@ -743,11 +755,11 @@ def coverage_lots(referentiel):
     return result
 
 
-def lot_coverage(lot, referentiel):
+def lot_coverage(lot: Lots, referentiel: LotType) -> dict[str, Any]:
     """Compare la liste d'un referentiel au contenu attendu d'un lot et de ses sous-lots (ses sacs, rangements par
     emplacements) : pour chaque ligne du referentiel, la quantite placee et ou elle l'est, puis ce qui est en plus.
     Un sous-lot d'un autre referentiel (le B+ d'un VPS) n'est pas compte : il couvre sa propre liste."""
-    placed = defaultdict(int)
+    placed: defaultdict[str, int] = defaultdict(int)
     places = defaultdict(list)
     names = {}
     converted = {}  # sous-type -> type a unites dans lequel il est compte
@@ -797,28 +809,29 @@ def lot_coverage(lot, referentiel):
             'complete': not missing, 'missing': len(missing), 'lines': lines, 'extra': extra}
 
 
-def lot_locations(lot):
+def lot_locations(lot: Lots) -> list[str]:
     """Ordre des emplacements d'un lot : le sien s'il en a un, sinon celui de son type."""
     return list(lot.locations or lot.lot_type.locations or [])
 
 
-def location_order(rows, order=(), known=()):
+def location_order(rows: list[dict[str, Any]], order: Iterable[str] = (), known: Iterable[str] = ()) -> dict[str, str]:
     """{cle: emplacement} des emplacements utilises par des exigences [{location}], dans l'ordre demande puis dans
     l'ordre d'apparition des nouveaux. Deux emplacements qui ne different que par la casse ou les accents sont le meme
     (l'orthographe deja connue, celle de known, est gardee)."""
     locations = [clean_location(row.get('location')) for row in rows]
     used = {name_key(location) for location in locations if location}
-    spelling = {}
+    spelling: dict[str, str] = {}
     for location in [*map(clean_location, known), *map(clean_location, order), *locations]:
         spelling.setdefault(name_key(location), location)
-    result = {}
+    result: dict[str, str] = {}
     for location in [*map(clean_location, order), *locations]:
         if name_key(location) in used:
             result.setdefault(name_key(location), spelling[name_key(location)])
     return result
 
 
-def requirements_status(lot, today=None, items=None, preload=None, strict=False):
+def requirements_status(lot: Lots, today: date | None = None, items: list[Items] | None = None,
+                        preload: LotPreload | None = None, strict: bool = False) -> list[dict[str, Any]]:
     """Compare le contenu d'un lot aux exigences de son type.
 
     Seuls les items vus lors de la derniere verif (ou ajoutes depuis) comptent comme presents : un item
@@ -826,9 +839,9 @@ def requirements_status(lot, today=None, items=None, preload=None, strict=False)
     du lot deja lus (evite une requete), `preload` : voir LotPreload.
     """
     today = today or timezone.localdate()
-    fresh = defaultdict(int)
-    expired = defaultdict(int)
-    unconfirmed = defaultdict(int)
+    fresh: defaultdict[str, int] = defaultdict(int)
+    expired: defaultdict[str, int] = defaultdict(int)
+    unconfirmed: defaultdict[str, int] = defaultdict(int)
     if items is None:
         items = _items_queryset().filter(location=lot, status=ItemStatus.ACTIVE)
     for item in items:
@@ -844,7 +857,7 @@ def requirements_status(lot, today=None, items=None, preload=None, strict=False)
     unit_rows = {row.item_type_id: row for row in requirements if row.fills}
     within = {code: row.item_type_id for row in unit_rows.values() for code in row.fills}
 
-    def units(counts, requirement):
+    def units(counts: Mapping[str, int], requirement: Requirement) -> int:
         """Items d'un attendu : son type, plus les unites de ses sous-types pour un type a unites."""
         return counts.get(requirement.item_type_id, 0) + sum(
             counts.get(code, 0) * value for code, value in requirement.fills.items())
@@ -898,7 +911,7 @@ def requirements_status(lot, today=None, items=None, preload=None, strict=False)
     return rows
 
 
-def verif_lots(lots):
+def verif_lots(lots: list[Lots]) -> list[Lots]:
     """Lots couverts par une verif : chaque lot demande suivi de ses sous-lots actifs, sans doublon."""
     result = []
     seen = set()
@@ -910,7 +923,8 @@ def verif_lots(lots):
     return result
 
 
-def _required_by_lot(group, strict=False):
+def _required_by_lot(group: list[Lots], strict: bool = False
+                    ) -> tuple[dict[str, dict[str, int]], dict[str, dict[str, dict[str, int]]]]:
     """{lot id: {type d'item: quantite}} d'apres le contenu attendu de chaque lot (son type et son contenu propre) ;
     0 pour un attendu facultatif, sauf en vérif complete (strict). Et {lot id: {attendu a unites: {sous-type:
     unites}}} : un attendu d'un type a unites se compte en unites (voir row_weights)."""
@@ -922,13 +936,14 @@ def _required_by_lot(group, strict=False):
     return required, fills
 
 
-def checks_by_lot(group, strict=False):
+def checks_by_lot(group: list[Lots], strict: bool = False) -> dict[str, list[str]]:
     """{lot id: [types d'items a cocher qui retiennent le lot]} (attendus non physiques, hors facultatifs)."""
     return {lot.id: [row.item_type_id for row in lot_requirements(lot, strict=strict)
                      if not row.item_type.physical and row.required > 0] for lot in group}
 
 
-def assign_items(group, scanned, today, places=None, cascade=False, strict=False):
+def assign_items(group: list[Lots], scanned: list[Items], today: date, places: dict[str, str] | None = None,
+                 cascade: bool = False, strict: bool = False) -> dict[str, str]:
     """Lot de destination de chaque item scanne pendant une verif de plusieurs lots.
 
     Un item deja range dans un des lots y reste (on l'a trouve la, meme scanne pendant qu'on verifiait un autre
@@ -943,7 +958,7 @@ def assign_items(group, scanned, today, places=None, cascade=False, strict=False
     ids = {lot.id for lot in group}
     parent = {lot.id: lot.parent_id for lot in group}
 
-    def under(lot_id, place):
+    def under(lot_id: str | None, place: str) -> bool:
         """lot_id est le lot `place` ou un de ses sous-lots (dans la verif)."""
         while lot_id is not None:
             if lot_id == place:
@@ -954,10 +969,10 @@ def assign_items(group, scanned, today, places=None, cascade=False, strict=False
     required, fills = _required_by_lot(group, strict)
     deficit = {lot_id: dict(rows) for lot_id, rows in required.items()}
 
-    def weights(lot_id, type_id):
+    def weights(lot_id: str, type_id: str) -> list[tuple[str, int]]:
         return row_weights(fills[lot_id], required[lot_id], type_id)
 
-    def take(lot_id, type_id):
+    def take(lot_id: str, type_id: str) -> bool:
         """L'item remplit un manque de ce lot (en unites pour un type a unites) : il y est compte."""
         rows = weights(lot_id, type_id)
         if not any(deficit[lot_id][row] > 0 for row, _ in rows):
@@ -991,7 +1006,7 @@ def assign_items(group, scanned, today, places=None, cascade=False, strict=False
     return target
 
 
-def _with_ancestors(lots):
+def _with_ancestors(lots: list[Lots] | QuerySet) -> list[Lots]:
     """Les lots et leurs lots parents : ouvrir un sous-lot suppose d'ouvrir le lot qui le contient."""
     result = {}
     for lot in lots:
@@ -1001,8 +1016,8 @@ def _with_ancestors(lots):
     return list(result.values())
 
 
-def perform_verif(lot, iids, identity, partial=False, participants=(), places=None, sealed=(), exclude=(),
-                  strict=False, checked=None, now=None):
+def perform_verif(lot: Lots | list[Lots] | None, iids: list[str], identity: str, partial: bool = False, participants: tuple[()] | list[str] = (), places: dict[str, str] | None = None, sealed: list[Lots] | tuple[()] = (), exclude: list[Lots] | tuple[()] = (),
+                  strict: bool = False, checked: dict[str, list[str]] | None = None, now: datetime | None = None) -> dict[str, Any]:
     """Verifie un lot, plusieurs lots d'un meme lot global, ou le stock (lot None), a partir des iids scannes.
 
     - lot peut etre un lot ou une liste de lots : chaque lot est verifie avec ses sous-lots ;
@@ -1060,7 +1075,7 @@ def perform_verif(lot, iids, identity, partial=False, participants=(), places=No
         unknown = [iid for iid in requested if iid not in scanned_ids]
 
         # Lots scelles intacts (etiquette du scelle scannee) : eux et leurs sous-lots sont mis de cote
-        intact = []
+        intact: list[Lots] = []
         if group is not None:
             opened_from = {item.location_id for item in scanned if item.location_id}
             for sealed_lot in sealed:
@@ -1109,10 +1124,10 @@ def perform_verif(lot, iids, identity, partial=False, participants=(), places=No
         # perime est remplace par des unites fraiches de son attendu principal (main_row).
         required, fills = _required_by_lot(group, strict) if group is not None else ({}, {})
 
-        def weights(lot_id, type_id):
+        def weights(lot_id: str, type_id: str) -> list[tuple[str, int]]:
             return row_weights(fills.get(lot_id, {}), required.get(lot_id, {}), type_id)
-        fresh = defaultdict(int)
-        new_fresh = defaultdict(int)
+        fresh: defaultdict[tuple[str, str], int] = defaultdict(int)
+        new_fresh: defaultdict[tuple[str, str], int] = defaultdict(int)
         expired_by_key = defaultdict(list)
         for item in scanned:
             lot_id, type_id = target[item.iid], item.pack.item_type_id
@@ -1178,7 +1193,7 @@ def perform_verif(lot, iids, identity, partial=False, participants=(), places=No
         notify_seals_broken(broken, identity)
         was_missing = {item.iid for item in not_seen if item.status == ItemStatus.MISSING}
 
-        verifs = {}
+        verifs: dict[str | None, Verifs] = {}
         if group is None:
             verifs[None] = Verifs.objects.create(lot=None, datetime=now, by=identity, participants=participants)
         for lot_id in verified_ids:
@@ -1194,8 +1209,8 @@ def perform_verif(lot, iids, identity, partial=False, participants=(), places=No
         origin = {item.iid: item.location_id for item in scanned}
         # items retrouves apres avoir ete notes absents : leur absence ne compte plus comme une utilisation
         movements.found_again([item.iid for item in scanned + loose if movements.may_be_absent(item)], now, identity)
-        counts = defaultdict(lambda: defaultdict(int))  # lot id -> compteurs de la verif
-        restocked = defaultdict(int)
+        counts: defaultdict[str, defaultdict[str, int]] = defaultdict(lambda: defaultdict(int))  # lot id -> compteurs de la verif
+        restocked: defaultdict[str, int] = defaultdict(int)
         restocked_items = defaultdict(list)  # lot id -> items ranges par reassort (journal)
         for item in scanned:
             destination = target[item.iid]
@@ -1375,20 +1390,20 @@ def perform_verif(lot, iids, identity, partial=False, participants=(), places=No
     return report
 
 
-def discardable(item, today=None) -> bool:
+def discardable(item: Items, today: date | None = None) -> bool:
     """Perime, signale inutilisable ou desactive : a retirer du lot et a jeter. Un item dont seule la revision est
     en retard n'est pas jete (il part en revision)."""
     return item.is_expired(today) or item.unusable or item.disabled
 
 
-def leaves_lot(item) -> bool:
+def leaves_lot(item: Items) -> bool:
     """Item non consommable range dans un lot ordinaire : absent a la verif du lot, il en a ete retire et passe hors
     lot (un lecteur de glycemie ne s'use pas). Dans un rangement du stock (ou hors lot), il manque normalement."""
     return (not item.pack.item_type.consumable and item.location_id is not None
             and not item.location.lot_type.storage)
 
 
-def _set_loose(items, identity, now):
+def _set_loose(items: list[Items], identity: str, now: datetime) -> None:
     """Items non consommables absents a la verif de leur lot : sortis du lot, « hors lot » (pas encore en stock)."""
     if not items:
         return
@@ -1409,7 +1424,8 @@ def _set_loose(items, identity, now):
     save_items(items, ['location', 'status', 'missed_verifs'])
 
 
-def _record_verif(lot, identity, now, verif, requirements, partial, missing, expired):
+def _record_verif(lot: Lots | None, identity: str, now: datetime, verif: Verifs, requirements: list[dict[str, Any]],
+                  partial: bool, missing: list[str], expired: list[str]) -> None:
     """Verif d'un lot (ou du stock, lot None) dans le journal des operations."""
     counts = [(verif.present_count, 'présent'), (verif.missing_count, 'manquant'), (verif.expired_count, 'périmé'),
               (verif.replaced_count, 'remplacé')]
@@ -1434,14 +1450,15 @@ def _record_verif(lot, identity, now, verif, requirements, partial, missing, exp
                    expired_items=expired[:journal.MAX_LISTED_ITEMS])
 
 
-def _complete_lots(group, scanned, not_seen, target, today, strict=False, checked=None):
+def _complete_lots(group: list[Lots], scanned: list[Items], not_seen: list[Items], target: dict[str, str], today: date,
+                   strict: bool = False, checked: dict[str, list[str]] | None = None) -> set[str]:
     """Lots que les items scannes rendent complets (verif partielle). Un lot sans aucun item scanne n'est retenu
     que s'il ne contient rien : sinon tout son contenu serait signale manquant. Un rangement du stock n'a pas de
     contenu attendu : ses items sont ses attendus, il n'est complet que si tous ont ete scannes. Un item a
     etiquette a dechirer (utilise) ou non consommable (passe hors lot) non scanne ne compte pas. Meme regle dans
     les fronts (planSession, App::plan_verif)."""
     required, fills = _required_by_lot(group, strict)
-    fresh = defaultdict(lambda: defaultdict(int))
+    fresh: defaultdict[str, defaultdict[str, int]] = defaultdict(lambda: defaultdict(int))
     touched = set()
     for item in scanned:
         destination = target[item.iid]
@@ -1466,7 +1483,8 @@ def _complete_lots(group, scanned, not_seen, target, today, strict=False, checke
     return complete
 
 
-def notify_verif_problem(lot, identity, requirements, report, newly_missing):
+def notify_verif_problem(lot: Lots, identity: str, requirements: list[dict[str, Any]], report: dict[str, list[str]],
+                         newly_missing: list[Items]) -> int:
     """Vérif incomplète : notification web (type verif_problem, désactivé par défaut), qui ouvre la fiche du lot."""
     parts = []
     lacking = [lacking_text(row, ' ') for row in requirements if row['present'] < row['required']]
@@ -1482,7 +1500,7 @@ def notify_verif_problem(lot, identity, requirements, report, newly_missing):
         url=f'../verif?lot={lot.id}', tag=f'verif-{lot.id}', tab='lot')
 
 
-def seal_lot(lot, identity, seal_number='', force=False):
+def seal_lot(lot: Lots, identity: str, seal_number: str = '', force: bool = False) -> Lots:
     """Scelle un lot : il reste valide sans verif tant que le scelle n'est pas brise."""
     if not lot.active:
         raise ValueError('Lot inactif')
@@ -1517,7 +1535,7 @@ def seal_lot(lot, identity, seal_number='', force=False):
     return lot
 
 
-def break_seal(lot, identity, reason, now=None, notify=True):
+def break_seal(lot: Lots, identity: str, reason: str, now: datetime | None = None, notify: bool = True) -> bool:
     """Brise le scelle d'un lot (ouverture, vérif, ajout ou retrait d'items). notify=False : l'appelant envoie une
     seule notification pour tous les scelles ouverts par la meme operation (notify_seals_broken)."""
     if not lot.is_sealed:
@@ -1535,7 +1553,7 @@ def break_seal(lot, identity, reason, now=None, notify=True):
     return True
 
 
-def notify_seals_broken(opened, identity):
+def notify_seals_broken(opened: list[tuple[Lots, str]], identity: str) -> int:
     """Scelles ouverts par une meme operation ([(lot, raison)], le lot le plus bas d'abord) : une notification aux
     admins (notification web), qui ouvre la fiche du premier lot."""
     if not opened:
@@ -1556,7 +1574,7 @@ SEAL_OPENED_ANONYMOUSLY = f"{SOURCE_DECLARED}:{ANONYMOUS_OPENING}"
 SEAL_OPENING_SIGN_DELAY = timedelta(hours=1)
 
 
-def open_seal_with_label(lot, identity):
+def open_seal_with_label(lot: Lots, identity: str | None) -> str:
     """Etiquette d'ouverture scannee (elle est a l'interieur du lot) : le scan suffit a ouvrir le scelle, que
     quelqu'un soit identifie ou non. Une ouverture anonyme peut etre signee juste apres (connexion apres le scan).
 
@@ -1605,7 +1623,7 @@ def open_seal_with_label(lot, identity):
     return 'already'
 
 
-def mark_used(lot, identity):
+def mark_used(lot: Lots, identity: str) -> list[Lots]:
     """Bouton « Marquer ce lot comme utilisé » (tout secouriste) : le lot et ses sous-lots non scelles passent en
     verif recommandee (orange) pour les suivants, jusqu'a la prochaine verif. Un lot scelle s'ouvre avec l'etiquette
     d'ouverture (rangee a l'interieur), pas avec ce bouton. Renvoie les lots marques."""
@@ -1636,7 +1654,7 @@ def mark_used(lot, identity):
     return marked
 
 
-def move_refusal(item, lot, today, declared=False, tree=()):
+def move_refusal(item: Items, lot: Lots | None, today: date, declared: bool = False, tree: Collection[str] = ()) -> str:
     """Raison pour laquelle un item ne peut pas etre range dans `lot` (None : en stock), ou '' s'il peut l'etre.
 
     - un item supprime ou remplace (jete) ne revient jamais par un reassort : la gestion le restaure d'abord ;
@@ -1660,7 +1678,8 @@ def move_refusal(item, lot, today, declared=False, tree=()):
     return ''
 
 
-def move_items(iids, lot, identity, context, declared=False, debug=False):
+def move_items(iids: list[str], lot: Lots | None, identity: str, context: SeenWhile, declared: bool = False,
+               debug: bool = False) -> dict[str, Any]:
     """Deplace des items dans un lot (ou en stock si lot est None) sans toucher aux autres.
 
     Les items qui ne peuvent pas y aller (voir move_refusal) restent ou ils sont et sont rendus dans "refused" ;
@@ -1730,7 +1749,7 @@ def move_items(iids, lot, identity, context, declared=False, debug=False):
             'unknown': [iid for iid in requested if iid not in found]}
 
 
-def _record_moves(items, lot, identity, context, now):
+def _record_moves(items: list[Items], lot: Lots | None, identity: str, context: SeenWhile, now: datetime) -> None:
     """Reassort (items ranges dans un lot) ou retrait vers le stock (un par lot d'origine) dans le journal."""
     destination = lot.id if lot else None
     moved = [item for item in items if item.location_id != destination]
@@ -1749,7 +1768,7 @@ def _record_moves(items, lot, identity, context, now):
                        items=journal.item_ids(origin_items))
 
 
-def mark_out(iids, identity):
+def mark_out(iids: list[str], identity: str) -> dict[str, Any]:
     """Items sortis du stock sans lot (ex : pris pour une intervention) : ils passent « sorti » et quittent le stock.
 
     Seuls les items en stock (hors lot ou dans un rangement du stock) peuvent sortir ; un item deja sorti repart pour
@@ -1798,11 +1817,11 @@ def mark_out(iids, identity):
     }
 
 
-def _date_iso(value):
+def _date_iso(value: date | None) -> str | None:
     return value.isoformat() if value else None
 
 
-def out_deadline(item, since=None):
+def out_deadline(item: Items, since: datetime | None = None) -> date | None:
     """Date a laquelle un item sorti non revu compte comme utilise : OUT_DAYS jours apres sa sortie, ou sa
     peremption si elle tombe avant. None pour un item non consommable : il ne s'use pas, il reste sorti."""
     if not item.pack.item_type.consumable:
@@ -1812,7 +1831,7 @@ def out_deadline(item, since=None):
     return min(deadline, peremption) if peremption else deadline
 
 
-def expire_out_items(now=None):
+def expire_out_items(now: datetime | None = None) -> list[str]:
     """Items sortis non revus dans le delai (ou arrives a peremption) : comptes comme utilises (ils etaient bons a la
     sortie), statut « disparu ». S'ils reapparaissent ensuite, l'utilisation est annulee comme apres une verif."""
     now = now or timezone.now()
@@ -1840,7 +1859,7 @@ def expire_out_items(now=None):
     return [item.iid for item in expired]
 
 
-def mark_deleted(item, identity, reason):
+def mark_deleted(item: Items, identity: str, reason: str) -> None:
     now = timezone.now()
     ItemMovement.objects.create(item=item, item_type_id=item.pack.item_type_id, kind=MovementKind.DELETED, at=now,
                                 by=identity[:64], from_lot_id=item.location_id)
@@ -1856,7 +1875,7 @@ def mark_deleted(item, identity, reason):
     notifications.check_stock_levels([item.pack.item_type_id])
 
 
-def split_targets(item_type):
+def split_targets(item_type: ItemType) -> list[tuple[ItemType, int]]:
     """Sous-types en lesquels un item de `item_type` peut etre decoupe, avec le nombre d'items obtenus : les autres
     sous-types du meme type a unites qui en remplissent une part entiere (sachet de 5 dosettes de 5 mL, fills 25 →
     5 dosettes, fills 5). Liste de (type, nombre), du plus petit conditionnement au plus gros."""
@@ -1870,7 +1889,7 @@ def split_targets(item_type):
     return sorted(targets, key=lambda pair: (pair[0].fills, pair[0].name))
 
 
-def split_item(item, target_type, identity):
+def split_item(item: Items, target_type: ItemType, identity: str) -> list[Items]:
     """Decoupe un item en plusieurs items d'un sous-type plus petit du meme type a unites (ex : un sachet de 5
     serums phy en 5 dosettes etiquetees chacune) : meme peremption, meme place (lot ou stock). L'item decoupe est
     « remplace » (son etiquette est jetee, il ne revient jamais) ; les nouveaux items sont renvoyes, a etiqueter."""
@@ -1907,7 +1926,7 @@ def split_item(item, target_type, identity):
     return created
 
 
-def set_disabled(items, identity, disabled, reason=''):
+def set_disabled(items: list[Items], identity: str, disabled: bool, reason: str = '') -> list[Items]:
     """Desactive (rappel produit, non-conformite) ou reactive des items. Desactive, un item est invalide comme un
     perime : il ne compte plus dans son lot et doit etre remplace (le remplacant le sort du lot a la verif)."""
     reason = str(reason or '').strip()[:128]
@@ -1935,7 +1954,8 @@ def set_disabled(items, identity, disabled, reason=''):
     return items
 
 
-def maintain_item(item, identity, kind='revision', tasks=None, next_due=None, note=''):
+def maintain_item(item: Items, identity: str, kind: str = 'revision', tasks: list[str] | None = None,
+                  next_due: date | None = None, note: str = '') -> Items:
     """Revision ou desinfection d'un item (materiel non consommable, MAINTENANCE) : toutes ses taches cochees. La
     prochaine echeance est `next_due` (date saisie) ou, par defaut, aujourd'hui + la periodicite du type."""
     fields = MAINTENANCE.get(kind)
@@ -1968,11 +1988,13 @@ def maintain_item(item, identity, kind='revision', tasks=None, next_due=None, no
     return item
 
 
-def revise_item(item, identity, tasks=None, next_due=None, note=''):
+def revise_item(item: Items, identity: str, tasks: list[str] | None = None, next_due: date | None = None,
+                note: str = '') -> Items:
     return maintain_item(item, identity, 'revision', tasks, next_due, note)
 
 
-def schedule_maintenance(item, identity, kind, next_due=None, last_done=None, note=''):
+def schedule_maintenance(item: Items, identity: str, kind: str, next_due: date | None = None,
+                         last_done: date | None = None, note: str = '') -> Items:
     """Date de revision ou de desinfection saisie a la main par le TECH (gestion/admin), sans entretien fait dans le
     logiciel : materiel deja revise ailleurs, cycle a recaler. `last_done` : date de la derniere faite (passee) ;
     `next_due` : prochaine echeance (par defaut last_done + la periodicite du type). Au moins l'une des deux. La
@@ -2017,7 +2039,8 @@ def schedule_maintenance(item, identity, kind, next_due=None, last_done=None, no
     return item
 
 
-def maintenance_due(today=None, days=30, kinds=None):
+def maintenance_due(today: date | None = None, days: int = 30, kinds: Collection[str] | None = None
+                   ) -> list[tuple[str, Items, date]]:
     """Revisions et desinfections en retard ou dans les `days` jours : liste de (kind, item, date), la plus proche
     d'abord. Items actifs, sortis ou hors lot (pas supprimes)."""
     today = today or timezone.localdate()
@@ -2034,7 +2057,8 @@ def maintenance_due(today=None, days=30, kinds=None):
     return rows
 
 
-def disinfect_lot(lot, identity, months=None, done=False, next_due=None, last_done=None, note=''):
+def disinfect_lot(lot: Lots, identity: str, months: int | None = None, done: bool = False, next_due: date | None = None,
+                  last_done: date | None = None, note: str = '') -> Lots:
     """Desinfection du lot lui-meme (cellule du VPS...), roles gestion et admin :
     - months : periodicite (0 : plus de desinfection ; activee sans date : aujourd'hui + months) ;
     - done : desinfection faite maintenant, prochaine = next_due (apres aujourd'hui) ou aujourd'hui + months ;
@@ -2083,14 +2107,14 @@ def disinfect_lot(lot, identity, months=None, done=False, next_due=None, last_do
     return lot
 
 
-def lots_disinfection_due(today=None, days=30):
+def lots_disinfection_due(today: date | None = None, days: int = 30) -> list[Lots]:
     """Lots actifs dont la desinfection est en retard ou dans les `days` jours, la plus proche d'abord."""
     today = today or timezone.localdate()
     return list(Lots.objects.filter(active=True, disinfection_months__gt=0, disinfection_due__isnull=False,
                                     disinfection_due__lte=today + timedelta(days=days)).order_by('disinfection_due'))
 
 
-def maintenance_overview(today=None):
+def maintenance_overview(today: date | None = None) -> tuple[list[Items], list[Lots]]:
     """Onglet Materiel de l'Inventaire (poste) : tout le materiel non consommable ou suivi (revision, desinfection),
     pas supprime, la prochaine echeance d'abord (sans echeance a la fin), et les lots a desinfecter."""
     today = today or timezone.localdate()
@@ -2099,7 +2123,7 @@ def maintenance_overview(today=None):
                  .filter(tracked | Q(pack__item_type__consumable=False))
                  .exclude(status__in=(ItemStatus.DELETED, ItemStatus.REPLACED)))
     far = date.max
-    def next_date(item):
+    def next_date(item: Items) -> date:
         dates = [getattr(item, MAINTENANCE[kind]['due']) for kind in MAINTENANCE
                  if item.pack.item_type.has_maintenance(kind) and getattr(item, MAINTENANCE[kind]['due'])]
         return min(dates, default=far)
@@ -2108,12 +2132,12 @@ def maintenance_overview(today=None):
     return items, lots
 
 
-def revisions_due(today=None, days=30):
+def revisions_due(today: date | None = None, days: int = 30) -> list[Items]:
     """Items actifs a reviser en retard ou dans les `days` jours, prochaine revision d'abord."""
     return [item for _, item, _ in maintenance_due(today, days, kinds=('revision',))]
 
 
-def restore(item, identity):
+def restore(item: Items, identity: str) -> None:
     now = timezone.now()
     movements.found_again([item.iid], now, identity)
     ItemMovement.objects.create(item=item, item_type_id=item.pack.item_type_id, kind=MovementKind.RESTORED, at=now,
@@ -2130,7 +2154,7 @@ def restore(item, identity):
     notifications.check_stock_levels([item.pack.item_type_id])
 
 
-def stock_status(soon_days=30):
+def stock_status(soon_days: int = 30) -> list[dict[str, Any]]:
     """Etat des stocks par type d'item (une ligne par ItemType)."""
     today = timezone.localdate()
     soon = today + timedelta(days=soon_days)
@@ -2192,7 +2216,7 @@ STOCK_COUNTS = ('stock_fresh', 'stock_expired', 'lots_fresh', 'lots_expired', 'e
                 'lots_expiring_soon', 'missing', 'out', 'loose')
 
 
-def with_unit_totals(rows):
+def with_unit_totals(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Lignes de l'etat des stocks : celle d'un type a unites (« Sérum phy », mL) additionne les unites de ses
     sous-types (2 sachets de 25 mL + 1 flacon de 50 mL : 100 mL) ; son minimum est en unites, celui de chaque
     sous-type en items."""

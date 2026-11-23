@@ -10,9 +10,20 @@
 
 """Vues locales (gestion, sans cle) : types, lots, items, stock, utilisateurs, journal, impressions."""
 
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Any
+
 from .common import *  # noqa: F401,F403
 from .public import *  # noqa: F401,F403
 from .public import _with_out
+
+if TYPE_CHECKING:
+    from django.http.response import HttpResponse
+    from inventory.models import LotType, LotTypeSlot, Lots, Secouristes
+    from rest_framework.request import Request
+    from rest_framework.response import Response
+    from django.http import HttpRequest
 
 
 # Vues locales (gestion, sans cle)
@@ -20,7 +31,7 @@ from .public import _with_out
 
 @api_view(['GET', 'POST'])
 @handle_errors
-def item_types(request):
+def item_types(request: Request) -> Response:
     """Types d'items, archives compris (champ archived) : les fronts ne proposent que les types actifs."""
     if request.method != 'GET':
         require_front(request, GESTION)
@@ -44,7 +55,7 @@ def item_types(request):
         return _create_item_type(request, data, code, name)
 
 
-def _create_item_type(request, data, code, name):
+def _create_item_type(request: Request, data: dict[str, Any], code: str, name: str) -> Response:
     item_type = ItemType.objects.create(
         type=code,
         name=name,
@@ -74,7 +85,7 @@ def _create_item_type(request, data, code, name):
 
 @api_view(['GET', 'PATCH'])
 @handle_errors
-def item_type_detail(request, type_code):
+def item_type_detail(request: Request, type_code: str) -> Response:
     if request.method != 'GET':
         require_front(request, GESTION)
     item_type = get_object_or_404(ItemType, type=type_code)
@@ -173,7 +184,7 @@ LOT_TYPE_FIELDS = {'name': 'nom', 'description': 'description', 'storage': 'rang
                    'part_of': 'rangement de'}
 
 
-def apply_referentiel(lot_type, data):
+def apply_referentiel(lot_type: LotType, data: dict[str, Any]) -> None:
     """Champs referentiel (bool) et part_of (code du referentiel dont ce type est un rangement, '' : aucun) d'un
     type de lot. Un referentiel n'a pas d'emplacements (ils sont effaces) et n'est le rangement de personne ; un
     rangement du stock n'est ni l'un ni l'autre. A enregistrer ensuite (save)."""
@@ -203,7 +214,7 @@ def apply_referentiel(lot_type, data):
 
 @api_view(['GET'])
 @handle_errors
-def items(request):
+def items(request: Request) -> Response:
     require_front(request, GESTION)
     queryset = Items.objects.select_related('pack__item_type', 'location__lot_type').order_by('-added', 'iid')
     params = request.query_params
@@ -222,7 +233,7 @@ def items(request):
     return Response([ser.item_dict(item, today) for item in queryset[:limit]])
 
 
-def storage_target(lot_id):
+def storage_target(lot_id: str | None) -> Lots | None:
     """Rangement du stock ou ranger des items recus (None : le stock, sans rangement). Le lot du stock lui-meme
     vaut le stock ; un lot qui n'est pas un rangement du stock est refuse (un lot se remplit par reassort)."""
     if not lot_id:
@@ -239,7 +250,7 @@ def storage_target(lot_id):
 
 @api_view(['POST'])
 @handle_errors
-def items_batch(request):
+def items_batch(request: Request) -> Response:
     """Reception : cree `count` items, ou `packs` paquets scelles de `count` items chacun (sealed_pack)."""
     require_front(request, GESTION)
     data = request.data
@@ -293,7 +304,7 @@ def items_batch(request):
 
 @api_view(['POST'])
 @handle_errors
-def item_delete(request, iid):
+def item_delete(request: Request, iid: str) -> Response:
     """Marque un item comme supprime (ce n'est pas la voie normale : les verifs detectent les disparitions)."""
     require_front(request, GESTION)
     item = get_object_or_404(Items.objects.select_related('pack__item_type'), iid=iid)
@@ -306,7 +317,7 @@ def item_delete(request, iid):
 
 @api_view(['GET', 'POST'])
 @handle_errors
-def item_split(request, iid):
+def item_split(request: Request, iid: str) -> Response:
     """Decoupe d'un item en plus petits sous-types du meme type a unites (sachet de 5 serums phy → 5 dosettes).
     GET : sous-types possibles {"targets": [{"type", "name", "count"}]}. POST {"user", "type"} : decoupe, renvoie
     {"source": item, "items": [nouveaux items, a etiqueter]}."""
@@ -325,7 +336,7 @@ def item_split(request, iid):
 
 @api_view(['POST'])
 @handle_errors
-def items_disable(request):
+def items_disable(request: Request) -> Response:
     """Desactive ou reactive des items (rappel produit, non-conformite), au poste, par un admin (fenetre Inventaire) :
     {"user", "disabled": bool, "reason": texte (obligatoire pour desactiver), et les items vises : "items" (iids),
     "reception" (un iid : tous les items recus avec lui, meme paquet d'etiquettes et meme instant) et/ou "pack"
@@ -351,7 +362,7 @@ FRONT_NAME_RE = re.compile(r'^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$')
 
 @api_view(['GET', 'POST'])
 @handle_errors
-def front_configs(request):
+def front_configs(request: Request) -> Response:
     """Connecter un autre ordinateur, depuis le poste (Utilisateurs > Ordinateurs connectes), par un admin : cree la cle d'un front
     distant et son fichier de configuration chiffre, telechargeable pendant 5 minutes par un lien (QR code).
     POST {"name", "password" (vide = genere et renvoye), "replace": bool, "poste": bool}. GET : fronts existants.
@@ -415,7 +426,7 @@ def front_configs(request):
 
 @api_view(['POST'])
 @handle_errors
-def front_config_detail(request, name):
+def front_config_detail(request: Request, name: str) -> Response:
     """Ordinateurs connectes (fenetre Utilisateurs du poste), admin :
     {"action": "revoke" | "restore" | "delete" | "poste" | "unposte"}.
     Revoquer coupe l'acces tout de suite (la cle reste, reactivable) ; supprimer efface la cle et ses liens ;
@@ -448,7 +459,7 @@ def front_config_detail(request, name):
     return Response({'name': name, 'action': action})
 
 
-def front_config_download(request, token):
+def front_config_download(request: HttpRequest, token: str) -> HttpResponse:
     """Lien du QR code affiche au poste : le fichier chiffre, en piece jointe, tant que le lien est valable."""
     if request.method != 'GET':
         return HttpResponseNotAllowed(['GET'])
@@ -471,7 +482,7 @@ def front_config_download(request, token):
 
 @api_view(['GET'])
 @handle_errors
-def receptions(request):
+def receptions(request: Request) -> Response:
     """Receptions passees (items crees ensemble : meme paquet d'etiquettes, meme instant), les plus recentes
     d'abord : ?type=CODE, ?item=IID (la reception de cet item), ?limit=N. Sert a desactiver d'un coup tout ce qui a
     ete recu ensemble (paquet ouvert a la reception, rappel produit)."""
@@ -511,7 +522,7 @@ def receptions(request):
 
 @api_view(['GET'])
 @handle_errors
-def reception_storage(request):
+def reception_storage(request: Request) -> Response:
     """Rangement du stock propose a la reception d'un type (?type=CODE) : le dernier ou ce type a ete range."""
     require_front(request, GESTION)
     item_type = get_object_or_404(ItemType, type=str(request.query_params.get('type', '')))
@@ -520,7 +531,7 @@ def reception_storage(request):
 
 @api_view(['POST'])
 @handle_errors
-def reception_store(request):
+def reception_store(request: Request) -> Response:
     """Range d'un coup toute une reception dans un rangement du stock (ou en vrac dans le stock si "location" est
     vide) : {"user", "reception": un iid de la reception, "location"}. Seuls les items encore en stock bougent : ceux
     deja mis dans un lot, utilises ou supprimes restent ou ils sont."""
@@ -544,7 +555,7 @@ def reception_store(request):
 
 @api_view(['POST'])
 @handle_errors
-def item_restore(request, iid):
+def item_restore(request: Request, iid: str) -> Response:
     require_front(request, GESTION)
     item = get_object_or_404(Items.objects.select_related('pack__item_type'), iid=iid)
     services.restore(item, operation_identity(request))
@@ -553,7 +564,7 @@ def item_restore(request, iid):
 
 @api_view(['POST'])
 @handle_errors
-def items_to_stock(request):
+def items_to_stock(request: Request) -> Response:
     require_front(request, GESTION)
     identity = operation_identity(request)
     return Response(services.move_items(iid_list(request.data), None, identity, SeenWhile.REMOVE,
@@ -562,7 +573,7 @@ def items_to_stock(request):
 
 @api_view(['GET'])
 @handle_errors
-def stock(request):
+def stock(request: Request) -> Response:
     require_front(request, GESTION)
     soon = parse_int(request.query_params.get('soon_days', 30), 'soon_days', 0, 3650)
     # les peremptions font baisser le stock sans evenement : on verifie les seuils a chaque consultation
@@ -572,13 +583,13 @@ def stock(request):
 
 @api_view(['GET'])
 @handle_errors
-def stock_forecast(request):
+def stock_forecast(request: Request) -> Response:
     return Response(forecast.forecast(**forecast_params(request.query_params)))
 
 
 @api_view(['POST'])
 @handle_errors
-def stock_verif(request):
+def stock_verif(request: Request) -> Response:
     require_front(request, GESTION)
     identity = operation_identity(request)
     return Response(services.perform_verif(None, iid_list(request.data), identity))
@@ -586,7 +597,7 @@ def stock_verif(request):
 
 @api_view(['GET'])
 @handle_errors
-def sealed_packs(request):
+def sealed_packs(request: Request) -> Response:
     require_front(request, GESTION)
     queryset = SealedPacks.objects.select_related('item_type').order_by('-created')
     if request.query_params.get('opened') == '0':
@@ -596,7 +607,7 @@ def sealed_packs(request):
 
 @api_view(['POST'])
 @handle_errors
-def sealed_pack_open(request, pack_id):
+def sealed_pack_open(request: Request, pack_id: str) -> Response:
     require_front(request, GESTION)
     sealed_pack = get_object_or_404(SealedPacks.objects.select_related('item_type'), id=pack_id)
     identity = operation_identity(request)
@@ -624,7 +635,7 @@ def sealed_pack_open(request, pack_id):
 
 @api_view(['POST'])
 @handle_errors
-def sealed_pack_close(request, pack_id):
+def sealed_pack_close(request: Request, pack_id: str) -> Response:
     """Annule une ouverture faite par erreur : le paquet redevient ferme (les etiquettes deja imprimees
     restent valables, les items sont les memes)."""
     require_front(request, GESTION)
@@ -642,7 +653,7 @@ def sealed_pack_close(request, pack_id):
 
 @api_view(['GET', 'POST'])
 @handle_errors
-def lot_types(request):
+def lot_types(request: Request) -> Response:
     """Types de lots, archives compris (champ archived).
 
     Un type « lot unique » (ex : un VPS, une armoire du VPS) est cree avec son lot, du meme nom (nom court compris,
@@ -692,7 +703,7 @@ def lot_types(request):
 
 @api_view(['GET', 'PATCH'])
 @handle_errors
-def lot_type_detail(request, type_code):
+def lot_type_detail(request: Request, type_code: str) -> Response:
     if request.method != 'GET':
         require_front(request, GESTION)
     lot_type = get_object_or_404(LotType, type=type_code)
@@ -788,7 +799,7 @@ def lot_type_detail(request, type_code):
 
 @api_view(['PUT'])
 @handle_errors
-def lot_type_slots(request, type_code):
+def lot_type_slots(request: Request, type_code: str) -> Response:
     """Remplace les lots exiges du type : [{"name": "B+", "accepted": ["bplusx"], "quantity": 1, "mode": "fixed",
     "optional": false}, ...] dans l'ordre. mode : 'fixed' (range pour de bon) ou 'assembly' (n'importe quel lot libre,
     choisi a l'assemblage). Les sous-lots deja ranges ne bougent pas : seule leur place change."""
@@ -832,14 +843,14 @@ def lot_type_slots(request, type_code):
     return Response(ser.lot_type_dict(lot_type))
 
 
-def slot_of(lot, slot_id):
+def slot_of(lot: Lots, slot_id: int) -> LotTypeSlot:
     slot = get_object_or_404(LotTypeSlot, id=parse_int(slot_id, 'slot', 1))
     if slot.lot_type_id != lot.lot_type_id:
         raise ApiError(f"Cette place n'est pas une place de {lot.name}")
     return slot
 
 
-def slot_lot(lot_id):
+def slot_lot(lot_id: str) -> Lots:
     other = get_object_or_404(Lots.objects.select_related('lot_type', 'parent'), id=str(lot_id or ''))
     if not other.active:
         raise ApiError(f"Le lot {other.name} est archivé")
@@ -848,7 +859,7 @@ def slot_lot(lot_id):
 
 @api_view(['POST'])
 @handle_errors
-def lot_slot_action(request, lot_id, action):
+def lot_slot_action(request: Request, lot_id: str, action: str) -> Response:
     """Places des lots exiges d'un lot (Gestion des lots) :
 
     - assemble {slot, lot} : range un lot libre d'un type accepte dans une place a l'assemblage ;
@@ -934,7 +945,7 @@ def lot_slot_action(request, lot_id, action):
 
 @api_view(['PUT'])
 @handle_errors
-def lot_type_requirements(request, type_code):
+def lot_type_requirements(request: Request, type_code: str) -> Response:
     """Remplace la liste des exigences : [{"type": "serphy", "quantity": 4, "location": "pochette bleue",
     "optional": false}, ...], et l'ordre des emplacements (locations, facultatif : ordre actuel, les nouveaux a la
     suite). optional : facultatif a la verif, seulement pour du materiel non consommable sans taches."""
@@ -987,7 +998,7 @@ def lot_type_requirements(request, type_code):
 
 @api_view(['GET'])
 @handle_errors
-def lot_type_coverage(request, type_code):
+def lot_type_coverage(request: Request, type_code: str) -> Response:
     """Couverture d'un referentiel : pour chaque lot qui doit le couvrir (ses lots, ou un lot d'un de ses rangements
     hors d'un lot du referentiel), la liste obligatoire face au contenu attendu de ses sacs (voir
     services.lot_coverage)."""
@@ -1001,7 +1012,7 @@ def lot_type_coverage(request, type_code):
 
 @api_view(['PUT'])
 @handle_errors
-def lot_content(request, lot_id):
+def lot_content(request: Request, lot_id: str) -> Response:
     """Remplace le contenu propre d'un lot, par-dessus celui de son type : [{"type": "serphy", "extra": 2,
     "location": "poche avant"}, ...] (extra : en plus de la quantite du type ; location absent ou null : l'emplacement
     du type), et l'ordre des emplacements du lot (locations, facultatif ; celui du type s'il revient au meme)."""
@@ -1072,7 +1083,7 @@ def lot_content(request, lot_id):
 
 @api_view(['PUT'])
 @handle_errors
-def lot_distribution(request, lot_id):
+def lot_distribution(request: Request, lot_id: str) -> Response:
     """Repartit la liste d'un referentiel entre les sacs d'un lot global (ses sous-lots dont le type est un rangement
     de ce referentiel) : {"referentiel": "lotBpl", "rows": [{"lot": <sac>, "type": "cardio", "quantity": 1,
     "location": "poche avant"}, ...]}. Le type de chaque sac reste la repartition par defaut : seul ce qui en differe
@@ -1138,7 +1149,7 @@ def lot_distribution(request, lot_id):
 
 @api_view(['GET', 'POST'])
 @handle_errors
-def lots(request):
+def lots(request: Request) -> Response:
     if request.method != 'GET':
         require_front(request, GESTION)
     if request.method == 'GET':
@@ -1180,14 +1191,14 @@ def lots(request):
 BATCH_MAX = 30  # lots crees d'un coup (sous-lots non compris)
 
 
-def batch_sub_types(lot_type):
+def batch_sub_types(lot_type: LotType) -> list[dict[str, Any]]:
     """Sous-lots proposes a la creation de lots de `lot_type`, avec leur nombre par defaut.
 
     Les types de sous-lots deja ranges dans les lots de ce type, au nombre le plus courant, et les rangements du
     referentiel : 1 par defaut, 0 si tous leurs lots sont ranges dans des lots d'un autre type (le sac de soin du
     VPS est un rangement du B+, mais pas un sac des lots B+)."""
     lots = list(lot_type.lots_set.filter(active=True).prefetch_related('children__lot_type'))
-    counts = defaultdict(Counter)  # type de sous-lot -> {nombre dans un lot: nombre de lots}
+    counts: defaultdict[str, Counter[int]] = defaultdict(Counter)  # type de sous-lot -> {nombre dans un lot: nombre de lots}
     names = {}
     for lot in lots:
         per_lot = Counter(child.lot_type_id for child in lot.children.all() if child.active)
@@ -1214,14 +1225,15 @@ def batch_sub_types(lot_type):
     ]
 
 
-def usual_key_location(lot_type):
+def usual_key_location(lot_type: LotType) -> str:
     """Emplacement de l'etiquette cle le plus courant parmi les lots du type (vide s'il n'y en a pas)."""
     places = Counter(lot_type.lots_set.filter(active=True).exclude(key_location='')
                      .values_list('key_location', flat=True))
     return places.most_common(1)[0][0] if places else ''
 
 
-def batch_plan(lot_type, count, base_name, base_short, sub_counts):
+def batch_plan(lot_type: LotType, count: int, base_name: str, base_short: str, sub_counts: list[tuple[str, int]]
+              ) -> list[dict[str, Any]]:
     """Noms proposes pour `count` lots de `lot_type` et leurs sous-lots : « B+ 3 », « Sac de soin B+ 3 »…
 
     La numerotation reprend apres le plus grand numero deja pris par un lot actif nomme « <base> <n> »."""
@@ -1247,7 +1259,7 @@ def batch_plan(lot_type, count, base_name, base_short, sub_counts):
     return plan
 
 
-def batch_lot_type(code):
+def batch_lot_type(code: str) -> LotType:
     """Type de lot d'une creation groupee : ni archive, ni lot unique, ni rangement du stock."""
     lot_type = get_object_or_404(LotType, type=str(code or ''))
     if lot_type.archived:
@@ -1260,7 +1272,7 @@ def batch_lot_type(code):
 
 @api_view(['POST'])
 @handle_errors
-def lots_batch(request):
+def lots_batch(request: Request) -> Response:
     """Creation de plusieurs lots d'un type, avec leurs sous-lots, en une fois.
 
     `preview` : renvoie les sous-lots proposes (`sub_types`) et les noms prevus (`lots`) sans rien creer, a partir
@@ -1308,7 +1320,7 @@ def lots_batch(request):
     seen = set()
     existing = list(Lots.objects.filter(active=True).only('name', 'active'))
 
-    def clean(row, row_type):
+    def clean(row: Any, row_type: LotType) -> Lots:
         if not isinstance(row, dict):
             raise ApiError("Lots invalides")
         name = str(row.get('name', '')).strip()[:64]
@@ -1355,7 +1367,7 @@ def lots_batch(request):
                     status=status.HTTP_201_CREATED)
 
 
-def parse_parent(lot, value):
+def parse_parent(lot: Lots, value: str | None) -> Lots | None:
     """Lot parent demande (id, ou vide pour un lot independant). Refuse un lot archive et les boucles.
 
     Le stock est le lot global de tous les rangements du stock : un rangement est range dans le stock (par defaut)
@@ -1376,7 +1388,7 @@ def parse_parent(lot, value):
     return parent
 
 
-def check_rangement_parent(lot):
+def check_rangement_parent(lot: Lots) -> None:
     """Un lot d'un rangement (ex : un sac de soin du B+) se range dans un lot, sauf un sac de rechange."""
     rangement_of = lot.lot_type.part_of
     if rangement_of is not None and lot.parent_id is None and not lot.spare:
@@ -1384,13 +1396,13 @@ def check_rangement_parent(lot):
                        "« Rangé dans le lot », ou cochez « Sac de rechange » pour un sac libre")
 
 
-def free_rangement(lot):
+def free_rangement(lot: Lots) -> None:
     """Lot sorti de son lot (libere, remplace) : un rangement devient un sac de rechange."""
     if lot.lot_type.part_of_id:
         lot.spare = True
 
 
-def check_optional_lot(lot):
+def check_optional_lot(lot: Lots) -> None:
     """Un sous-lot facultatif (tout son contenu l'est) : range dans un lot, pas un rangement du stock."""
     if lot.lot_type.storage:
         raise ApiError("Un rangement du stock ne peut pas être facultatif")
@@ -1398,14 +1410,14 @@ def check_optional_lot(lot):
         raise ApiError("Seul un sous-lot peut être facultatif : rangez ce lot dans un autre lot d'abord")
 
 
-def default_parent(lot):
+def default_parent(lot: Lots) -> Lots | None:
     """Lot parent d'un lot independant : le stock pour un rangement du stock, aucun sinon."""
     return Lots.stock() if lot.lot_type.storage and not lot.is_stock else None
 
 
 @api_view(['PATCH'])
 @handle_errors
-def lot_update(request, lot_id):
+def lot_update(request: Request, lot_id: str) -> Response:
     require_front(request, GESTION)
     lot = get_object_or_404(Lots.objects.select_related('lot_type', 'parent'), id=lot_id)
     data = request.data
@@ -1476,7 +1488,7 @@ def lot_update(request, lot_id):
 
 @api_view(['POST'])
 @handle_errors
-def lot_seal(request, lot_id):
+def lot_seal(request: Request, lot_id: str) -> Response:
     require_front(request, GESTION)
     lot = get_object_or_404(Lots.objects.select_related('lot_type'), id=lot_id)
     identity = operation_identity(request)
@@ -1486,7 +1498,7 @@ def lot_seal(request, lot_id):
 
 @api_view(['POST'])
 @handle_errors
-def lot_rotate_key(request, lot_id):
+def lot_rotate_key(request: Request, lot_id: str) -> Response:
     require_front(request, GESTION)
     lot = get_object_or_404(Lots.objects.select_related('lot_type'), id=lot_id)
     lot.rotate_key()
@@ -1500,7 +1512,7 @@ def lot_rotate_key(request, lot_id):
 
 @api_view(['GET'])
 @handle_errors
-def lot_verifs(request, lot_id):
+def lot_verifs(request: Request, lot_id: str) -> Response:
     require_front(request, GESTION)
     lot = get_object_or_404(Lots, id=lot_id)
     return Response([ser.verif_dict(verif) for verif in Verifs.objects.filter(lot=lot).order_by('-datetime')[:100]])
@@ -1508,7 +1520,7 @@ def lot_verifs(request, lot_id):
 
 @api_view(['GET'])
 @handle_errors
-def operations(request):
+def operations(request: Request) -> Response:
     """Journal des operations, du plus recent au plus ancien (fenetre Journal du poste, roles gestion et admin).
 
     Filtres : kind (types separes par des virgules), by (identite stockee, ex M:1234), lot (avec ses sous-lots, archives
@@ -1568,7 +1580,7 @@ def operations(request):
 
 @api_view(['GET', 'POST'])
 @handle_errors
-def operation_cancel(request, operation_id):
+def operation_cancel(request: Request, operation_id: int) -> Response:
     """Annuler une operation du journal (admins, page Journal du poste), voir undo.py.
 
     GET : ce qui sera annule avec elle {"operation": ligne, "together": [operations de la meme requete],
@@ -1591,9 +1603,9 @@ def operation_cancel(request, operation_id):
     return Response(ser.operation_dict(line, journal.names([line.by]), True))
 
 
-def lot_and_sub_lot_ids(lot):
+def lot_and_sub_lot_ids(lot: Lots) -> list[str]:
     """Le lot et tous ses sous-lots, archives compris (l'historique d'un sous-lot archive reste celui du lot)."""
-    by_parent = {}
+    by_parent: dict[str, list[str]] = {}
     for lot_id, parent_id in Lots.objects.filter(parent__isnull=False).values_list('id', 'parent_id'):
         by_parent.setdefault(parent_id, []).append(lot_id)
     result, pending = [], [lot.id]
@@ -1605,16 +1617,16 @@ def lot_and_sub_lot_ids(lot):
     return result
 
 
-def admin_count():
+def admin_count() -> int:
     return Secouristes.objects.filter(role=Role.ADMIN, active=True, key_expires__gte=timezone.localdate()).count()
 
 
-def admin_exists():
+def admin_exists() -> bool:
     return admin_count() > 0
 
 
 @api_view(['GET'])
-def setup(request):
+def setup(request: Request) -> Response:
     """Etat de premiere configuration : le front propose de creer un responsable s'il n'y en a aucun
     avec un badge valide (premiere installation, ou tous les badges responsables expires)."""
     admins = admin_count()
@@ -1627,7 +1639,7 @@ def setup(request):
 
 @api_view(['GET', 'POST'])
 @handle_errors
-def users(request):
+def users(request: Request) -> Response:
     # premier administrateur (aucun admin avec un badge valide) : le poste le cree sans etre connecte
     first_admin = request.method == 'POST' and not admin_exists()
     if not first_admin:
@@ -1678,7 +1690,7 @@ def users(request):
 
 @api_view(['GET', 'PATCH'])
 @handle_errors
-def user_detail(request, matricule):
+def user_detail(request: Request, matricule: str) -> Response:
     require_front(request, ADMIN)
     user = get_object_or_404(Secouristes, matricule=matricule)
     if request.method == 'PATCH' and user.guest:
@@ -1725,7 +1737,7 @@ def user_detail(request, matricule):
     return Response(ser.user_dict(user, local=True))
 
 
-def guest_card_patch(request, card):
+def guest_card_patch(request: Request, card: Secouristes) -> Response:
     """Carte d'invite : seulement active (desactivee, activee ou non : plus de connexion, sessions coupees), duree de
     vie (heures apres l'activation) et nom/prenom corriges. Toujours role secouriste, jamais de PIN."""
     data = request.data
@@ -1758,7 +1770,7 @@ def guest_card_patch(request, card):
 
 @api_view(['POST'])
 @handle_errors
-def guest_card_actions(request, matricule):
+def guest_card_actions(request: Request, matricule: str) -> Response:
     """Carte d'invite (poste, admins) : {"action": "reuse"} reprend le numero d'une carte jamais activee (nouvelle
     carte a imprimer), {"action": "reactivate", "guest_hours", "new_card"?} rouvre une periode pour un invite qui
     revient (carte a son nom a imprimer si new_card). La cle en clair (badge_url) n'est que dans cette reponse."""
@@ -1776,7 +1788,7 @@ def guest_card_actions(request, matricule):
 
 @api_view(['GET', 'POST'])
 @handle_errors
-def guest_cards(request):
+def guest_cards(request: Request) -> Response:
     """Cartes d'invites (poste, admins). GET : toutes les cartes. POST {"count", "guest_hours"?} : nouvelles cartes a
     imprimer, avec leur cle en clair (badge_url) dans cette reponse seulement."""
     require_front(request, ADMIN)
@@ -1802,7 +1814,7 @@ def guest_cards(request):
     return Response({'cards': rows}, status=status.HTTP_201_CREATED)
 
 
-def parse_fonction(value):
+def parse_fonction(value: str) -> str:
     """Role dans l'equipe (texte libre, 32 caracteres) : vide, c'est le role par defaut (Secouriste)."""
     return ' '.join(str(value or '').split())[:32] or DEFAULT_FONCTION
 
@@ -1813,7 +1825,7 @@ USER_FIELDS = {'nom': 'nom', 'prenom': 'prénom', 'fonction': 'rôle', 'pin': 'P
                'scanner_volume': 'volume de la douchette'}
 
 
-def user_changes(data, user):
+def user_changes(data: dict[str, Any], user: Secouristes) -> str:
     """Changements d'un compte pour le journal (jamais la valeur du PIN)."""
     changes = []
     if parse_role(data):
@@ -1826,14 +1838,14 @@ def user_changes(data, user):
     return ', '.join(changes) or 'aucun changement'
 
 
-def parse_push_disabled(value):
+def parse_push_disabled(value: list[str]) -> list[str]:
     """Types de notifications web coupes pour un utilisateur (liste de noms de PUSH_TYPES)."""
     if not isinstance(value, list) or not all(isinstance(name, str) and name in PUSH_TYPES for name in value):
         raise ApiError("push_disabled : liste de types de notifications attendue (" + ', '.join(PUSH_TYPES) + ")")
     return sorted(set(value))
 
 
-def parse_pin_contact(user, value):
+def parse_pin_contact(user: Secouristes, value: str) -> Secouristes | None:
     """Admin a contacter si le PIN est bloque (matricule d'un administrateur actif, vide = aucun)."""
     if value in (None, ''):
         return None
@@ -1845,7 +1857,7 @@ def parse_pin_contact(user, value):
 
 @api_view(['POST'])
 @handle_errors
-def user_renew_key(request, matricule):
+def user_renew_key(request: Request, matricule: str) -> Response:
     require_front(request, ADMIN)
     user = get_object_or_404(Secouristes, matricule=matricule)
     user.renew_key()

@@ -1,5 +1,7 @@
 """Aides communes aux tests du back : ApiTestCase, PIN facultatif par defaut, journaux attendus."""
 
+from __future__ import annotations
+
 import importlib
 import json
 import math
@@ -9,6 +11,8 @@ from datetime import date, datetime, timedelta
 from decimal import Decimal
 from io import StringIO
 from pathlib import Path
+from typing import Any, Literal, Type
+from collections.abc import Callable
 
 from django.apps import apps as django_apps
 
@@ -41,7 +45,7 @@ class quiet_stderr:
 
     LOGGERS = ('django', 'inventory')
 
-    def __enter__(self):
+    def __enter__(self) -> quiet_stderr:
         import logging
         self.removed = []
         for name in self.LOGGERS:
@@ -52,7 +56,7 @@ class quiet_stderr:
                     self.removed.append((logger, handler))
         return self
 
-    def __exit__(self, *exc):
+    def __exit__(self, *exc: object) -> Literal[False]:
         for logger, handler in self.removed:
             logger.addHandler(handler)
         return False
@@ -65,31 +69,32 @@ _PIN_ROLES_FIELD = models.ServerSettings._meta.get_field('pin_required_roles')
 _PIN_ROLES_DEFAULT = _PIN_ROLES_FIELD.default
 
 
-def _set_pin_roles_default(default):
+def _set_pin_roles_default(default: Callable[[], list[str]]) -> None:
     _PIN_ROLES_FIELD.default = default
     _PIN_ROLES_FIELD.__dict__.pop('_get_default', None)  # cached_property de Django
 
 
-def setUpModule():
+def setUpModule() -> None:
     _set_pin_roles_default(list)
 
 
-def tearDownModule():
+def tearDownModule() -> None:
     _set_pin_roles_default(_PIN_ROLES_DEFAULT)
 
 
 class real_pin_default:
     """Le vrai defaut de pin_required_roles (tous les roles) le temps d'un bloc."""
 
-    def __enter__(self):
+    def __enter__(self) -> None:
         _set_pin_roles_default(_PIN_ROLES_DEFAULT)
 
-    def __exit__(self, *exc):
+    def __exit__(self, *exc: object) -> None:
         _set_pin_roles_default(list)
 
 
 class ApiTestCase(TestCase):
-    def call(self, method, path, data=None, local=True, session=None):
+    def call(self, method: str, path: str, data: Any = None, local: bool = True, session: str | bool | None = None
+            ) -> Any:
         """local : requete du poste, avec par defaut la session de l'administrateur connecte (session=False :
         personne de connecte, ou un autre jeton)."""
         extra = dict(LOCAL) if local else {}
@@ -100,7 +105,7 @@ class ApiTestCase(TestCase):
         is_json = response.get('Content-Type', '').startswith('application/json')
         return response.status_code, (response.json() if is_json else None)
 
-    def setUp(self):
+    def setUp(self) -> None:
         self.today = timezone.localdate()
         self.compresses = ItemType.objects.create(type='compre', name='Compresses', perissable=True, min_quantity=10)
         self.garrot = ItemType.objects.create(type='garrot', name='Garrot', perissable=False, min_quantity=2)
@@ -117,5 +122,5 @@ class ApiTestCase(TestCase):
         self.operator.save()
         self.operator_session = views.session_token(self.operator)
 
-    def create(self, item_type, peremption, count):
+    def create(self, item_type: ItemType, peremption: date | None, count: int) -> list[Items]:
         return ItemsPacks.objects.add_items(item_type, peremption, count, 'test')

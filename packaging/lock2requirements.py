@@ -6,11 +6,13 @@ Permet d'embarquer exactement les dependances verrouillees par poetry dans le RP
     python3 packaging/lock2requirements.py poetry.lock > requirements.txt
 """
 
+from __future__ import annotations
+
 import sys
 import tomllib
 
 
-def main(path):
+def main(path: str) -> None:
     with open(path, 'rb') as handle:
         lock = tomllib.load(handle)
     for package in lock.get('package', []):

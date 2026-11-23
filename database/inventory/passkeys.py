@@ -23,6 +23,8 @@ Debogage : chaque refus leve PasskeyError dont le message dit pourquoi (journal 
 montre qu'un message general. Voir docs/technique/passkeys.md.
 """
 
+from __future__ import annotations
+
 import base64
 import hashlib
 import json
@@ -30,6 +32,7 @@ import logging
 import secrets
 import struct
 from urllib.parse import urlsplit
+from typing import TYPE_CHECKING, Any
 
 from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives import hashes
@@ -40,6 +43,10 @@ from django.core.cache import cache
 from django.core.exceptions import DisallowedHost
 
 from .models import qrprotec_setting
+
+if TYPE_CHECKING:
+    from inventory.models import Passkey, Secouristes
+    from rest_framework.request import Request
 
 log = logging.getLogger(__name__)
 
@@ -66,7 +73,7 @@ def b64encode(data: bytes) -> str:
     return base64.urlsafe_b64encode(data).rstrip(b'=').decode('ascii')
 
 
-def b64decode(value) -> bytes:
+def b64decode(value: str) -> bytes:
     if not isinstance(value, str) or len(value) > 16384:
         raise PasskeyError('champ base64url absent ou trop long')
     try:
@@ -78,7 +85,7 @@ def b64decode(value) -> bytes:
 # CBOR (RFC 8949), juste ce que WebAuthn utilise : entiers, octets, texte, tableaux, maps, simples
 # ----------------------------------------------------------------------------------------------------------------------
 
-def cbor_decode(data: bytes, offset=0, depth=0):
+def cbor_decode(data: bytes, offset: int = 0, depth: int = 0) -> Any:
     """(valeur, position apres la valeur)."""
     if depth > 16:
         raise PasskeyError('CBOR trop imbrique')
@@ -127,7 +134,7 @@ def cbor_decode(data: bytes, offset=0, depth=0):
     raise PasskeyError('CBOR : valeur simple non geree')
 
 
-def cbor_loads(data: bytes):
+def cbor_loads(data: bytes) -> dict[str, Any]:
     value, end = cbor_decode(data)
     if end != len(data):
         raise PasskeyError('CBOR : octets en trop')
@@ -137,7 +144,7 @@ def cbor_loads(data: bytes):
 # Cles COSE (RFC 9053)
 # ----------------------------------------------------------------------------------------------------------------------
 
-def cose_public_key(cose: bytes):
+def cose_public_key(cose: bytes | dict[int, Any]) -> tuple[Any, int]:
     """Cle publique `cryptography` et algorithme COSE d'une cle COSE (EC2 P-256, OKP Ed25519, RSA)."""
     key = cbor_loads(cose) if isinstance(cose, (bytes, bytearray, memoryview)) else cose
     if not isinstance(key, dict):
@@ -163,7 +170,7 @@ def cose_public_key(cose: bytes):
     raise PasskeyError(f'algorithme de cle non gere (kty {kty}, alg {alg})')
 
 
-def verify_signature(cose: bytes, signature: bytes, data: bytes):
+def verify_signature(cose: bytes, signature: bytes, data: bytes) -> None:
     public_key, alg = cose_public_key(cose)
     try:
         if alg == -7:
@@ -179,14 +186,14 @@ def verify_signature(cose: bytes, signature: bytes, data: bytes):
 # Domaine (RP ID) et origine
 # ----------------------------------------------------------------------------------------------------------------------
 
-def _request_hostname(request):
+def _request_hostname(request: Request) -> str:
     try:
         return (urlsplit('//' + request.get_host()).hostname or '').lower()
     except DisallowedHost:  # hote refuse par ALLOWED_HOSTS : pas de domaine de developpement
         return ''
 
 
-def rp_id(request=None) -> str:
+def rp_id(request: Request | None = None) -> str:
     configured = str(qrprotec_setting('PASSKEY_RP_ID') or '').strip().lower()
     if configured:
         return configured
@@ -195,7 +202,7 @@ def rp_id(request=None) -> str:
     return (urlsplit(str(qrprotec_setting('PUBLIC_BASE_URL'))).hostname or 'localhost').lower()
 
 
-def origin_allowed(origin, rp) -> bool:
+def origin_allowed(origin: str, rp: str) -> bool:
     parts = urlsplit(str(origin or ''))
     host = (parts.hostname or '').lower()
     if not host or not (host == rp or host.endswith('.' + rp)):
@@ -206,13 +213,13 @@ def origin_allowed(origin, rp) -> bool:
 # Defis a usage unique
 # ----------------------------------------------------------------------------------------------------------------------
 
-def new_challenge(purpose, matricule=''):
+def new_challenge(purpose: str, matricule: str = '') -> str:
     nonce = secrets.token_urlsafe(24)
     token = signing.dumps({'p': purpose, 'm': matricule, 'n': nonce}, salt=CHALLENGE_SALT, compress=False)
     return b64encode(token.encode('ascii'))
 
 
-def use_challenge(challenge_b64, purpose, matricule=''):
+def use_challenge(challenge_b64: str, purpose: str, matricule: str = '') -> None:
     try:
         token = b64decode(challenge_b64).decode('ascii')
         data = signing.loads(token, salt=CHALLENGE_SALT, max_age=CHALLENGE_MAX_AGE)
@@ -227,7 +234,8 @@ def use_challenge(challenge_b64, purpose, matricule=''):
 # Donnees de l'authentificateur
 # ----------------------------------------------------------------------------------------------------------------------
 
-def _client_data(response, expected_type, purpose, matricule, request):
+def _client_data(response: dict[str, Any], expected_type: str, purpose: str, matricule: str, request: Request
+                ) -> tuple[bytes, str]:
     raw = b64decode(response.get('clientDataJSON'))
     try:
         client = json.loads(raw)
@@ -242,7 +250,7 @@ def _client_data(response, expected_type, purpose, matricule, request):
     return raw, rp
 
 
-def _auth_data(data: bytes, rp, require_credential=False):
+def _auth_data(data: bytes, rp: str, require_credential: bool = False) -> dict[str, Any]:
     if len(data) < 37:
         raise PasskeyError('authenticatorData trop court')
     if data[:32] != hashlib.sha256(rp.encode()).digest():
@@ -271,7 +279,7 @@ def _auth_data(data: bytes, rp, require_credential=False):
 # Options et verifications
 # ----------------------------------------------------------------------------------------------------------------------
 
-def registration_options(request, user, existing_ids=()):
+def registration_options(request: Request, user: Secouristes, existing_ids: list[Any] = ()) -> dict[str, Any]:
     """publicKey de navigator.credentials.create() pour un secouriste connecte."""
     return {
         'challenge': new_challenge('register', user.matricule),
@@ -288,7 +296,7 @@ def registration_options(request, user, existing_ids=()):
     }
 
 
-def verify_registration(request, user, credential):
+def verify_registration(request: Request, user: Secouristes, credential: dict[str, Any]) -> dict[str, Any]:
     """{credential_id (base64url), public_key (COSE), sign_count, transports} d'une creation valide."""
     if not isinstance(credential, dict) or not isinstance(credential.get('response'), dict):
         raise PasskeyError('reponse de creation absente')
@@ -307,7 +315,7 @@ def verify_registration(request, user, credential):
             'transports': transports}
 
 
-def authentication_options(request):
+def authentication_options(request: Request) -> dict[str, Any]:
     """publicKey de navigator.credentials.get() : pas de liste de cles, le telephone propose ses passkeys."""
     return {
         'challenge': new_challenge('login'),
@@ -318,7 +326,7 @@ def authentication_options(request):
     }
 
 
-def verify_authentication(request, passkey, credential):
+def verify_authentication(request: Request, passkey: Passkey, credential: dict[str, Any]) -> int:
     """Verifie une reponse de connexion pour cette passkey ; renvoie le nouveau compteur de signatures."""
     response = credential.get('response') if isinstance(credential, dict) else None
     if not isinstance(response, dict):

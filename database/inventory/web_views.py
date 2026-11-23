@@ -14,11 +14,13 @@ La page repond aux URLs encodees dans les QR codes (verif?lot=..., badge?m=..., 
 une etiquette avec l'appareil photo du telephone ouvre directement la bonne vue.
 """
 
+from __future__ import annotations
+
 import hashlib
 import json
 from pathlib import Path
 
-from django.http import FileResponse, Http404, HttpResponse, HttpResponseNotModified
+from django.http import FileResponse, Http404, HttpRequest, HttpResponse, HttpResponseNotModified
 from django.utils.http import http_date, parse_http_date_safe
 
 from .models import ServerSettings
@@ -55,7 +57,7 @@ ASSETS.update({f'app/{path.name}': 'text/javascript; charset=utf-8' for path in 
 ASSETS.update({f'icons/{path.name}': 'image/svg+xml' for path in (WEB_DIR / 'icons').glob('*.svg')})
 
 
-def _file(request, path, content_type, cache):
+def _file(request: HttpRequest, path: Path, content_type: str, cache: str) -> FileResponse | HttpResponseNotModified:
     """Fichier statique avec ETag et Last-Modified : le navigateur garde sa copie et la revalide (304, sans corps)
     au lieu de retelecharger les scripts de web/app/ et les autres (~600 Ko) a chaque ouverture. Comparaison a l'egalite (date et
     taille du fichier) : une mise a jour du paquet est toujours reprise, meme si la date du nouveau fichier est
@@ -78,7 +80,7 @@ def _file(request, path, content_type, cache):
     return response
 
 
-def _csp(request):
+def _csp(request: HttpRequest) -> str:
     """Content-Security-Policy des pages : scripts, styles, images et connexions du site seulement. Les styles
     en ligne restent permis (attributs style poses par web/app/, <style> de scanner.html), les images data: aussi
     (QR codes generes par qrcode.js). WebSocket du suivi en direct et de la douchette : meme hote en ws(s)://."""
@@ -102,7 +104,7 @@ def _csp(request):
 BARCODE_SCRIPT = '  <script src="web/code128.js" defer></script>\n'
 
 
-def _page(request, name):
+def _page(request: HttpRequest, name: str) -> HttpResponse:
     """Page HTML ; sans le decodeur de codes-barres (web/code128.js) tant que le reglage du serveur le coupe :
     aucune etiquette a code-barres en circulation, la page reste plus legere."""
     html = (WEB_DIR / name).read_text(encoding='utf-8')
@@ -115,14 +117,14 @@ def _page(request, name):
     return response
 
 
-def page(request):
+def page(request: HttpRequest) -> HttpResponse:
     response = _page(request, 'index.html')
     response['Permissions-Policy'] = 'camera=(self)'
     response['Referrer-Policy'] = 'no-referrer'  # l'URL peut contenir la cle du lot ou du badge
     return response
 
 
-def scanner_page(request):
+def scanner_page(request: HttpRequest) -> HttpResponse:
     """Page du telephone-douchette (QR code affiche par le front : scanner?s=SESSION&k=CLE)."""
     response = _page(request, 'scanner.html')
     response['Permissions-Policy'] = 'camera=(self)'
@@ -133,7 +135,7 @@ def scanner_page(request):
 ROBOTS_TXT = 'User-agent: *\nDisallow: /\n'
 
 
-def robots_txt(request):
+def robots_txt(request: HttpRequest) -> HttpResponse:
     """Site prive (etiquettes, fiches de lots, connexion) : aucun moteur de recherche ne doit l'indexer. Les
     robots honnetes lisent ce fichier ; l'en-tete X-Robots-Tag (NoIndexMiddleware) couvre les autres pages."""
     response = HttpResponse(ROBOTS_TXT, content_type='text/plain; charset=utf-8')
@@ -141,7 +143,7 @@ def robots_txt(request):
     return response
 
 
-def favicon(request):
+def favicon(request: HttpRequest) -> FileResponse | HttpResponseNotModified:
     # demande d'office par les navigateurs a la racine du site
     return _file(request, WEB_DIR / 'favicon.png', 'image/png', 'max-age=86400')
 
@@ -151,13 +153,13 @@ def favicon(request):
 PAGES = ('', 'verif', 'badge', 'item', 'task', 'liste', 'pack', 'seal', 'unseal', 'pinreset')
 
 
-def offline_files():
+def offline_files() -> list[str]:
     """Fichiers gardes par le telephone pour ouvrir l'appli sans reseau : la page et tout ASSETS (sauf le service
     worker des notifications). Un nouveau fichier du front n'a qu'a etre ajoute a ASSETS."""
     return ['./'] + [f'web/{name}' for name in ASSETS if name != 'sw.js']
 
 
-def offline_version():
+def offline_version() -> str:
     """Empreinte de la version du front (date et taille de chaque fichier, comme l'ETag, et reglage des codes-barres
     qui change la page) : une mise a jour du paquet change le service worker, qui recharge alors tous les fichiers."""
     digest = hashlib.sha256(str(ServerSettings.get().web_barcodes).encode())
@@ -167,7 +169,7 @@ def offline_version():
     return digest.hexdigest()[:16]
 
 
-def app_service_worker(request):
+def app_service_worker(request: HttpRequest) -> HttpResponse:
     """Service worker de l'appli (web/app-sw.js), a la racine pour que sa portee couvre toutes les pages. Version et
     liste des fichiers ecrites dedans : le navigateur le relit a chaque ouverture et le voit changer a chaque mise a
     jour du front."""
@@ -181,7 +183,7 @@ def app_service_worker(request):
     return response
 
 
-def asset(request, name):
+def asset(request: HttpRequest, name: str) -> FileResponse | HttpResponseNotModified:
     if name not in ASSETS:
         raise Http404()
     return _file(request, WEB_DIR / name, ASSETS[name], 'max-age=31536000, immutable' if name == WASM else 'no-cache')

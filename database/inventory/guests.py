@@ -9,6 +9,10 @@ jamais de PIN. Une carte desactivee (activee ou non) ne connecte plus personne e
 Une carte sert a un seul invite : l'historique (vérifs, journal) garde son nom par le numero de la carte.
 """
 
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Any
+
 import secrets
 from datetime import timedelta
 
@@ -16,6 +20,9 @@ from django.db import transaction
 from django.utils import timezone
 
 from .models import PinMode, Role, Secouristes, ServerSettings
+
+if TYPE_CHECKING:
+    from datetime import date
 
 GUEST_PREFIX = 'INV'
 GUEST_CODE_ALPHABET = '23456789ABCDEFGHJKLMNPQRSTUVWXYZ'  # sans 0/O ni 1/I : numero lisible sur la carte
@@ -33,7 +40,7 @@ GUEST_STATE_LABELS = {
 }
 
 
-def parse_guest_hours(value):
+def parse_guest_hours(value: int) -> int:
     """Duree de vie d'une carte d'invite en heures (1 a 720)."""
     try:
         hours = int(value)
@@ -44,7 +51,7 @@ def parse_guest_hours(value):
     return hours
 
 
-def new_guest_matricule():
+def new_guest_matricule() -> str:
     for _ in range(50):
         matricule = GUEST_PREFIX + ''.join(secrets.choice(GUEST_CODE_ALPHABET) for _ in range(GUEST_CODE_LENGTH))
         if not Secouristes.objects.filter(matricule=matricule).exists():
@@ -52,7 +59,8 @@ def new_guest_matricule():
     raise RuntimeError("Impossible de tirer un numéro de carte libre")
 
 
-def create_guest_card(created_by, hours=None, activate_within_hours=None):
+def create_guest_card(created_by: Secouristes, hours: int | None = None, activate_within_hours: int | None = None
+                     ) -> Secouristes:
     """Nouvelle carte d'invite (non enregistree dans le journal : a l'appelant). Sa cle en clair est dans
     `new_key` (renew_key) le temps de la reponse, pour l'imprimer ou l'afficher."""
     card = Secouristes(matricule=new_guest_matricule(), nom='', prenom='', role=Role.NORMAL, fonction='Invité',
@@ -65,11 +73,11 @@ def create_guest_card(created_by, hours=None, activate_within_hours=None):
     return card
 
 
-def _clean(value, length):
+def _clean(value: str | None, length: int) -> str:
     return ' '.join(str(value or '').split())[:length]
 
 
-def activate(card, nom, prenom, antenna):
+def activate(card: Secouristes, nom: str, prenom: str, antenna: str | None) -> bool:
     """Premiere connexion avec la carte : nom, prenom et antenne de l'invite, debut de sa duree de vie. Deux
     telephones qui scannent la meme carte en meme temps : seul le premier la nomme, le second se connecte sous ce
     nom. Retourne True si cette connexion a active la carte."""
@@ -83,7 +91,7 @@ def activate(card, nom, prenom, antenna):
     return bool(done)
 
 
-def reuse(card, activate_within_hours=None):
+def reuse(card: Secouristes, activate_within_hours: float | None = None) -> Secouristes:
     """Numero d'une carte jamais activee repris pour une nouvelle carte : nouvelle cle (l'ancienne carte imprimee ne
     marche plus), de nouveau utilisable un an (ou `activate_within_hours`), reactivee si elle etait desactivee. Rien
     dans l'historique ne porte ce numero : il peut resservir."""
@@ -97,7 +105,7 @@ def reuse(card, activate_within_hours=None):
     return card
 
 
-def reactivate(card, hours, new_card=False):
+def reactivate(card: Secouristes, hours: int, new_card: bool = False) -> Secouristes:
     """Invite qui revient (carte deja activee, expiree ou non, desactivee ou non) : nouvelle periode de `hours`
     heures a partir de maintenant, sous le meme numero (son historique reste a son nom). `new_card` : nouvelle cle,
     pour lui imprimer une carte a son nom (l'ancienne ne marche plus)."""
@@ -114,14 +122,14 @@ def reactivate(card, hours, new_card=False):
     return card
 
 
-def activation_deadline(card):
+def activation_deadline(card: Secouristes) -> date | None:
     """Date limite de premiere connexion d'une carte jamais activee (24 h des cartes du web, sinon un an)."""
     if card.guest_activate_before is not None:
         return timezone.localtime(card.guest_activate_before).date()
     return card.key_expires
 
 
-def card_row(card, public=False):
+def card_row(card: Secouristes, public: bool = False) -> dict[str, Any]:
     """Carte d'invite pour les listes : poste, ou outil de debug du web (`public` : jamais de nom de famille, ni celui
     de l'invite ni celui de l'admin qui a cree la carte)."""
     from .idendity import short_name
@@ -151,7 +159,7 @@ def card_row(card, public=False):
 STATE_ORDER = {'active': 0, 'unused': 1, 'expired': 2, 'expired_unused': 3, 'disabled': 4}
 
 
-def cards(public=False):
+def cards(public: bool = False) -> list[dict[str, Any]]:
     """Toutes les cartes d'invites : en cours d'abord, puis a utiliser, puis le reste, les plus recentes d'abord."""
     rows = [card_row(card, public) for card in Secouristes.objects.filter(guest=True).select_related('guest_created_by')]
     rows.sort(key=lambda row: row['created'], reverse=True)

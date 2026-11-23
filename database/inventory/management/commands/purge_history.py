@@ -17,7 +17,10 @@ Garde toujours ce dont l'etat actuel depend, quel que soit son age :
 - les ItemsPacks (type + date) : leur compteur garantit qu'un iid deja imprime n'est jamais redonne.
 """
 
+from __future__ import annotations
+
 from datetime import timedelta
+from typing import TYPE_CHECKING, Any
 
 from django.db import connection, transaction
 from django.db.models import Exists, Max, OuterRef, Q
@@ -30,11 +33,16 @@ from inventory.models import (
     ProblemReport, ReportStatus, SealedPacks, VerifItem, Verifs, qrprotec_setting,
 )
 
+if TYPE_CHECKING:
+    from django.core.management.base import CommandParser
+    from django.db.models import QuerySet
+    from datetime import datetime
+
 # sortis de la circulation pour de bon (un item sorti ou hors lot peut encore revenir)
 GONE = (ItemStatus.MISSING, ItemStatus.REPLACED, ItemStatus.DELETED)
 
 
-def purge(years, now=None, dry_run=False):
+def purge(years: int, now: datetime | None = None, dry_run: bool = False) -> dict[str, int]:
     """{table: lignes supprimees (ou a supprimer)} pour une retention de `years` ans."""
     cutoff = (now or timezone.now()) - timedelta(days=365 * years)
     keep_verifs = list(Verifs.objects.values('lot').annotate(last=Max('id')).values_list('last', flat=True))
@@ -49,7 +57,7 @@ def purge(years, now=None, dry_run=False):
     checklists = Checklist.objects.filter(is_template=False).filter(
         Q(status=ChecklistStatus.RETURNED, updated__lt=cutoff) | Q(status=ChecklistStatus.DRAFT, updated__lt=cutoff))
 
-    def old_items():
+    def old_items() -> QuerySet[Items]:
         """Items hors circulation depuis la retention, sans reference restante (a evaluer apres les purges)."""
         return (Items.objects.filter(status__in=GONE, last_seen__lt=cutoff)
                 .filter(Q(deleted__isnull=True) | Q(deleted__lt=cutoff))
@@ -57,7 +65,7 @@ def purge(years, now=None, dry_run=False):
                 .exclude(Exists(ProblemReport.objects.filter(item=OuterRef('pk'))))
                 .exclude(Exists(ChecklistScan.objects.filter(item=OuterRef('pk')))))
 
-    def old_packs():
+    def old_packs() -> QuerySet[SealedPacks]:
         return (SealedPacks.objects.filter(opened__lt=cutoff)
                 .exclude(Exists(Items.objects.filter(sealed_pack=OuterRef('pk'))))
                 .exclude(Exists(ProblemReport.objects.filter(sealed_pack=OuterRef('pk')))))
@@ -81,12 +89,12 @@ def purge(years, now=None, dry_run=False):
 class Command(BaseCommand):
     help = "Supprime l'historique et les items hors circulation plus anciens que la retention (QRPROTEC_HISTORY_YEARS, 5 ans) puis compacte la base."
 
-    def add_arguments(self, parser):
+    def add_arguments(self, parser: CommandParser) -> None:
         parser.add_argument('--years', type=int, help='retention en annees (defaut : QRPROTEC_HISTORY_YEARS)')
         parser.add_argument('--dry-run', action='store_true', help='compte sans rien supprimer')
         parser.add_argument('--weekly', action='store_true', help='ne fait rien sauf le lundi')
 
-    def handle(self, years=None, dry_run=False, weekly=False, **options):
+    def handle(self, years: int | None = None, dry_run: bool = False, weekly: bool = False, **options: Any) -> None:
         years = qrprotec_setting('HISTORY_YEARS') if years is None else years
         if years <= 0:
             self.stdout.write('Retention desactivee (QRPROTEC_HISTORY_YEARS=0) : rien a purger.')

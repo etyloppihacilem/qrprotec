@@ -1,11 +1,13 @@
 """Tests du back : front web (pages, fichiers servis, en-tetes)."""
 
+from __future__ import annotations
+
 from .base import *  # noqa: F401,F403
 from .base import setUpModule, tearDownModule  # noqa: F401 (PIN facultatif pendant ces tests)
 
 
 class WebFrontTests(ApiTestCase):
-    def test_qr_urls_serve_the_web_page(self):
+    def test_qr_urls_serve_the_web_page(self) -> None:
         for url in ('/', '/verif', f'/verif?lot={self.lot.id}&key=x', '/badge?m=M001&key=x', '/pack?id=1',
                     '/item?id=compre20271231000000A1', '/task?id=compre20271231000000A1'):
             response = self.client.get(url)
@@ -13,13 +15,13 @@ class WebFrontTests(ApiTestCase):
             self.assertIn(b'web/app/boot.js', response.content)
             self.assertEqual(response['Referrer-Policy'], 'no-referrer')
 
-    def test_assets_whitelist(self):
+    def test_assets_whitelist(self) -> None:
         self.assertEqual(self.client.get('/web/app/boot.js').status_code, 200)
         self.assertEqual(self.client.get('/web/vendor/jsQR.js').status_code, 200)
         self.assertEqual(self.client.get('/web/../views.py').status_code, 404)
         self.assertEqual(self.client.get('/web/index.html').status_code, 404)
 
-    def test_app_scripts_all_loaded(self):
+    def test_app_scripts_all_loaded(self) -> None:
         """Chaque script du front (web/app/*.js) est servi et charge par index.html, boot.js en dernier : il lance
         la page une fois toutes les fonctions declarees."""
         import re
@@ -31,7 +33,7 @@ class WebFrontTests(ApiTestCase):
         for name in loaded:
             self.assertEqual(self.client.get(f'/web/app/{name}').status_code, 200, name)
 
-    def test_assets_revalidated_with_etag(self):
+    def test_assets_revalidated_with_etag(self) -> None:
         """Ressources en cache revalidees (304 sans corps) au lieu d'etre retelechargees a chaque ouverture."""
         response = self.client.get('/web/app/boot.js')
         etag, modified = response['ETag'], response['Last-Modified']
@@ -43,14 +45,14 @@ class WebFrontTests(ApiTestCase):
         # une autre date (nouvelle version, meme plus ancienne) : fichier renvoye
         self.assertEqual(self.client.get('/web/app/boot.js', HTTP_IF_MODIFIED_SINCE='Mon, 01 Jan 2035 00:00:00 GMT').status_code, 200)
 
-    def test_pages_have_content_security_policy(self):
+    def test_pages_have_content_security_policy(self) -> None:
         for url in ('/', '/scanner?s=x&k=y'):
             policy = self.client.get(url)['Content-Security-Policy']
             self.assertIn("script-src 'self'", policy)
             self.assertIn("frame-ancestors 'none'", policy)
             self.assertIn('ws://testserver', policy)  # WebSockets du suivi en direct et de la douchette
 
-    def test_camera_reader_served(self):
+    def test_camera_reader_served(self) -> None:
         """Lecteur limite au viseur dans les deux pages ; zxing-cpp (worker) et son module WebAssembly servis, le
         module versionne garde en cache, le nom attendu par decoder.js."""
         from pathlib import Path
@@ -69,7 +71,7 @@ class WebFrontTests(ApiTestCase):
         self.assertEqual(b''.join(response.streaming_content)[:4], b'\0asm')
         self.assertIn(f"'{WASM}'", (web / 'decoder.js').read_text(encoding='utf-8'))
 
-    def test_scanner_page_can_be_left(self):
+    def test_scanner_page_can_be_left(self) -> None:
         """Douchette : « ← Accueil » visible (l'id #home est cache par app.css, c'est la section d'accueil de
         index.html) et bouton « Quitter » qui marche hors connexion (scanner.js, leave)."""
         from pathlib import Path
@@ -82,7 +84,7 @@ class WebFrontTests(ApiTestCase):
         js = (web / 'scanner.js').read_text(encoding='utf-8')
         self.assertIn("$('#go-home').addEventListener('click', leave)", js)
 
-    def test_douchette_easter_egg(self):
+    def test_douchette_easter_egg(self) -> None:
         """Le script est servi aux deux pages et ses phrases sont celles de l'app (codes.cpp)."""
         import re
         from pathlib import Path
@@ -102,13 +104,13 @@ class WebFrontTests(ApiTestCase):
         cpp_phrases = re.findall(r'^\s+"(.*)",$', block, re.M)
         self.assertEqual(js_phrases, cpp_phrases)
 
-    def test_icons_and_service_worker(self):
+    def test_icons_and_service_worker(self) -> None:
         for url in ('/web/sw.js', '/web/icon-192.png', '/web/icon-512.png', '/web/favicon.png', '/favicon.ico',
                     '/web/icon-maskable-192.png', '/web/icon-maskable-512.png', '/web/apple-touch-icon.png'):
             self.assertEqual(self.client.get(url).status_code, 200, url)
         self.assertEqual(self.client.get('/favicon.ico')['Content-Type'], 'image/png')
 
-    def test_app_service_worker_offline(self):
+    def test_app_service_worker_offline(self) -> None:
         """Appli ouverte sans reseau : service worker a la racine (portee = tout le site), version et liste des
         fichiers ecrites dedans, chaque fichier liste est servi, toutes les pages de l'appli couvertes."""
         import json
@@ -138,7 +140,7 @@ class WebFrontTests(ApiTestCase):
         settings.save()
         self.assertNotIn(version, self.client.get('/app-sw.js').content.decode())
 
-    def test_robots_no_index(self):
+    def test_robots_no_index(self) -> None:
         from pathlib import Path
         response = self.client.get('/robots.txt')
         self.assertEqual(response.status_code, 200)
@@ -151,7 +153,7 @@ class WebFrontTests(ApiTestCase):
             html = (Path(__file__).resolve().parents[1] / 'web' / page).read_text(encoding='utf-8')
             self.assertIn('<meta name="robots" content="noindex, nofollow">', html)
 
-    def test_manifest_installable(self):
+    def test_manifest_installable(self) -> None:
         import json
         response = self.client.get('/web/manifest.webmanifest')
         self.assertEqual(response['Content-Type'], 'application/manifest+json')
@@ -167,7 +169,7 @@ class WebFrontTests(ApiTestCase):
 class BarcodeLabelTests(ApiTestCase):
     """Etiquette a code-barres (Code 128, l'iid seul) choisie par type d'item, pour les objets ronds."""
 
-    def test_item_type_label_style(self):
+    def test_item_type_label_style(self) -> None:
         code, body = self.call('POST', '/api/item-types/', {'type': 'flacon', 'name': 'Flacon', 'label_style': 'barcode'})
         self.assertEqual(code, 201)
         self.assertEqual(body['label_style'], 'barcode')
@@ -183,7 +185,7 @@ class BarcodeLabelTests(ApiTestCase):
         types = {entry['type']: entry for entry in self.call('GET', '/api/item-types/')[1]}
         self.assertEqual(types['flacon']['label_style'], 'small')
 
-    def test_tear_off_and_tasks_exclusive(self):
+    def test_tear_off_and_tasks_exclusive(self) -> None:
         """Une etiquette a dechirer disparait a l'ouverture : pas de liste de taches dessus."""
         code, _ = self.call('POST', '/api/item-types/', {'type': 'sachet', 'name': 'Sachet', 'tear_off': True,
                                                          'tasks': ['Vérifier']})
@@ -192,7 +194,7 @@ class BarcodeLabelTests(ApiTestCase):
         self.assertEqual(self.call('PATCH', '/api/item-types/sachet/', {'tasks': ['Vérifier']})[0], 400)
         self.assertEqual(self.call('PATCH', '/api/item-types/sachet/', {'tear_off': False, 'tasks': ['Vérifier']})[0], 200)
 
-    def test_web_barcodes_enabled_by_first_print(self):
+    def test_web_barcodes_enabled_by_first_print(self) -> None:
         """Le decodeur n'est charge par les pages qu'une fois un code-barres imprime, desactivable par un admin."""
         for url in ('/', '/scanner?s=x&k=y'):
             self.assertNotIn(b'web/code128.js', self.client.get(url).content, url)
@@ -206,7 +208,7 @@ class BarcodeLabelTests(ApiTestCase):
         self.assertFalse(body['web_barcodes'])
         self.assertNotIn(b'web/code128.js', self.client.get('/').content)
 
-    def test_compact_iid(self):
+    def test_compact_iid(self) -> None:
         """Forme courte des etiquettes : D sans date, N pour les zeros de tete du compteur (au moins deux)."""
         self.assertEqual(compact_iid('serphy2026102900000007'), 'serphy20261029N7')
         self.assertEqual(compact_iid('lecgly0000000000000006'), 'lecglyDN6')
@@ -222,7 +224,7 @@ class BarcodeLabelTests(ApiTestCase):
         self.assertEqual(entry['iid_short'], compact_iid(item.iid))
         self.assertTrue(entry['url'].endswith('item?id=' + compact_iid(item.iid)))
 
-    def test_decoder_served_with_encoder_table(self):
+    def test_decoder_served_with_encoder_table(self) -> None:
         """Le decodeur JS est servi aux deux pages et sa table est celle de l'encodeur du poste (code128.cpp)."""
         import re
         from pathlib import Path
@@ -244,7 +246,7 @@ class BarcodeLabelTests(ApiTestCase):
 class ScanBubblePrefTests(ApiTestCase):
     """Reglages du front web (WEB_PREFS) : « Bulle de scan » (bouton ↘ de l'ecran de scan) decochee par defaut."""
 
-    def test_scan_bubble_default_and_change(self):
+    def test_scan_bubble_default_and_change(self) -> None:
         credentials = {'matricule': 'M001', 'key': self.user.new_key}
         code, body = self.call('POST', '/api/auth/', credentials, local=False)
         self.assertEqual(body['web_prefs']['scan_bubble'], False)

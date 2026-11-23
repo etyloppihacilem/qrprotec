@@ -1,13 +1,20 @@
 """Tests du back : listes de materiel et taches du TECH."""
 
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Any
+
 from .base import *  # noqa: F401,F403
 from .base import setUpModule, tearDownModule  # noqa: F401 (PIN facultatif pendant ces tests)
+
+if TYPE_CHECKING:
+    from inventory.models import Items, Lots, Secouristes
 
 
 class ChecklistTests(ApiTestCase):
     """Listes de materiel : lignes, verif en direct, validation (sortie du stock), retour par la liste."""
 
-    def setUp(self):
+    def setUp(self) -> None:
         super().setUp()
         self.chief = self.user
         self.chief.role = 'chef'
@@ -20,18 +27,18 @@ class ChecklistTests(ApiTestCase):
         self.garrot.save()
         self.garrots = self.create(self.garrot, None, 2)
 
-    def as_(self, user, path, data=None):
+    def as_(self, user: Secouristes, path: str, data: Any = None) -> Any:
         return self.call('POST', path, {**(data or {}), 'user': {'matricule': user.matricule, 'key': user.new_key}},
                          local=False)
 
-    def new_list(self, user=None, **extra):
+    def new_list(self, user: Secouristes | None = None, **extra: Any) -> dict[str, Any]:
         code, body = self.as_(user or self.chief, '/api/checklists/', {
             'name': 'Poste de secours', 'lines': [{'lot': self.lot.id}, {'type': 'compre', 'quantity': 2},
                                                   {'type': 'garrot', 'quantity': 1}], **extra})
         self.assertEqual(code, 201, body)
         return body
 
-    def test_options_with_descriptions(self):
+    def test_options_with_descriptions(self) -> None:
         """Options de l'editeur : descriptions des types d'items et de lots (cherchees apres les noms), celle du type
         pour un lot."""
         self.compresses.description = 'Marque Hartmann, gazes'
@@ -46,7 +53,7 @@ class ChecklistTests(ApiTestCase):
         self.assertEqual({row['type']: row['description'] for row in body['lot_types']}[self.lot.lot_type.type],
                          'Sac rouge de premiers secours')
 
-    def test_options_single_lot_not_a_choice(self):
+    def test_options_single_lot_not_a_choice(self) -> None:
         """Un type de lot unique (un VPS, meme referentiel) ou qui n'a qu'un lot n'est pas propose en « lot au choix » :
         seulement son lot (Hippolyte, 2026-11-11)."""
         vps_type = LotType.objects.create(type='vps', name='VPS', unique=True, referentiel=True)
@@ -61,7 +68,7 @@ class ChecklistTests(ApiTestCase):
         code, body = self.as_(self.chief, '/api/checklists/options/')
         self.assertIn(self.lot.lot_type.type, {row['type'] for row in body['lot_types']})
 
-    def test_scan_lot_not_in_list_asks_to_add(self):
+    def test_scan_lot_not_in_list_asks_to_add(self) -> None:
         """Etiquette d'un lot hors liste a la preparation : qui peut modifier la liste se voit proposer de l'ajouter
         (ask_add) ; un lot du meme type pas encore coche est remplace, sinon le lot s'ajoute. Un secouriste qui ne peut
         pas la modifier garde l'erreur."""
@@ -93,7 +100,7 @@ class ChecklistTests(ApiTestCase):
         lots = [line for line in body['lines'] if line['kind'] == 'lot']
         self.assertEqual([(line['lot'], line['scanned']) for line in lots], [(spare.id, 1), (kit.id, 1)])
 
-    def test_departure(self):
+    def test_departure(self) -> None:
         """« Partir avec » : liste generee depuis un type de lot, ligne « n'importe quel lot de ce type » (jamais un
         lot fixe, ni un lot deja pris par une autre liste), reglage « vérif complète à chaque départ », retour."""
         from ..models import LotTypeSlot, ServerSettings
@@ -149,7 +156,7 @@ class ChecklistTests(ApiTestCase):
         code, body = self.as_(self.chief, f"/api/checklists/{other['id']}/scan/", {'lot': b1.id})
         self.assertEqual(code, 200)  # rentre : de nouveau libre
 
-    def test_rights_and_templates(self):
+    def test_rights_and_templates(self) -> None:
         mine = self.new_list()
         self.assertTrue(mine['can_edit'])
         code, body = self.as_(self.other, f"/api/checklists/{mine['id']}/update/", {'name': 'Autre'})
@@ -196,7 +203,7 @@ class ChecklistTests(ApiTestCase):
         code, body = self.call('POST', '/api/checklists/list/', {'show': 'all'})
         self.assertEqual({row['id'] for row in body['lists']}, {mine['id'], copy['id']})
 
-    def test_members(self):
+    def test_members(self) -> None:
         mine = self.new_list()
         path = f"/api/checklists/{mine['id']}/"
         code, body = self.as_(self.other, '/api/checklists/list/')
@@ -225,7 +232,7 @@ class ChecklistTests(ApiTestCase):
         code, _ = self.as_(self.chief, path + 'members/', {'add': ['X999']})
         self.assertEqual(code, 400)
 
-    def test_departure_checked_lots(self):
+    def test_departure_checked_lots(self) -> None:
         """Page « Départ » : liste des lots coches (sous-lot coche avec son lot ignore), lots pris ou fixes refuses et
         signales comme non cochables."""
         from ..models import LotTypeSlot
@@ -279,7 +286,7 @@ class ChecklistTests(ApiTestCase):
         code, body = self.as_(self.other, f'/api/lots/{sac.id}/return/')
         self.assertEqual(code, 400)
 
-    def reference_bplus(self, name):
+    def reference_bplus(self, name: str) -> tuple[Lots, Lots, Lots]:
         """Lot de referentiel sans etiquette (B+ = sac de soin + sac O2), ses deux sacs avec leur etiquette."""
         bplus_type = LotType.objects.get_or_create(type='bplusx', defaults={'name': 'B+', 'referentiel': True})[0]
         soin_type = LotType.objects.get_or_create(type='sacsoi', defaults={'name': 'Sac de soin', 'part_of': bplus_type})[0]
@@ -292,7 +299,7 @@ class ChecklistTests(ApiTestCase):
         self.assertTrue(services.virtual_lot(bplus))
         return bplus, soin, o2
 
-    def test_reference_lot_bag_by_bag(self):
+    def test_reference_lot_bag_by_bag(self) -> None:
         """Lot B+ 1 (referentiel, sans etiquette) choisi d'un bloc : dans la liste, une ligne par sac, chacun coche par
         son etiquette ; pris, en poste et rentre par ses sacs, aussi depuis la fiche du B+ (Hippolyte, 2026-11-10)."""
         b1, soin, o2 = self.reference_bplus('Lot B+ 1')
@@ -326,7 +333,7 @@ class ChecklistTests(ApiTestCase):
                          (200, 'Lot B+ 1 : rentré, vérif recommandée. Tout est rentré : liste close'))
         self.assertTrue(Lots.objects.get(id=soin.id).verif_recommended)
 
-    def test_reference_lot_picked_by_a_bag_and_split(self):
+    def test_reference_lot_picked_by_a_bag_and_split(self) -> None:
         """Un sac du B+ choisi (Départ, editeur) : le B+ entier ; la croix d'un sac dans la liste separe le B+, ce sac
         sort de la liste, l'autre reste seul sur sa ligne (Hippolyte, 2026-11-10)."""
         b1, soin, o2 = self.reference_bplus('Lot B+ 1')
@@ -356,7 +363,7 @@ class ChecklistTests(ApiTestCase):
         code, body = self.as_(self.other, path + 'remove-part/', {'lot': o2.id})
         self.assertEqual(code, 400)  # plus dans la liste
 
-    def test_any_reference_lot_bag_by_bag(self):
+    def test_any_reference_lot_bag_by_bag(self) -> None:
         """Ligne « n'importe quel B+ » : l'etiquette d'un sac prend son B+ (sans etiquette), complet avec ses deux
         sacs ; pris sans scanner, tous ses sacs ; ✕ retire le B+ entier."""
         b1, soin1, o21 = self.reference_bplus('Lot B+ 1')
@@ -383,7 +390,7 @@ class ChecklistTests(ApiTestCase):
         self.assertEqual(set(models.ChecklistScan.objects.filter(checklist_id=created['id']).values_list('lot_id', flat=True)),
                          {soin2.id, o22.id})
 
-    def test_verif_recommended_lots(self):
+    def test_verif_recommended_lots(self) -> None:
         """Lots en vérif recommandée dans une liste à préparer (lot fixe pris ou non, lot au choix pris) : signalés pour
         le bouton « Lancer la vérif », jamais un lot scellé."""
         sac_type = LotType.objects.create(type='sacsoi', name='Sac de soin')
@@ -406,7 +413,7 @@ class ChecklistTests(ApiTestCase):
         code, body = self.as_(self.chief, f"/api/checklists/{created['id']}/")
         self.assertFalse({line['kind']: line for line in body['lines']}['lot_type']['scans'][0]['verif_recommended'])
 
-    def test_sub_lot_verifs_on_top(self):
+    def test_sub_lot_verifs_on_top(self) -> None:
         """Départ avec un VPS dont le sac de soin et le sac O2 sont marqués utilisés : une case « Vérif » par sac en
         haut (avant de prendre le VPS), cochée quand le sac redevient vert ; VPS lui-même à vérifier : une seule case
         « Vérif VPS » (Hippolyte, 2026-11-16)."""
@@ -446,7 +453,7 @@ class ChecklistTests(ApiTestCase):
         code, body = self.as_(self.other, f"/api/checklists/{created['id']}/validate/", {'partial': False})
         self.assertEqual((code, body['verifs']), (200, []), body)
 
-    def test_list_date_and_order(self):
+    def test_list_date_and_order(self) -> None:
         """Date d'une liste (aujourd'hui par défaut, modifiable) ; les listes rangées la date la plus proche en haut."""
         today = timezone.localdate()
         first = self.new_list()
@@ -463,7 +470,7 @@ class ChecklistTests(ApiTestCase):
         code, body = self.as_(self.chief, '/api/checklists/', {'name': 'X', 'date': 'demain'})
         self.assertEqual(code, 400, body)
 
-    def test_assigned_for_departure(self):
+    def test_assigned_for_departure(self) -> None:
         """Page « Départ » : listes attribuees (members) et pas encore rentrees, pas celles de l'auteur seul."""
         mine = self.new_list()
         other = self.new_list()
@@ -477,7 +484,7 @@ class ChecklistTests(ApiTestCase):
         code, body = self.as_(self.other, '/api/checklists/list/', {'show': 'assigned'})
         self.assertEqual([row['id'] for row in body['lists']], [mine['id']])
 
-    def test_user_search(self):
+    def test_user_search(self) -> None:
         for matricule, prenom, nom in (('M003', 'Paul', 'Muller'), ('M004', 'Émilie', 'Roux'),
                                        ('M005', 'Jean-Paul', 'Petit')):
             Secouristes.objects.create(matricule=matricule, nom=nom, prenom=prenom)
@@ -494,7 +501,7 @@ class ChecklistTests(ApiTestCase):
         code, _ = self.as_(self.other, '/api/checklists/users/', {'q': 'pau'})
         self.assertEqual(code, 403)  # secouriste : pas de recherche
 
-    def test_free_tasks(self):
+    def test_free_tasks(self) -> None:
         code, checklist = self.as_(self.chief, '/api/checklists/', {
             'name': 'Local', 'lines': [{'task': "Prendre des bonbons"}, {'type': 'compre', 'quantity': 1}]})
         self.assertEqual(code, 201, checklist)
@@ -513,7 +520,7 @@ class ChecklistTests(ApiTestCase):
         code, copy = self.as_(self.chief, path + 'duplicate/')
         self.assertEqual([line['scanned'] for line in copy['lines']], [0, 0, 0])
 
-    def test_check_validate_and_return(self):
+    def test_check_validate_and_return(self) -> None:
         checklist = self.new_list()
         path = f"/api/checklists/{checklist['id']}/"
         code, body = self.as_(self.other, path + 'scan/', {'item': self.fresh[0].iid})
@@ -552,7 +559,7 @@ class ChecklistTests(ApiTestCase):
         self.assertEqual(code, 200, body)
 
 
-    def test_return_to_original_storage(self):
+    def test_return_to_original_storage(self) -> None:
         """Retour d'une liste : chaque item revient dans le rangement d'ou il est sorti (ou le stock sans rangement),
         sans vérif recommandee du rangement avant storage_verif_outings sorties."""
         storage_type = LotType.objects.create(type='armoir', name='Armoire', storage=True)
@@ -587,7 +594,7 @@ class ChecklistTests(ApiTestCase):
         code, body = self.call('GET', '/api/tasks/')
         self.assertNotIn('stock_verif', [row['category'] for row in body['tasks']])
 
-    def test_reopen_back_to_storage(self):
+    def test_reopen_back_to_storage(self) -> None:
         storage_type = LotType.objects.create(type='armoir', name='Armoire', storage=True)
         armoire = Lots(lot_type=storage_type, name='Armoire 1', name_short='A1', created_by='test', parent=Lots.stock())
         armoire.save()
@@ -604,7 +611,7 @@ class ChecklistTests(ApiTestCase):
         self.assertEqual((Items.objects.get(iid=self.fresh[1].iid).location_id,
                           Items.objects.get(iid=self.fresh[1].iid).status), (None, ItemStatus.ACTIVE))
 
-    def test_legacy_close_return(self):
+    def test_legacy_close_return(self) -> None:
         """Ancienne liste sortie (retour a scanner) : la fenetre « Clôturer le retour ? » montre ce qui n'est pas
         rentre ; clore met le lot pas rescanne en vérif recommandee et compte le consommable pas rentre utilise."""
         checklist = self.new_list()
@@ -632,7 +639,7 @@ class ChecklistTests(ApiTestCase):
         lot = Lots.objects.get(id=self.lot.id)
         self.assertEqual((lot.verif_recommended, lot.back_from_list), (True, 'Poste de secours'))
 
-    def test_reopen_departure(self):
+    def test_reopen_departure(self) -> None:
         """Depart valide par erreur : rouvrable 30 minutes, le materiel revient ou il etait, le lot n'est plus en
         verif recommandee a cause de la liste, les scans restent."""
         place = {item.iid: Items.objects.get(iid=item.iid).location_id for item in self.fresh[:2]}
@@ -668,19 +675,19 @@ class ChecklistTests(ApiTestCase):
 class TasksTests(ApiTestCase):
     """Liste de taches de la gestion (Gestion de la TECH) et bouton « Marquer ce lot comme utilisé »."""
 
-    def badge(self, user):
+    def badge(self, user: Secouristes) -> dict[str, str]:
         return {'matricule': user.matricule, 'key': user.new_key}
 
-    def fill_lot(self):
+    def fill_lot(self) -> list[Items]:
         items = self.create(self.compresses, self.today + timedelta(days=200), 2)
         self.call('POST', f'/api/lots/{self.lot.id}/verif/', {'items': [item.iid for item in items], 'user': 'M001'})
         return items
 
-    def categories(self, body):
+    def categories(self, body: dict[str, Any]) -> list[str]:
         # les types sous le minimum donnent aussi des commandes : hors de ces tests
         return [row['category'] for row in body['tasks'] if row['category'] != 'orders']
 
-    def test_priorities(self):
+    def test_priorities(self) -> None:
         # lot jamais verifie : invalide ; signalement : en tete
         code, body = self.call('GET', '/api/tasks/')
         self.assertEqual(code, 200)
@@ -694,7 +701,7 @@ class TasksTests(ApiTestCase):
         self.assertEqual([row['key'] for row in body['categories']][:4], ['reports', 'seal', 'invalid', 'recommended'])
         self.assertEqual(body['categories'][0]['count'], 1)
 
-    def test_mark_used_and_stock_verif(self):
+    def test_mark_used_and_stock_verif(self) -> None:
         self.fill_lot()
         code, body = self.call('GET', '/api/tasks/')
         self.assertNotIn('recommended', self.categories(body))
@@ -735,7 +742,7 @@ class TasksTests(ApiTestCase):
         code, body = self.call('GET', '/api/tasks/')
         self.assertNotIn('stock_verif', self.categories(body))
 
-    def test_unsorted_last_priority(self):
+    def test_unsorted_last_priority(self) -> None:
         """Items du stock sans rangement : a ranger, en toute derniere priorite, seulement s'il y a des rangements."""
         self.create(self.compresses, self.today + timedelta(days=200), 2)
         code, body = self.call('GET', '/api/tasks/')
@@ -749,13 +756,13 @@ class TasksTests(ApiTestCase):
         self.assertEqual((row['level'], row['link']), ('info', 'inventory'))
         self.assertIn('2 × Compresses', row['detail'])
 
-    def test_storage_verif_outings_setting(self):
+    def test_storage_verif_outings_setting(self) -> None:
         code, body = self.call('PATCH', '/api/server-settings/', {'storage_verif_outings': 5})
         self.assertEqual((code, body['storage_verif_outings']), (200, 5))
         code, _ = self.call('PATCH', '/api/server-settings/', {'storage_verif_outings': 0})
         self.assertEqual(code, 400)
 
-    def test_mark_used_sealed_refused(self):
+    def test_mark_used_sealed_refused(self) -> None:
         self.fill_lot()
         code, _ = self.call('POST', f'/api/lots/{self.lot.id}/seal/', {'user': 'M001'})
         self.assertEqual(code, 200)
@@ -763,7 +770,7 @@ class TasksTests(ApiTestCase):
         self.assertEqual(code, 400)
         self.assertIn("étiquette d'ouverture", body['error'])
 
-    def test_upcoming_expiries_not_tasks(self):
+    def test_upcoming_expiries_not_tasks(self) -> None:
         # lot valide dont des items periment dans les 30 jours : pas une tache, seulement un evenement a venir
         items = (self.create(self.compresses, self.today + timedelta(days=20), 1)
                  + self.create(self.compresses, self.today + timedelta(days=1), 1))
@@ -798,7 +805,7 @@ class TasksTests(ApiTestCase):
         code, _ = self.call('POST', '/api/events/summary/', {'user': self.badge(self.user)}, local=False)
         self.assertEqual(code, 403)
 
-    def test_order_placed(self):
+    def test_order_placed(self) -> None:
         orders = lambda body: [row for row in body['tasks'] if row['category'] == 'orders']
         code, body = self.call('GET', '/api/tasks/')
         suggestion = next(row for row in orders(body) if row['type'] == 'compre')
@@ -824,7 +831,7 @@ class TasksTests(ApiTestCase):
         self.assertEqual(body['orders_placed'], [])
         self.assertIsNotNone(models.StockOrder.objects.get().delivered)
 
-    def test_order_cancel_and_late(self):
+    def test_order_cancel_and_late(self) -> None:
         code, body = self.call('POST', '/api/orders/', {'type': 'compre', 'quantity': 20})
         order = body['orders_placed'][0]['id']
         # pas livree au bout de 30 jours : de nouveau une tache
@@ -840,7 +847,7 @@ class TasksTests(ApiTestCase):
         self.assertEqual(body['orders_placed'], [])
         self.assertTrue([row for row in body['tasks'] if row.get('type') == 'compre' and 'quantity' in row])
 
-    def test_web_access(self):
+    def test_web_access(self) -> None:
         code, _ = self.call('POST', '/api/tasks/summary/', {'user': self.badge(self.user)}, local=False)
         self.assertEqual(code, 403)
         self.user.role = 'gestion'

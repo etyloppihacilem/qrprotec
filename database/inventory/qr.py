@@ -12,6 +12,9 @@
 PDF sans ajouter de dependance. Ecrit d'apres la norme ISO/IEC 18004.
 """
 
+from __future__ import annotations
+
+
 # (octets de correction par bloc, octets de donnees de chaque bloc), correction M
 _BLOCKS = {
     1: (10, [16]),
@@ -41,11 +44,11 @@ for _power in range(255, 512):
     _EXP[_power] = _EXP[_power - 255]
 
 
-def _multiply(a, b):
+def _multiply(a: int, b: int) -> int:
     return 0 if a == 0 or b == 0 else _EXP[_LOG[a] + _LOG[b]]
 
 
-def _ecc(data, degree):
+def _ecc(data: list[int], degree: int) -> list[int]:
     generator = [1]
     for power in range(degree):
         generator = [a ^ _multiply(b, _EXP[power]) for a, b in zip(generator + [0], [0] + generator)]
@@ -58,7 +61,7 @@ def _ecc(data, degree):
     return remainder
 
 
-def _codewords(payload):
+def _codewords(payload: bytes) -> tuple[int, list[int]]:
     for version, (ecc_length, blocks) in _BLOCKS.items():
         capacity = sum(blocks)
         count_bits = 8 if version < 10 else 16
@@ -84,17 +87,17 @@ def _codewords(payload):
 
 
 class _Matrix:
-    def __init__(self, version):
+    def __init__(self, version: int) -> None:
         self.size = 17 + 4 * version
         self.dark = [[False] * self.size for _ in range(self.size)]
         self.function = [[False] * self.size for _ in range(self.size)]
         self.version = version
 
-    def set(self, x, y, dark):
+    def set(self, x: int, y: int, dark: bool) -> None:
         self.dark[y][x] = dark
         self.function[y][x] = True
 
-    def draw_functions(self):
+    def draw_functions(self) -> None:
         size = self.size
         for index in range(size):
             self.set(6, index, index % 2 == 0)
@@ -125,7 +128,7 @@ class _Matrix:
                 self.set(a, b, dark)
                 self.set(b, a, dark)
 
-    def draw_format(self, mask):
+    def draw_format(self, mask: int) -> None:
         data = 0 << 3 | mask  # correction M : 00
         remainder = data
         for _ in range(10):
@@ -146,7 +149,7 @@ class _Matrix:
             self.set(8, size - 15 + index, bit[index])
         self.set(8, size - 8, True)
 
-    def draw_data(self, codewords):
+    def draw_data(self, codewords: list[int]) -> None:
         size, index, total = self.size, 0, len(codewords) * 8
         right = size - 1
         while right >= 1:
@@ -161,7 +164,7 @@ class _Matrix:
                         index += 1
             right -= 2
 
-    def apply_mask(self, mask):
+    def apply_mask(self, mask: int) -> None:
         test = [
             lambda x, y: (x + y) % 2 == 0,
             lambda x, y: y % 2 == 0,
@@ -177,7 +180,7 @@ class _Matrix:
                 if not self.function[y][x] and test(x, y):
                     self.dark[y][x] = not self.dark[y][x]
 
-    def penalty(self):
+    def penalty(self) -> int:
         size, score = self.size, 0
         lines = [row for row in self.dark] + [[self.dark[y][x] for y in range(size)] for x in range(size)]
         finder_like = ('10111010000', '00001011101')
@@ -201,7 +204,7 @@ class _Matrix:
         return score
 
 
-def qr_matrix(text, mask=None):
+def qr_matrix(text: str, mask: int | None = None) -> list[list[bool]]:
     """Modules du QR code de text : liste de lignes de booleens (True = noir), sans marge."""
     version, codewords = _codewords(str(text).encode('utf-8'))
     best = None

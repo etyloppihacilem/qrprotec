@@ -1,11 +1,18 @@
 """Tests du back : vérif, places des items, vérifs recentes."""
 
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
 from .base import *  # noqa: F401,F403
 from .base import setUpModule, tearDownModule  # noqa: F401 (PIN facultatif pendant ces tests)
 
+if TYPE_CHECKING:
+    from inventory.models import Items
+
 
 class VerifTests(ApiTestCase):
-    def test_items_to_check(self):
+    def test_items_to_check(self) -> None:
         """Item a cocher (gobelets) : sans etiquette ni stock, la vérif le coche a la main ; non coche, il manque
         jusqu'a la prochaine vérif. Sans "checked" (ancien front), rien ne change."""
         code, body = self.call('POST', '/api/item-types/', {'type': 'gobele', 'name': 'Gobelets', 'physical': False})
@@ -45,7 +52,7 @@ class VerifTests(ApiTestCase):
         code, _ = self.call('PATCH', '/api/item-types/compre/', {'physical': False})
         self.assertEqual(code, 400)
 
-    def test_verif_replacement_and_missing(self):
+    def test_verif_replacement_and_missing(self) -> None:
         old = self.create(self.compresses, self.today - timedelta(days=1), 1)[0]
         kept = self.create(self.compresses, self.today + timedelta(days=30), 1)[0]
         lost = self.create(self.garrot, None, 1)[0]
@@ -76,14 +83,14 @@ class VerifTests(ApiTestCase):
             self.call('POST', f'/api/lots/{self.lot.id}/verif/', {'items': [kept.iid, new.iid]})
         self.assertEqual(Items.objects.get(iid=lost.iid).status, ItemStatus.MISSING)
 
-    def test_expired_not_replaced_stays(self):
+    def test_expired_not_replaced_stays(self) -> None:
         old = self.create(self.compresses, self.today - timedelta(days=1), 1)[0]
         Items.objects.filter(iid=old.iid).update(location=self.lot)
         code, report = self.call('POST', f'/api/lots/{self.lot.id}/verif/', {'items': [old.iid]})
         self.assertEqual(report['expired'], [old.iid])
         self.assertFalse(report['complete'])
 
-    def test_expired_extra_with_fresh_already_in_lot(self):
+    def test_expired_extra_with_fresh_already_in_lot(self) -> None:
         # le lot a deja son minimum de compresses fraiches : le perime retrouve est retire (a jeter), vérif verte
         old = self.create(self.compresses, self.today - timedelta(days=1), 1)[0]
         fresh = self.create(self.compresses, self.today + timedelta(days=30), 2)
@@ -107,7 +114,7 @@ class VerifTests(ApiTestCase):
         self.assertTrue(report['complete'])
         self.assertEqual(report['replaced'], [other.iid])
 
-    def test_expired_short_lot_stays_to_replace(self):
+    def test_expired_short_lot_stays_to_replace(self) -> None:
         # une seule compresse fraiche sur deux : le perime reste dans le lot, a remplacer, vérif incomplete
         old = self.create(self.compresses, self.today - timedelta(days=1), 1)[0]
         fresh = self.create(self.compresses, self.today + timedelta(days=30), 1)[0]
@@ -117,7 +124,7 @@ class VerifTests(ApiTestCase):
         self.assertEqual((report['replaced'], report['expired']), ([], [old.iid]))
         self.assertEqual(Items.objects.get(iid=old.iid).location_id, self.lot.id)
 
-    def test_expired_from_elsewhere_is_discarded(self):
+    def test_expired_from_elsewhere_is_discarded(self) -> None:
         # perime scanne qui n'etait pas dans le lot (stock) : jamais range dans le lot, a jeter, meme lot court
         stray = self.create(self.compresses, self.today - timedelta(days=1), 1)[0]
         fresh = self.create(self.compresses, self.today + timedelta(days=30), 1)[0]
@@ -137,7 +144,7 @@ class VerifTests(ApiTestCase):
         verif = Verifs.objects.filter(lot=self.lot).latest('id')
         self.assertEqual((verif.complete, verif.expired_count, verif.replaced_count), (True, 0, 1))
 
-    def test_stock_expiring_soon_split(self):
+    def test_stock_expiring_soon_split(self) -> None:
         self.create(self.compresses, self.today + timedelta(days=10), 2)
         self.create(self.compresses, self.today + timedelta(days=200), 1)
         in_lot = self.create(self.compresses, self.today + timedelta(days=10), 1)[0]
@@ -148,7 +155,7 @@ class VerifTests(ApiTestCase):
         self.assertEqual((row['stock_fresh'], row['stock_expiring_soon']), (3, 2))
         self.assertEqual((row['lots_fresh'], row['lots_expiring_soon']), (1, 1))
 
-    def test_add_items_and_back_to_stock(self):
+    def test_add_items_and_back_to_stock(self) -> None:
         items = self.create(self.garrot, None, 2)
         iids = [item.iid for item in items]
         code, body = self.call('POST', f'/api/lots/{self.lot.id}/add/', {'items': iids})
@@ -161,7 +168,7 @@ class VerifTests(ApiTestCase):
 class VerifPlacesTests(ApiTestCase):
     """Verif de sous-lots : un item venu du stock va dans le lot dont l'etiquette a ete scannee en dernier."""
 
-    def setUp(self):
+    def setUp(self) -> None:
         super().setUp()
         vps_type = LotType.objects.create(type='vpsvps', name='VPS')
         self.vps = Lots(lot_type=vps_type, name='VPS', name_short='V', created_by='test')
@@ -171,10 +178,10 @@ class VerifPlacesTests(ApiTestCase):
         self.armoire2 = Lots(lot_type=self.lot_type, name='Armoire 2', name_short='A2', created_by='test', parent=self.vps)
         self.armoire2.save()
 
-    def location(self, item):
+    def location(self, item: Items) -> str | None:
         return Items.objects.get(iid=item.iid).location_id
 
-    def test_stock_item_goes_to_last_scanned_lot(self):
+    def test_stock_item_goes_to_last_scanned_lot(self) -> None:
         stock = self.create(self.compresses, self.today + timedelta(days=100), 2)
         code, _ = self.call('POST', '/api/verifs/', {
             'lots': [{'id': self.vps.id}], 'items': [item.iid for item in stock],
@@ -185,7 +192,7 @@ class VerifPlacesTests(ApiTestCase):
         # etiquette du VPS : un de ses sous-lots qui en attend encore
         self.assertEqual(self.location(stock[1]), self.armoire1.id)
 
-    def test_item_of_a_sibling_lot_moves_unless_its_label_was_scanned(self):
+    def test_item_of_a_sibling_lot_moves_unless_its_label_was_scanned(self) -> None:
         found = self.create(self.compresses, self.today + timedelta(days=100), 2)
         self.call('POST', f'/api/lots/{self.armoire2.id}/add/', {'items': [item.iid for item in found]})
         # vérif de l'armoire 1 seule : l'item de l'armoire 2 y est deplace
@@ -199,7 +206,7 @@ class VerifPlacesTests(ApiTestCase):
 
 
 class RecentVerifsTests(ApiTestCase):
-    def test_recent_verifs_need_a_badge_and_group_lots(self):
+    def test_recent_verifs_need_a_badge_and_group_lots(self) -> None:
         sub = Lots(lot_type=self.lot_type, name='Sac A1', name_short='A1', created_by='test', parent=self.lot)
         sub.save()
         items = self.create(self.compresses, self.today + timedelta(days=200), 4)
@@ -221,7 +228,7 @@ class RecentVerifsTests(ApiTestCase):
         self.assertEqual(grouped['present'], 4)
         self.assertEqual(grouped['by'], 'Admin')  # nom court de l'API publique (prenom seul, pas d'homonyme)
 
-    def test_offline_verif_dated_at_scan_time(self):
+    def test_offline_verif_dated_at_scan_time(self) -> None:
         items = self.create(self.compresses, self.today + timedelta(days=200), 2)
         self.call('POST', f'/api/lots/{self.lot.id}/add/', {'items': [item.iid for item in items]})
         badge = {'matricule': self.user.matricule, 'key': self.user.new_key}
@@ -257,7 +264,7 @@ class RecentVerifsTests(ApiTestCase):
         self.assertEqual(self.lot.last_verif, latest)
         self.assertEqual(Verifs.objects.filter(lot=self.lot).count(), 3)
 
-    def test_verif_sent_right_away_keeps_reception_time(self):
+    def test_verif_sent_right_away_keeps_reception_time(self) -> None:
         items = self.create(self.compresses, self.today + timedelta(days=200), 1)
         self.call('POST', f'/api/lots/{self.lot.id}/add/', {'items': [items[0].iid]})
         badge = {'matricule': self.user.matricule, 'key': self.user.new_key}
@@ -276,7 +283,7 @@ class RecentVerifsTests(ApiTestCase):
         _, rows = self.call('POST', '/api/verifs/recent/', {'user': badge}, local=False)
         self.assertIsNone(rows[0]['sent'])
 
-    def test_recent_verifs_join_the_steps_of_a_cascade(self):
+    def test_recent_verifs_join_the_steps_of_a_cascade(self) -> None:
         sub = Lots(lot_type=self.lot_type, name='Sac A1', name_short='A1', created_by='test', parent=self.lot)
         sub.save()
         other = Lots(lot_type=self.lot_type, name='Trousse', name_short='T', created_by='test')
@@ -309,7 +316,7 @@ class RecentVerifsTests(ApiTestCase):
         self.assertEqual([row['ids'] for row in rows][-1], [first_step.id])
         self.assertEqual(len(rows), 4)
 
-    def test_recent_verifs_name_sub_lots_unless_all_there(self):
+    def test_recent_verifs_name_sub_lots_unless_all_there(self) -> None:
         storage_type = LotType.objects.create(type='armoir', name='Armoire', storage=True)
         stock = Lots.stock()
         armoires = []
@@ -327,7 +334,7 @@ class RecentVerifsTests(ApiTestCase):
         casque.save()
         badge = {'matricule': self.user.matricule, 'key': self.user.new_key}
 
-        def names(*lots, minutes=0):
+        def names(*lots: tuple[Lots, int], minutes: int = 0) -> list[str]:
             Verifs.objects.all().delete()
             at = timezone.now() - timedelta(minutes=minutes)
             for lot, present in lots:
@@ -359,7 +366,7 @@ class RecentVerifsTests(ApiTestCase):
         _, report = self.call('POST', f'/api/verifs/{second.id}/report/', {'user': badge}, local=False)
         self.assertEqual(set(report['lots'][0]['children']), {armoires[0].id, armoires[1].id})
 
-    def test_verif_report_lists_each_lot_of_a_grouped_verif(self):
+    def test_verif_report_lists_each_lot_of_a_grouped_verif(self) -> None:
         sub = Lots(lot_type=self.lot_type, name='Sac A1', name_short='A1', created_by='test', parent=self.lot)
         sub.save()
         items = self.create(self.compresses, self.today + timedelta(days=200), 4)
@@ -385,7 +392,7 @@ class RecentVerifsTests(ApiTestCase):
         code, _ = self.call('POST', '/api/verifs/999999/report/', {'user': badge}, local=False)
         self.assertEqual(code, 404)
 
-    def test_live_names_are_anonymized(self):
+    def test_live_names_are_anonymized(self) -> None:
         from ..live import public_name
         Secouristes.objects.create(matricule='M002', nom='Durand', prenom='Jeanne')
         self.assertEqual(public_name('M:M001'), 'Jeanne Dup.')

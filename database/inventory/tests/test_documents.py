@@ -1,11 +1,20 @@
 """Tests du back : fiches PDF, journal des operations, rapports d'etat."""
 
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Any
+
 from .base import *  # noqa: F401,F403
 from .base import setUpModule, tearDownModule  # noqa: F401 (PIN facultatif pendant ces tests)
 
+if TYPE_CHECKING:
+    from django.http.response import HttpResponse
+    from inventory.models import Lots
+    from rest_framework.response import Response
+
 
 class LotSheetTests(ApiTestCase):
-    def sub_lots(self):
+    def sub_lots(self) -> tuple[Lots, Lots]:
         """B+ (regroupement) compose d'un sac de soin et d'un sac O2, trie par emplacement."""
         global_type = LotType.objects.create(type='bplus0', name='B+')
         o2_type = LotType.objects.create(type='sacoxy', name='Sac O2')
@@ -19,20 +28,20 @@ class LotSheetTests(ApiTestCase):
         o2.save()
         return root, o2
 
-    def pages(self, response):
+    def pages(self, response: HttpResponse) -> int:
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response['Content-Type'], 'application/pdf')
         pdf = response.content
         self.assertTrue(pdf.startswith(b'%PDF-1.4') and pdf.rstrip().endswith(b'%%EOF'))
         return pdf.count(b'/Type /Page ')
 
-    def page_texts(self, pdf):
+    def page_texts(self, pdf: bytes) -> list[str]:
         import re
         import zlib
         streams = re.findall(rb'stream\n(.*?)\nendstream', pdf, re.S)
         return [zlib.decompress(stream).decode('cp1252') for stream in streams]
 
-    def test_one_page_per_sub_lot(self):
+    def test_one_page_per_sub_lot(self) -> None:
         root, o2 = self.sub_lots()
         response = self.client.get(f'/api/lots/{root.id}/sheet.pdf')
         self.assertEqual(self.pages(response), 2)  # Sac A, Sac O2 : le B+ sans item attendu n'a pas de page
@@ -51,7 +60,7 @@ class LotSheetTests(ApiTestCase):
         self.assertEqual(self.pages(response), 1)
         self.assertIn('Aucun item attendu', self.page_texts(response.content)[0])
 
-    def test_long_lot_fits_one_page_then_continues(self):
+    def test_long_lot_fits_one_page_then_continues(self) -> None:
         for index in range(70):
             item_type = ItemType.objects.create(type=f'it{index:04d}', name=f'Item {index}')
             LotRequirements.objects.create(lot_type=self.lot_type, item_type=item_type, location=f'Poche {index // 10}')
@@ -65,7 +74,7 @@ class LotSheetTests(ApiTestCase):
         texts = self.page_texts(response.content)
         self.assertIn('Sac A \\(suite\\)', texts[1])
 
-    def test_short_list_stays_on_one_column(self):
+    def test_short_list_stays_on_one_column(self) -> None:
         """Un seul item sans emplacement : une colonne, le bandeau avec son item, pas de « suite »."""
         lot_type = LotType.objects.create(type='armoir', name='Armoire')
         LotRequirements.objects.create(lot_type=lot_type, item_type=self.garrot, quantity=1)
@@ -81,7 +90,7 @@ class LotSheetTests(ApiTestCase):
                 item_type = ItemType.objects.create(type=f'ar{index:04d}', name=f'Item {index}')
                 LotRequirements.objects.create(lot_type=lot_type, item_type=item_type)
 
-    def test_public_qr_and_key_frame(self):
+    def test_public_qr_and_key_frame(self) -> None:
         """Premiere page du lot : QR code de l'etiquette publique et cadre de l'etiquette cle ; pas sur la suite."""
         for index in range(200):
             item_type = ItemType.objects.create(type=f'it{index:04d}', name=f'Item {index}')
@@ -91,7 +100,7 @@ class LotSheetTests(ApiTestCase):
         self.assertIn('[3 2] 0 d', texts[0])  # cadre en pointilles
         self.assertNotIn('(\xc9tiquette cl\xe9)', texts[1])
 
-    def test_qr_matrix(self):
+    def test_qr_matrix(self) -> None:
         from ..qr import qr_matrix
         modules = qr_matrix('https://example.com/verif?lot=sacpse00000001')
         self.assertEqual(len(modules), 33)  # version 4
@@ -101,7 +110,7 @@ class LotSheetTests(ApiTestCase):
         self.assertEqual([row[:7] for row in modules[-7:]], finder)
         self.assertEqual(len(qr_matrix('x' * 150)), 49)  # version 8, avec ses informations de version
 
-    def test_archived_lot_hidden_from_public(self):
+    def test_archived_lot_hidden_from_public(self) -> None:
         self.lot.active = False
         self.lot.save()
         self.assertEqual(self.client.get(f'/api/lots/{self.lot.id}/sheet.pdf').status_code, 404)
@@ -112,12 +121,12 @@ class LotSheetTests(ApiTestCase):
 class OperationJournalTests(ApiTestCase):
     """Journal des operations : qui fait quoi et quand, filtres de la fenetre Journal (gestion et admin)."""
 
-    def journal(self, query='', session=None):
+    def journal(self, query: str = '', session: str | None = None) -> dict[str, Any]:
         code, body = self.call('GET', '/api/operations/' + query, session=session)
         self.assertEqual(code, 200, body)
         return body
 
-    def test_operations_are_recorded_and_filtered(self):
+    def test_operations_are_recorded_and_filtered(self) -> None:
         items = self.create(self.compresses, self.today + timedelta(days=60), 2)
         user = {'matricule': 'M001', 'key': self.user.new_key}
         # reassort par l'etiquette privee (Jeanne), verif, scellage et ouverture par l'etiquette interieure
@@ -171,7 +180,7 @@ class OperationJournalTests(ApiTestCase):
         code, body = self.call('GET', '/api/operations/?kind=inconnu')
         self.assertEqual(code, 400)
 
-    def test_sub_lots_and_management_operations(self):
+    def test_sub_lots_and_management_operations(self) -> None:
         bag = Lots(lot_type=self.lot_type, name='Sac B', name_short='B', created_by='test', parent=self.lot)
         bag.save()
         item = self.create(self.garrot, None, 1)[0]
@@ -189,7 +198,7 @@ class OperationJournalTests(ApiTestCase):
         self.assertIn('Jeanne Dupont', rows[1]['summary'])
         self.assertEqual(rows[2]['summary'], 'lot modifié : lot indépendant')
 
-    def test_reserved_to_management_roles(self):
+    def test_reserved_to_management_roles(self) -> None:
         code, _ = self.call('GET', '/api/operations/', session=False)
         self.assertEqual(code, 403)
         code, _ = self.call('GET', '/api/operations/', session=views.session_token(self.user))
@@ -201,7 +210,7 @@ class OperationJournalTests(ApiTestCase):
         code, _ = self.call('GET', '/api/operations/', local=False)
         self.assertEqual(code, 404)
 
-    def test_reconstruct_history(self):
+    def test_reconstruct_history(self) -> None:
         items = self.create(self.compresses, self.today + timedelta(days=60), 2)
         self.call('POST', f'/api/lots/{self.lot.id}/verif/', {'items': [items[0].iid]})
         self.call('POST', f'/api/lots/{self.lot.id}/add/', {'items': [items[1].iid]})
@@ -218,10 +227,10 @@ class OperationJournalTests(ApiTestCase):
         self.assertEqual(rows.get(kind='seal').lot_id, self.lot.id)
 
 
-class LotStateReportTests(LotSheetTests.__base__):
+class LotStateReportTests(ApiTestCase):  # meme base que LotSheetTests, sans ses tests
     """Rapport d'etat d'un lot a une date donnee (PDF, admins, front web)."""
 
-    def setUp(self):
+    def setUp(self) -> None:
         super().setUp()
         self.admin_badge = {'matricule': 'P001', 'key': self.operator.new_key,
                             'session': views.session_token(self.operator)}
@@ -252,19 +261,19 @@ class LotStateReportTests(LotSheetTests.__base__):
         Verifs.objects.create(lot=self.lot, datetime=self.ago(7), received=self.ago(7), by='M:M001', complete=True,
                               present_count=2, participants=['M:M001', 'M:P001'])
 
-    def report(self, days=None, **extra):
+    def report(self, days: float | None = None, **extra: Any) -> Any:
         at = '' if days is None else timezone.localtime(self.ago(days)).strftime('%Y-%m-%dT%H:%M')
         response = self.client.post(f'/api/lots/{self.root.id}/state-report/',
                                     json.dumps({'user': self.admin_badge, 'at': at, **extra}),
                                     content_type='application/json')
         return response
 
-    def text(self, response):
+    def text(self, response: HttpResponse) -> str:
         self.assertEqual(response.status_code, 200, response.content[:300])
         self.assertEqual(response['Content-Type'], 'application/pdf')
         return '\n'.join(LotSheetTests.page_texts(self, response.content))
 
-    def test_state_at_past_date(self):
+    def test_state_at_past_date(self) -> None:
         i1, i2, i3 = self.items
         text = self.text(self.report(5, antenna='  Paris   15 '))
         self.assertIn(f'({i1.iid})', text)
@@ -283,13 +292,13 @@ class LotStateReportTests(LotSheetTests.__base__):
         op = Operation.objects.get(kind='lot_report')
         self.assertEqual((op.lot_id, op.by), (self.root.id, 'M:P001'))
 
-    def test_offline_verif_shows_reception_time(self):
+    def test_offline_verif_shows_reception_time(self) -> None:
         # vérif faite hors connexion il y a 7 jours, reçue par le serveur il y a 6 jours
         Verifs.objects.filter(lot=self.lot).update(received=self.ago(6))
         text = self.text(self.report(5))
         self.assertIn('faite hors connexion, re\xe7ue par le serveur le', ' '.join(text.split()))
 
-    def test_absent_and_moved_items(self):
+    def test_absent_and_moved_items(self) -> None:
         i1, i2, i3 = self.items
         text = self.text(self.report(3.5))  # i2 absent (pas encore retrouve), i1 encore dans le sac
         # le rapport prouve ce qui etait dans le lot : i2 n'y figure pas, son type a une ligne « manquant »
@@ -305,7 +314,7 @@ class LotStateReportTests(LotSheetTests.__base__):
         self.assertNotIn('absent', text)
         self.assertIn('(Certifi\xe9 par le TECH)', text)
 
-    def test_expired_at_report_date(self):
+    def test_expired_at_report_date(self) -> None:
         old = self.create(self.compresses, self.today - timedelta(days=1), 1)[0]
         Items.objects.filter(iid=old.iid).update(location=self.lot, added=self.ago(9))
         text = self.text(self.report(5))
@@ -314,7 +323,7 @@ class LotStateReportTests(LotSheetTests.__base__):
         text = self.text(self.report())
         self.assertIn('(p\xe9rim\xe9)', text)
 
-    def test_admins_only_and_past_dates(self):
+    def test_admins_only_and_past_dates(self) -> None:
         badge = {'matricule': 'M001', 'key': self.user.new_key}
         response = self.client.post(f'/api/lots/{self.root.id}/state-report/', json.dumps({'user': badge}),
                                     content_type='application/json')

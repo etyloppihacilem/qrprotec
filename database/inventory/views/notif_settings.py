@@ -10,21 +10,30 @@
 
 """Reglages des notifications et du serveur (delai d'alerte, reglages des utilisateurs)."""
 
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+from collections.abc import Callable
+
 from .common import *  # noqa: F401,F403
 from .public import *  # noqa: F401,F403
 from .local import *  # noqa: F401,F403
+
+if TYPE_CHECKING:
+    from inventory.models import ConsumableMove, ConsumableRef
+    from rest_framework.response import Response
 
 
 # Reglages des notifications (le delai d'alerte d'expiration ; l'API SMS n'est plus maintenue, voir notifications.py)
 # ----------------------------------------------------------------------------------------------------------------------
 
-def _notification_response():
+def _notification_response() -> Response:
     return Response(ser.notification_settings_dict(NotificationSettings.get()))
 
 
 @api_view(['GET', 'PATCH'])
 @handle_errors
-def notification_settings(request):
+def notification_settings(request: Request) -> Response:
     require_front(request, ADMIN)
     if request.method == 'PATCH':
         settings_row = NotificationSettings.get()
@@ -38,7 +47,7 @@ def notification_settings(request):
 
 @api_view(['GET', 'PATCH'])
 @handle_errors
-def server_settings(request):
+def server_settings(request: Request) -> Response:
     """Reglages du serveur communs a tous les fronts (admin)."""
     require_front(request, ADMIN)
     settings_row = ServerSettings.get()
@@ -122,7 +131,7 @@ def server_settings(request):
 
 @api_view(['GET', 'PATCH'])
 @handle_errors
-def lost_object_message(request):
+def lost_object_message(request: Request) -> Response:
     """Message « objet perdu », le meme pour tous les types d'items coches lost_object : {"message"}. Lecture par
     tous (il s'affiche sur la fiche publique de ces objets), modification par la gestion (comme les types d'items)."""
     if request.method == 'PATCH':
@@ -137,7 +146,7 @@ def lost_object_message(request):
     return Response({'message': ServerSettings.get().lost_object_message})
 
 
-def parse_pin_roles(value, name='Code obligatoire'):
+def parse_pin_roles(value: list[str], name: str = 'Code obligatoire') -> list[str]:
     """Roles du reglage « code obligatoire » ou « code a la connexion obligatoire » (les admins le sont toujours),
     dans l'ordre des roles."""
     if not isinstance(value, list) or any(role not in PIN_OPTIONAL_ROLES + (Role.ADMIN,) for role in value):
@@ -147,7 +156,7 @@ def parse_pin_roles(value, name='Code obligatoire'):
 
 @api_view(['GET', 'POST'])
 @handle_errors
-def print_counts_view(request):
+def print_counts_view(request: Request) -> Response:
     """Compteur d'impressions (etiquettes envoyees a l'imprimante, par categorie d'etiquette).
 
     POST, tout front meme sans personne de connecte : {"batch": "<id unique de l'envoi>", "counts": [{"day":
@@ -169,7 +178,7 @@ def print_counts_view(request):
     return Response(print_counts.summary(parse_int(year, 'year', 2000, 2200) if year else None))
 
 
-def _consumables_call(function, *args):
+def _consumables_call(function: Callable[..., Any], *args: Any) -> Any:
     try:
         return function(*args)
     except consumables.ConsumableError as exc:
@@ -178,7 +187,7 @@ def _consumables_call(function, *args):
 
 @api_view(['GET', 'PATCH'])
 @handle_errors
-def consumables_view(request):
+def consumables_view(request: Request) -> Response:
     """Consommables d'etiquettes (fronts, roles gestion et admin) : stock estime par categorie, references, derniers
     mouvements. PATCH {"alert_days"} : seuil de la tache « Commander »."""
     require_front(request, GESTION)
@@ -189,7 +198,7 @@ def consumables_view(request):
 
 @api_view(['POST'])
 @handle_errors
-def consumable_refs(request):
+def consumable_refs(request: Request) -> Response:
     """Nouvelle reference : {"kind": "labels" | "ribbon", "name", "supplier", "width_mm", "height_mm", "support",
     "per_roll" | "length_m", "per_box", "box_price"}."""
     require_front(request, GESTION)
@@ -199,7 +208,7 @@ def consumable_refs(request):
 
 @api_view(['PATCH'])
 @handle_errors
-def consumable_ref_detail(request, ref_id):
+def consumable_ref_detail(request: Request, ref_id: int) -> Response:
     """Modifier une reference (memes champs, sauf le type), ou l'archiver ({"archived": true})."""
     require_front(request, GESTION)
     ref = get_object_or_404(ConsumableRef, id=ref_id)
@@ -209,7 +218,7 @@ def consumable_ref_detail(request, ref_id):
 
 @api_view(['POST'])
 @handle_errors
-def consumable_moves(request):
+def consumable_moves(request: Request) -> Response:
     """Reception ou inventaire : {"ref", "kind": "reception" | "inventory", "boxes", "rolls", "loose"}."""
     require_front(request, GESTION)
     _consumables_call(consumables.add_move, request.data, front_identity(request))
@@ -218,7 +227,7 @@ def consumable_moves(request):
 
 @api_view(['POST'])
 @handle_errors
-def consumable_move_delete(request, move_id):
+def consumable_move_delete(request: Request, move_id: int) -> Response:
     """Annuler une reception ou un inventaire saisi par erreur."""
     require_front(request, GESTION)
     _consumables_call(consumables.delete_move, move_id)
@@ -227,7 +236,7 @@ def consumable_move_delete(request, move_id):
 
 @api_view(['POST'])
 @handle_errors
-def barcodes_printed(request):
+def barcodes_printed(request: Request) -> Response:
     """Le poste imprime une etiquette a code-barres : des codes-barres circulent, le front web charge desormais leur
     decodeur (reglage web_barcodes, desactivable par un admin quand il n'y en a plus). Tout poste, meme sans
     utilisateur connecte."""
@@ -247,7 +256,7 @@ def barcodes_printed(request):
 
 @api_view(['PATCH'])
 @handle_errors
-def my_scanner_volume(request):
+def my_scanner_volume(request: Request) -> Response:
     """Volume de la douchette de l'utilisateur connecte sur le poste (tous les roles), repris a sa connexion.
     `volume` vide : revient au volume par defaut du serveur."""
     user = require_front(request, ALL_ROLES)
@@ -261,7 +270,7 @@ def my_scanner_volume(request):
 
 @api_view(['POST'])
 @handle_errors
-def my_prefs(request):
+def my_prefs(request: Request) -> Response:
     """Reglages du front web de l'utilisateur connecte (tous les roles) : {"user", "web_prefs": {nom: booleen}}."""
     user = badge_user(request, ALL_ROLES)  # badge ou jeton de session
     user.web_prefs = {**(user.web_prefs or {}), **parse_web_prefs(request.data.get('web_prefs'))}
@@ -275,7 +284,7 @@ PIN_SAVE_FIELDS = ['pin_hash', 'pin_mode', 'pin_at_login', 'pin_failures', 'pin_
 
 @api_view(['POST'])
 @handle_errors
-def my_pin(request):
+def my_pin(request: Request) -> Response:
     """Code PIN de l'utilisateur connecte, depuis ses reglages (web) : {"user", "current_pin", "pin"} le choisit ou le
     change, {"user", "current_pin", "disable": true} le supprime (refuse pour un admin, ou si un admin l'a rendu
     obligatoire). Le PIN actuel est redemande (essais faux comptes comme a la connexion). La session reste ouverte.
@@ -329,7 +338,7 @@ def my_pin(request):
     return Response(ser.user_dict(user))
 
 
-def parse_warning_days(value):
+def parse_warning_days(value: int | None) -> int | None:
     """Delai de l'alerte « expire bientot » (1 a 365 jours), None : valeur de qrprotec.conf."""
     if value in (None, ''):
         return None

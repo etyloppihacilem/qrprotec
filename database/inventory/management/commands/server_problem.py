@@ -15,20 +15,27 @@ distante en echec) :
     qrprotec-manage server_problem sync --resolved     # l'envoi refonctionne : prochain echec annonce tout de suite
 """
 
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Any
+
 from django.core.management.base import BaseCommand
 
 from inventory import notifications, webpush
+
+if TYPE_CHECKING:
+    from django.core.management.base import CommandParser
 
 
 class Command(BaseCommand):
     help = 'Prévient les admins (notification « Problème de serveur ») : sauvegarde ou envoi des sauvegardes en échec.'
 
-    def add_arguments(self, parser):
+    def add_arguments(self, parser: CommandParser) -> None:
         parser.add_argument('source', choices=sorted(notifications.SERVER_PROBLEM_SOURCES))
         parser.add_argument('message', nargs='?', default='')
         parser.add_argument('--resolved', action='store_true', help='la source refonctionne (rien n\'est envoyé)')
 
-    def handle(self, *args, **options):
+    def handle(self, *args: Any, **options: Any) -> None:
         if options['resolved']:
             notifications.resolve_server_problem(options['source'])
             return

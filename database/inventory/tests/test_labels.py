@@ -1,13 +1,21 @@
 """Tests du back : etiquettes demandees depuis le web, compteur d'impressions, outil de debug des codes."""
 
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
 from .base import *  # noqa: F401,F403
 from .base import setUpModule, tearDownModule  # noqa: F401 (PIN facultatif pendant ces tests)
+
+if TYPE_CHECKING:
+    from datetime import date, datetime
+    from inventory.models import Items, Lots, Verifs
 
 
 class DebugCodesTests(ApiTestCase):
     """Outil de debug des codes du front web : administrateurs seulement, jamais de badge."""
 
-    def test_admin_only_and_no_badges(self):
+    def test_admin_only_and_no_badges(self) -> None:
         items = self.create(self.compresses, self.today + timedelta(days=60), 2)
         self.call('POST', f'/api/lots/{self.lot.id}/verif/', {'items': [item.iid for item in items], 'user': 'M001'})
         self.call('POST', f'/api/lots/{self.lot.id}/seal/', {'user': 'M001'})
@@ -48,7 +56,7 @@ class DebugCodesTests(ApiTestCase):
 class LabelErrorTests(TestCase):
     """Message « Scannez l'étiquette … » : le nom du lot et de ses sous-lots, jamais « lot ou sous-lot »."""
 
-    def test_names(self):
+    def test_names(self) -> None:
         self.assertEqual(views.de_name('Armoire 1'), "d'Armoire 1")
         self.assertEqual(views.de_name('Le sac O2'), 'du sac O2')
         self.assertEqual(views.de_names(['Sac de soin', 'Sac O2', 'B']), 'de Sac de soin, de Sac O2 ou de B')
@@ -67,13 +75,13 @@ class LabelErrorTests(TestCase):
 class LabelPrintTests(ApiTestCase):
     """Etiquettes d'items demandees depuis le web par un admin, imprimees au poste meme sans personne de connecte."""
 
-    def admin(self):
+    def admin(self) -> dict[str, str]:
         return {'matricule': 'P001', 'key': self.operator.new_key, 'session': self.operator_session}
 
-    def ask(self, **data):
+    def ask(self, **data: Any) -> tuple[int, Any]:
         return self.call('POST', '/api/label-prints/', {'user': self.admin(), **data}, local=False)
 
-    def test_gestion_and_admins_only_on_the_web(self):
+    def test_gestion_and_admins_only_on_the_web(self) -> None:
         code, _ = self.call('POST', '/api/label-prints/', {'type': 'garrot', 'count': 2}, local=False)
         self.assertEqual(code, 403)
         secouriste = {'matricule': 'M001', 'key': self.user.new_key}
@@ -96,7 +104,7 @@ class LabelPrintTests(ApiTestCase):
         self.assertEqual(code, 200)
         self.assertEqual([row['type'] for row in body['types']], ['compre', 'garrot'])
 
-    def test_request_then_print_without_anyone_logged_in(self):
+    def test_request_then_print_without_anyone_logged_in(self) -> None:
         code, body = self.ask(type='compre', count=3)
         self.assertEqual(code, 400)  # perissable : date obligatoire
         peremption = (self.today + timedelta(days=400)).isoformat()
@@ -135,7 +143,7 @@ class LabelPrintTests(ApiTestCase):
         code, _ = self.call('POST', f"/api/label-prints/{body['id']}/cancel/", {'user': self.admin()}, local=False)
         self.assertEqual(code, 409)
 
-    def test_cancel_and_limits(self):
+    def test_cancel_and_limits(self) -> None:
         self.assertEqual(self.ask(type='garrot', count=0)[0], 400)
         self.assertEqual(self.ask(type='garrot', count=1000)[0], 400)
         self.assertEqual(self.ask(type='nope00', count=1)[0], 404)
@@ -154,7 +162,7 @@ class LabelPrintTests(ApiTestCase):
         self.assertEqual(self.call('POST', f"/api/label-prints/{body['id']}/print/", {}, session=False)[0], 409)
         self.assertEqual(Items.objects.count(), 0)
 
-    def test_expires_after_24_hours(self):
+    def test_expires_after_24_hours(self) -> None:
         code, body = self.ask(type='garrot', count=2)
         models.LabelPrint.objects.filter(id=body['id']).update(created=timezone.now() - timedelta(hours=25))
         code, listing = self.call('GET', '/api/label-prints/pending/', session=False)
@@ -166,12 +174,12 @@ class LabelPrintTests(ApiTestCase):
         code, web = self.call('POST', '/api/label-prints/list/', {'user': self.admin()}, local=False)
         self.assertTrue(web['prints'][0]['expired'])
 
-    def label(self, width=10, height=3):
+    def label(self, width: int = 10, height: int = 3) -> dict[str, Any]:
         import base64
         return {'description': 'Lot 1/1', 'width': width, 'height': height, 'ppm': 8,
                 'bits': base64.b64encode(bytes((width * height + 7) // 8)).decode()}
 
-    def test_labels_from_another_computer(self):
+    def test_labels_from_another_computer(self) -> None:
         # front d'un autre ordinateur (API distante, cle de front), personne de connecte ou non
         _, key = FrontKey.create('Ordi du TECH')
         remote = {'qrprotec.role': 'remote', 'HTTP_X_QRPROTEC_KEY': key}
@@ -200,7 +208,7 @@ class LabelPrintTests(ApiTestCase):
         code, web = self.call('POST', '/api/label-prints/list/', {'user': self.admin()}, local=False)
         self.assertEqual(web['prints'], [])
 
-    def test_labels_keep_their_label_type(self):
+    def test_labels_keep_their_label_type(self) -> None:
         # type d'etiquette du modele (rouleau) : transmis au poste, qui attend que ce rouleau soit charge
         _, key = FrontKey.create('Ordi du TECH')
         remote = {'qrprotec.role': 'remote', 'HTTP_X_QRPROTEC_KEY': key}
@@ -239,7 +247,7 @@ class LabelPrintTests(ApiTestCase):
         bad['label_type'] = {'name': 'PET', 'width_mm': 40, 'height_mm': 30, 'margin_left_mm': -1}
         self.assertEqual(send([bad]).status_code, 400)
 
-    def test_one_queue_per_requester(self):
+    def test_one_queue_per_requester(self) -> None:
         # plusieurs portables envoient en meme temps : une file par personne qui demande, puis par ordinateur
         self.user.role = 'gestion'
         self.user.save()
@@ -264,7 +272,7 @@ class LabelPrintTests(ApiTestCase):
         self.assertEqual(queues[2]['name'], 'Portable 3')
         self.assertEqual({row['queue'] for row in listing['pending']}, {'M:P001', 'M:M001', 'front:Portable 3'})
 
-    def test_admins_manage_queues_remotely(self):
+    def test_admins_manage_queues_remotely(self) -> None:
         self.user.role = 'gestion'
         self.user.save()
         gestion = {'matricule': 'M001', 'key': self.user.new_key}
@@ -310,13 +318,13 @@ class LabelPrintTests(ApiTestCase):
 class PrintCountTests(ApiTestCase):
     """Compteur d'impressions : etiquettes envoyees a l'imprimante, par mois et par categorie d'etiquette."""
 
-    def send(self, batch, counts, session=False):
+    def send(self, batch: str, counts: list[dict[str, Any]], session: bool = False) -> tuple[int, dict[str, Any]]:
         return self.call('POST', '/api/print-counts/', {'batch': batch, 'counts': counts}, session=session)
 
-    def row(self, day, count, width=40, height=30, support='direct'):
+    def row(self, day: date, count: int, width: int = 40, height: int = 30, support: str = 'direct') -> dict[str, Any]:
         return {'day': day.isoformat(), 'width_mm': width, 'height_mm': height, 'support': support, 'count': count}
 
-    def test_counts_by_month_and_category(self):
+    def test_counts_by_month_and_category(self) -> None:
         first = self.today.replace(day=1)
         last_month = first - timedelta(days=1)
         code, body = self.send('batch-0001', [self.row(self.today, 12), self.row(first, 3),
@@ -339,14 +347,14 @@ class PrintCountTests(ApiTestCase):
         self.assertEqual(body['current_month'], self.today.month)
         self.assertIn(self.today.year, body['years'])
 
-    def test_resent_batch_not_counted_twice(self):
+    def test_resent_batch_not_counted_twice(self) -> None:
         self.assertEqual(self.send('batch-0001', [self.row(self.today, 4)])[0], 201)
         code, body = self.send('batch-0001', [self.row(self.today, 4)])
         self.assertEqual(code, 200)
         self.assertTrue(body['duplicate'])
         self.assertEqual(PrintCount.objects.get().count, 4)
 
-    def test_fronts_counted_apart_then_summed(self):
+    def test_fronts_counted_apart_then_summed(self) -> None:
         self.send('batch-0001', [self.row(self.today, 2)])
         key = FrontKey.create('Bureau')[1]
         response = self.client.post('/api/print-counts/', json.dumps({'batch': 'batch-0002',
@@ -358,7 +366,7 @@ class PrintCountTests(ApiTestCase):
         self.assertEqual(sorted(PrintCount.objects.values_list('front', 'count')), [('', 2), ('Bureau', 3)])
         self.assertEqual(self.call('GET', '/api/print-counts/')[1]['total'], 5)
 
-    def test_invalid_counts_refused(self):
+    def test_invalid_counts_refused(self) -> None:
         for counts in ([], [self.row(self.today, 0)], [self.row(self.today, 1, support='laser')],
                        [self.row(self.today, 1, width=1000)], [self.row(self.today + timedelta(days=5), 1)],
                        [{'day': 'hier', 'width_mm': 40, 'height_mm': 30, 'support': 'direct', 'count': 1}]):
@@ -367,7 +375,7 @@ class PrintCountTests(ApiTestCase):
         self.assertFalse(PrintCount.objects.exists())
         self.assertFalse(PrintCountBatch.objects.exists())
 
-    def test_access(self):
+    def test_access(self) -> None:
         # envoi : tout poste, pas l'API publique ; lecture : gestion et admin connectes au poste
         self.assertEqual(self.call('POST', '/api/print-counts/', {}, local=False)[0], 404)
         self.assertEqual(self.call('GET', '/api/print-counts/', session=False)[0], 403)
@@ -378,14 +386,15 @@ class PrintCountTests(ApiTestCase):
 class FunStatsTests(ApiTestCase):
     """Stats fun de l'AG (5 appuis sur « Prévisions » du web) : gestion et admin, noms courts, vérifs en sessions."""
 
-    def verif(self, by, at, lot=None, participants=(), present=0, expired_items=()):
+    def verif(self, by: str, at: datetime, lot: Lots | None = None, participants: tuple[()] | list[str] = (),
+              present: int = 0, expired_items: list[Items] | tuple[()] = ()) -> Verifs:
         verif = Verifs.objects.create(lot=lot or self.lot, by=by, datetime=at, received=at,
                                       participants=list(participants), present_count=present, complete=True)
         for item in expired_items:
             models.VerifItem.objects.create(verif=verif, item=item, expired=True)
         return verif
 
-    def test_fun_stats(self):
+    def test_fun_stats(self) -> None:
         paul = Secouristes(matricule='M002', nom='Martin', prenom='Paul')
         paul.save()
         sub = Lots(lot_type=self.lot_type, name='Sac B', name_short='B', created_by='test', parent=self.lot)

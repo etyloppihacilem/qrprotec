@@ -10,16 +10,23 @@
 
 """Telephone utilise comme douchette (voir remote_scanner.py)."""
 
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
 from .common import *  # noqa: F401,F403
 from .public import *  # noqa: F401,F403
 from .local import *  # noqa: F401,F403
 from .notif_settings import *  # noqa: F401,F403
 
+if TYPE_CHECKING:
+    from ..remote_scanner import Session
+
 
 # Telephone utilise comme douchette (voir remote_scanner.py)
 # ----------------------------------------------------------------------------------------------------------------------
 
-def _scanner_session_dict(session):
+def _scanner_session_dict(session: Session) -> dict[str, Any]:
     data = session.status()
     data['url'] = ser.public_url('scanner', s=session.id, k=session.key)
     return data
@@ -27,7 +34,7 @@ def _scanner_session_dict(session):
 
 @api_view(['POST'])
 @handle_errors
-def remote_scanner_sessions(request):
+def remote_scanner_sessions(request: Request) -> Response:
     """Cree une session : le front affiche le QR code de `url`, puis se connecte a /ws/scanner/front?s=ID."""
     if not scanner_hub.enabled:
         raise ApiError("Le téléphone-douchette nécessite le serveur `manage.py serve` (WebSockets)",
@@ -39,7 +46,7 @@ def remote_scanner_sessions(request):
 
 @api_view(['GET', 'DELETE'])
 @handle_errors
-def remote_scanner_session(request, session_id):
+def remote_scanner_session(request: Request, session_id: str) -> Response:
     session = scanner_hub.get(session_id)
     if session is None:
         raise ApiError('Session fermée', status.HTTP_404_NOT_FOUND)
@@ -50,7 +57,7 @@ def remote_scanner_session(request, session_id):
 
 
 @api_view(['GET'])
-def remote_scanner_check(request):
+def remote_scanner_check(request: Request) -> Response:
     """Public (telephone) : la session existe-t-elle encore ? Exige la cle du QR code."""
     session = scanner_hub.check_key(request.query_params.get('s', ''), request.query_params.get('k', ''))
     if session is None:

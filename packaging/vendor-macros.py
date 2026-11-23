@@ -7,13 +7,15 @@ Le spec les charge (Source4) pour ses Provides bundled() et les verifie dans %pr
 de poetry.lock (nouvelle version de Django, nouvelle dependance...) ne demande pas de retoucher le spec.
 """
 
+from __future__ import annotations
+
 import re
 import sys
 from email.parser import HeaderParser
 from pathlib import Path
 
 
-def main(vendor):
+def main(vendor: str) -> None:
     dists = []
     for metadata in sorted(Path(vendor).glob('*.dist-info/METADATA')):
         headers = HeaderParser().parsestr(metadata.read_text(encoding='utf-8'))
