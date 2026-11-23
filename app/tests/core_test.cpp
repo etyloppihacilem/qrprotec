@@ -1,4 +1,5 @@
 #include "../src/core/french.hpp"
+#include "../src/core/hotspot_state.hpp"
 #include "../src/core/placeholders.hpp"
 #include "../src/core/template.hpp"
 #include "../src/core/template_io.hpp"
@@ -22,6 +23,20 @@
 
 int main()
 {
+    // wifi de secours de la borne : fichier d'etat de qrprotec-hotspot et QR code « rejoindre ce wifi »
+    {
+        const qrprotec::HotspotState state = qrprotec::parse_hotspot_state(
+            "SSID=QRprotec\nPASSWORD=ab3k=x9\r\nADDRESS=10.42.0.1\nDOMAIN=inventaire.example.org\nIFACE=wlp2s0\nSINCE=1795000000\n");
+        assert(state.active);
+        assert(state.ssid == "QRprotec" && state.password == "ab3k=x9"); // '=' garde dans la valeur, \r retire
+        assert(state.address == "10.42.0.1" && state.domain == "inventaire.example.org" && state.iface == "wlp2s0");
+        assert(state.since == 1795000000LL);
+        assert(!qrprotec::parse_hotspot_state("").active);
+        assert(!qrprotec::parse_hotspot_state("SSID=QRprotec\n").active); // sans mot de passe : pas en marche
+        assert(qrprotec::wifi_qr_payload("QRprotec", "abcdefgh") == "WIFI:T:WPA;S:QRprotec;P:abcdefgh;;");
+        assert(qrprotec::wifi_qr_payload("Pro;tec", "a:b,c\\d\"") == "WIFI:T:WPA;S:Pro\\;tec;P:a\\:b\\,c\\\\d\\\";;");
+    }
+
     // formulaire : un champ numerique laisse a sa valeur par defaut est quand meme envoye (ruban ajoute avec
     // 74 m par rouleau sans toucher au champ : le serveur recevait length_m: null, « nombre attendu »)
     {

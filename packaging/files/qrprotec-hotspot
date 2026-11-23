@@ -1,0 +1,203 @@
+#!/usr/bin/bash
+# Wifi de secours de la borne : quand le wifi du local tombe (panne de fibre, de box...), la borne diffuse son
+# propre wifi, et les telephones continuent d'utiliser QRProtec (serveur sur cette machine) par ce wifi.
+#
+#   qrprotec-hotspot start    # lance le wifi de secours (point d'acces NetworkManager)
+#   qrprotec-hotspot stop     # l'arrete ; la carte wifi revient a son reseau habituel
+#   qrprotec-hotspot status   # etat (fichier lu par le poste)
+#
+# Lance en root par qrprotec-hotspot.service (le poste du kiosk le demarre et l'arrete avec systemctl, autorise par
+# la regle polkit 50-qrprotec-hotspot.rules), jamais directement par le kiosk.
+#
+# Fonctionnement :
+#   - NetworkManager cree un point d'acces WPA2 (mode partage : DHCP et DNS par son dnsmasq) sur la carte wifi ;
+#   - ce dnsmasq repond au nom du site (QRPROTEC_DOMAIN de /etc/qrprotec/qrprotec.conf) avec l'adresse de la borne
+#     sur ce wifi : les telephones gardent la meme adresse, donc le meme certificat HTTPS et la meme appli installee ;
+#     si le site est une adresse IP, le point d'acces prend cette adresse ;
+#   - firewalld : http et https ouverts sur la zone de ce wifi (jusqu'a l'arret ou au redemarrage).
+# Les telephones doivent couper leurs donnees mobiles : sans internet sur ce wifi, ils enverraient sinon leurs
+# requetes DNS par la 4G, qui renvoie l'adresse publique du site, injoignable.
+#
+# Reglages facultatifs dans /etc/qrprotec/hotspot.conf (QRPROTEC_HOTSPOT_SSID, _PASSWORD, _IFACE, _ADDRESS).
+set -uo pipefail
+
+readonly CON=qrprotec-hotspot
+readonly RUN_DIR=/run/qrprotec-hotspot
+readonly STATE_DIR=/var/lib/qrprotec-hotspot
+readonly DNS_FILE=/etc/NetworkManager/dnsmasq-shared.d/qrprotec-hotspot.conf
+readonly KIOSK_GROUP=qrprotec-kiosk
+
+log() {
+    echo "qrprotec-hotspot : $*" >&2
+}
+
+# Dossier lu par le poste (groupe du kiosk) : etat du wifi ou message d'erreur
+prepare_run_dir() {
+    mkdir -p "$RUN_DIR"
+    chmod 0750 "$RUN_DIR"
+    chgrp "$KIOSK_GROUP" "$RUN_DIR" 2>/dev/null || :
+}
+
+write_run_file() {
+    local name=$1 content=$2
+    printf '%s\n' "$content" >"$RUN_DIR/$name.tmp"
+    chmod 0640 "$RUN_DIR/$name.tmp"
+    chgrp "$KIOSK_GROUP" "$RUN_DIR/$name.tmp" 2>/dev/null || :
+    mv -f "$RUN_DIR/$name.tmp" "$RUN_DIR/$name"
+}
+
+# Echec : message (en francais, affiche tel quel par le poste) dans le journal et dans $RUN_DIR/error
+fail() {
+    log "$*"
+    write_run_file error "$*"
+    exit 1
+}
+
+is_ipv4() {
+    [[ $1 =~ ^[0-9]{1,3}(\.[0-9]{1,3}){3}$ ]]
+}
+
+# Premiere carte wifi connue de NetworkManager
+wifi_device() {
+    nmcli -t -f DEVICE,TYPE device status 2>/dev/null | awk -F: '$2 == "wifi" { print $1; exit }'
+}
+
+# Mot de passe garde d'une fois sur l'autre : les telephones deja passes par ce wifi s'y reconnectent seuls.
+# 10 caracteres sans 0/O ni 1/l/I, a recopier a la main au besoin.
+password() {
+    if [[ -n ${QRPROTEC_HOTSPOT_PASSWORD:-} ]]; then
+        printf '%s' "$QRPROTEC_HOTSPOT_PASSWORD"
+        return
+    fi
+    mkdir -p "$STATE_DIR"
+    chmod 0700 "$STATE_DIR"
+    if [[ ! -s $STATE_DIR/password ]]; then
+        (umask 077 && LC_ALL=C tr -dc 'abcdefghijkmnpqrstuvwxyz23456789' </dev/urandom | head -c 10 >"$STATE_DIR/password")
+    fi
+    cat "$STATE_DIR/password"
+}
+
+# Ports web ouverts par ce script sur la zone du wifi (refermes a l'arret, ceux deja ouverts restent)
+open_firewall() {
+    local iface=$1 zone service opened=""
+    systemctl is-active --quiet firewalld.service && command -v firewall-cmd >/dev/null || return 0
+    zone=$(firewall-cmd --get-zone-of-interface="$iface" 2>/dev/null) || zone=$(firewall-cmd --get-default-zone)
+    for service in http https; do
+        if ! firewall-cmd --quiet --zone="$zone" --query-service="$service"; then
+            firewall-cmd --quiet --zone="$zone" --add-service="$service" && opened+="$service "
+        fi
+    done
+    printf '%s\n%s\n' "$zone" "$opened" >"$RUN_DIR/firewall"
+    log "firewalld : zone $zone${opened:+, ouvert : $opened}"
+}
+
+close_firewall() {
+    local zone opened service
+    [[ -r $RUN_DIR/firewall ]] || return 0
+    { read -r zone; read -r opened; } <"$RUN_DIR/firewall"
+    rm -f "$RUN_DIR/firewall"
+    command -v firewall-cmd >/dev/null || return 0
+    for service in $opened; do
+        firewall-cmd --quiet --zone="$zone" --remove-service="$service" || :
+    done
+}
+
+do_start() {
+    local domain=${QRPROTEC_DOMAIN:-} ssid=${QRPROTEC_HOTSPOT_SSID:-QRprotec} iface address holder pass
+    prepare_run_dir
+    rm -f "$RUN_DIR/error" "$RUN_DIR/state"
+
+    command -v nmcli >/dev/null || fail "NetworkManager est absent : le wifi de secours ne peut pas démarrer."
+    systemctl is-active --quiet NetworkManager.service \
+        || fail "NetworkManager n'est pas lancé : le wifi de secours ne peut pas démarrer."
+    command -v dnsmasq >/dev/null \
+        || fail "Le paquet dnsmasq manque (sudo dnf install dnsmasq, avec internet) : le wifi de secours ne peut pas démarrer."
+    if [[ -z $domain || $domain == localhost || $domain == *:* ]]; then
+        fail "Le site n'a pas de nom (QRPROTEC_DOMAIN=${domain:-vide}) : les téléphones ne peuvent pas le joindre (sudo qrprotec-setup)."
+    fi
+
+    iface=${QRPROTEC_HOTSPOT_IFACE:-$(wifi_device)}
+    [[ -n $iface ]] || fail "Aucune carte wifi sur cet ordinateur : le wifi de secours a besoin d'une carte wifi (une clé USB wifi convient)."
+    if [[ $(nmcli -g WIFI-PROPERTIES.AP device show "$iface" 2>/dev/null) == no ]]; then
+        fail "La carte wifi $iface ne sait pas diffuser son propre réseau (mode point d'accès) : brancher une clé USB wifi qui le permet."
+    fi
+
+    # Nom du site en adresse IP : le point d'acces prend cette adresse (meme certificat), si aucune autre carte ne l'a
+    if is_ipv4 "$domain"; then
+        address=$domain
+        holder=$(ip -4 -o addr show to "$address/32" 2>/dev/null | awk '{ print $2; exit }')
+        if [[ -n $holder && $holder != "$iface" ]]; then
+            fail "Le site est l'adresse $address, déjà prise par la carte $holder : débrancher ce réseau ou donner un nom au site."
+        fi
+    else
+        address=${QRPROTEC_HOTSPOT_ADDRESS:-10.42.0.1}
+    fi
+    pass=$(password)
+    ((${#pass} >= 8 && ${#pass} <= 63)) || fail "Mot de passe du wifi de secours invalide (8 à 63 caractères, /etc/qrprotec/hotspot.conf)."
+
+    # DNS du wifi : le nom du site (et ses sous-domaines) vers la borne ; lu par le dnsmasq que NetworkManager lance
+    # pour le mode partage. Les autres noms partent vers internet (s'il y en a), sinon restent sans reponse.
+    mkdir -p "${DNS_FILE%/*}"
+    if is_ipv4 "$domain"; then
+        rm -f "$DNS_FILE"
+    else
+        printf '# Wifi de secours de QRProtec (qrprotec-hotspot) : supprime a son arret\naddress=/%s/%s\n' \
+            "$domain" "$address" >"$DNS_FILE"
+        command -v restorecon >/dev/null && restorecon "$DNS_FILE" 2>/dev/null
+    fi
+
+    nmcli radio wifi on >/dev/null 2>&1 || :
+    nmcli connection delete "$CON" >/dev/null 2>&1 || :
+    # bg : 2,4 GHz, compris par tous les telephones ; WPA2 (rsn, ccmp) sans PMF obligatoire pour les vieux Android
+    if ! nmcli connection add type wifi ifname "$iface" con-name "$CON" autoconnect no ssid "$ssid" \
+        802-11-wireless.mode ap 802-11-wireless.band bg \
+        ipv4.method shared ipv4.addresses "$address/24" ipv6.method disabled \
+        wifi-sec.key-mgmt wpa-psk wifi-sec.proto rsn wifi-sec.pairwise ccmp wifi-sec.group ccmp \
+        wifi-sec.pmf disable wifi-sec.psk "$pass" >/dev/null; then
+        rm -f "$DNS_FILE"
+        fail "NetworkManager refuse de créer le wifi de secours (voir journalctl -u qrprotec-hotspot)."
+    fi
+    if ! nmcli --wait 45 connection up "$CON" >/dev/null; then
+        nmcli connection delete "$CON" >/dev/null 2>&1 || :
+        rm -f "$DNS_FILE"
+        fail "La carte wifi $iface n'a pas pu diffuser le wifi de secours (voir journalctl -u qrprotec-hotspot)."
+    fi
+    open_firewall "$iface"
+
+    write_run_file state "SSID=$ssid
+PASSWORD=$pass
+ADDRESS=$address
+DOMAIN=$domain
+IFACE=$iface
+SINCE=$(date +%s)"
+    log "wifi « $ssid » diffuse sur $iface, $domain -> $address"
+}
+
+do_stop() {
+    prepare_run_dir
+    close_firewall
+    nmcli connection down "$CON" >/dev/null 2>&1 || :
+    nmcli connection delete "$CON" >/dev/null 2>&1 || :
+    rm -f "$DNS_FILE" "$RUN_DIR/state" "$RUN_DIR/error"
+    log "wifi de secours arrete"
+}
+
+case ${1:-} in
+start) do_start ;;
+stop) do_stop ;;
+status)
+    if [[ -r $RUN_DIR/state ]]; then
+        sed 's/^PASSWORD=.*/PASSWORD=(masque)/' "$RUN_DIR/state"
+    elif [[ -r $RUN_DIR/error ]]; then
+        cat "$RUN_DIR/error"
+        exit 1
+    else
+        echo "wifi de secours arrete"
+        exit 3
+    fi
+    ;;
+*)
+    echo "Usage : qrprotec-hotspot start|stop|status" >&2
+    exit 2
+    ;;
+esac

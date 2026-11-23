@@ -142,6 +142,22 @@ Le back ne répond pas. Redémarrez la borne ; si cela persiste, voir le
 Le téléphone n'est pas sur le bon réseau, ou la borne n'est pas joignable depuis Internet. Vérifiez
 l'adresse de la page.
 
+**Le wifi du local ne marche plus (panne de fibre, de box…).**
+La borne peut diffuser son propre wifi pour quelques jours. Le TECH, en mode gestion, ouvre
+**TECH › Wifi de secours…** et touche **Démarrer le wifi de secours** (jusqu'à une minute). Un voyant
+bleu **● Wifi de secours** apparaît en haut de l'écran : n'importe qui le touche pour afficher les QR codes.
+Sur chaque téléphone :
+
+1. coupez les **données mobiles** (sinon le téléphone cherche QRprotec par la 4G et ne le trouve pas) ;
+2. scannez le premier QR code avec l'appareil photo pour rejoindre le wifi « QRprotec » ;
+3. ouvrez QRprotec comme d'habitude (ou scannez le second QR code). Si le téléphone signale que ce wifi
+   n'a pas internet, répondez de rester connecté.
+
+Le serveur étant sur la borne, tout marche comme avant, sans internet. Quand le wifi du local remarche,
+le TECH touche **Arrêter le wifi de secours** : la borne reprend son réseau habituel. Le wifi de secours
+s'arrête aussi au redémarrage de la borne. Il faut une carte wifi capable de diffuser un réseau (une clé
+USB wifi suffit) ; sinon le poste affiche pourquoi il ne démarre pas.
+
 **J'ai oublié ma carte.**
 Demandez au TECH (un administrateur) : dans l'outil de debug des codes, il touche votre nom sous
 « Cartes des secouristes » et vous montre un QR code. Scannez-le avec votre téléphone (dans QRprotec ou avec
