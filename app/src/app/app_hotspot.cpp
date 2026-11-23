@@ -27,7 +27,11 @@ std::string since_text(long long since) {
     return {};
   const std::time_t time = static_cast< std::time_t >(since);
   std::tm           local{};
+#ifdef _WIN32
+  localtime_s(&local, &time);
+#else
   localtime_r(&time, &local);
+#endif
   char text[32];
   std::strftime(text, sizeof text, "%d/%m à %H:%M", &local);
   return text;
