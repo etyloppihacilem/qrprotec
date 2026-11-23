@@ -538,6 +538,11 @@ const timeOf = (value) => new Date(value).toLocaleTimeString('fr-FR', { hour: '2
 
 // Vérif faite hors connexion, envoyee plus tard : datee a l'heure des scans (heure de l'appareil), l'heure de
 // reception par le serveur est donnee a cote pour reperer un antidatage
+// durée d'une vérif à la seconde, avec ses heures de début et de fin
+const durationText = (start, end) => {
+  const time = (value) => new Date(value).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  return `⏱ Durée : ${fmtDuration((new Date(end) - new Date(start)) / 1000)} (de ${time(start)} à ${time(end)})`;
+};
 const sentText = (sent) => `📶 Faite hors connexion · reçue par le serveur ${fmtOn(sent)}`;
 
 
@@ -676,7 +681,10 @@ async function openVerifReport(ids, quiet = false) {
   const frame = (lot) => byId.size > 1 && !covered(lot.id) && hasVerifiedUnder(lot.id)
     && !(lot.present_count + lot.missing_count + lot.expired_count);
   const lots = [...byId.values()].filter((lot) => !frame(lot));
-  reportView.report = { ...last, complete: reports.every((one) => one.complete),
+  // durée : du début de la 1re étape à la fin de la dernière, seulement si chaque étape a son début (vérifs d'avant
+  // le chronométrage : pas de durée)
+  const started = reports.every((one) => one.started) ? reports.map((one) => one.started).sort()[0] : null;
+  reportView.report = { ...last, started, complete: reports.every((one) => one.complete),
     participants: [...new Set(reports.flatMap((one) => [one.by, ...(one.participants || [])]))].filter((who) => who !== last.by),
     lots, sealed: reports.flatMap((one) => one.sealed),
     operations: reports.flatMap((one) => one.operations) };
@@ -758,6 +766,7 @@ function renderVerifReport() {
       el('div', { class: 'vr-title' }, el('span', { class: 'vr-ico', 'aria-hidden': 'true' },
         kind === 'ok' ? '✓' : kind === 'partial' ? '↷' : '!'), title),
       el('div', { class: 'vr-sub' }, `${cap(fmtDateTime(report.at))} · ${people.length > 1 ? '👥 ' : ''}${people.join(', ')}`),
+      report.started ? el('div', { class: 'vr-sub vr-duration' }, durationText(report.started, report.at)) : null,
       report.sent ? el('div', { class: 'vr-sub offline-sent' }, sentText(report.sent)) : null,
       stats.length ? el('div', { class: 'vr-stats' }, ...stats.map(([count, one, many, tone]) =>
         el('span', { class: tone }, nb(count, one, many)))) : null),

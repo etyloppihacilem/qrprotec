@@ -286,9 +286,17 @@ class RecentVerifsTests(ApiTestCase):
         self.assertIsNone(VerifItem.objects.get(verif=verif, item_id=items[1].iid).scanned_at)
         items[0].refresh_from_db()
         self.assertEqual(items[0].last_seen, first.scanned_at)
-        # front d'avant ces champs : rien d'enregistre
+        # compte rendu du Suivi des vérifs : debut de la vérif (duree a la seconde avec 'at')
+        badge = {'matricule': self.user.matricule, 'key': self.user.new_key}
+        _, report = self.call('POST', f'/api/verifs/{verif.id}/report/', {'user': badge}, local=False)
+        self.assertEqual(report['started'], ser._date(verif.started))
+        self.assertEqual(report['at'], ser._date(verif.datetime))
+        # front d'avant ces champs : rien d'enregistre, pas de duree au compte rendu
         self.call('POST', '/api/verifs/', {'lots': [{'id': self.lot.id}], 'items': [items[0].iid]})
-        self.assertIsNone(Verifs.objects.filter(lot=self.lot).latest('id').started)
+        old = Verifs.objects.filter(lot=self.lot).latest('id')
+        self.assertIsNone(old.started)
+        _, report = self.call('POST', f'/api/verifs/{old.id}/report/', {'user': badge}, local=False)
+        self.assertIsNone(report['started'])
 
     def test_verif_sent_right_away_keeps_reception_time(self) -> None:
         items = self.create(self.compresses, self.today + timedelta(days=200), 1)
