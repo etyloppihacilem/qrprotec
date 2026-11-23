@@ -33,6 +33,10 @@ Messages (JSON, trames texte) :
                          {"type": "phone", "connected": bool, "agent": "..."}, {"type": "closed", ...}
 """
 
+from __future__ import annotations
+
+from typing import Any, BinaryIO
+
 import base64
 import hashlib
 import hmac
@@ -68,14 +72,14 @@ def accept_key(key: str) -> str:
 class WebSocket:
     """Connexion WebSocket cote serveur (RFC 6455, trames texte, sans extensions)."""
 
-    def __init__(self, rfile, wfile, sock):
+    def __init__(self, rfile: BinaryIO, wfile: BinaryIO, sock: socket.socket) -> None:
         self.rfile = rfile
         self.wfile = wfile
         self.sock = sock
         self.send_lock = threading.Lock()
         self.closed = False
 
-    def _read_exact(self, size):
+    def _read_exact(self, size: int) -> bytes:
         data = b''
         while len(data) < size:
             try:
@@ -87,7 +91,7 @@ class WebSocket:
             data += chunk
         return data
 
-    def _send_frame(self, opcode, payload=b''):
+    def _send_frame(self, opcode: int, payload: bytes = b'') -> None:
         header = bytes([0x80 | opcode])
         length = len(payload)
         if length < 126:
@@ -106,14 +110,14 @@ class WebSocket:
                 self.closed = True
                 raise WebSocketClosed(str(exc))
 
-    def send_json(self, message):
+    def send_json(self, message: dict[str, Any]) -> bool:
         try:
             self._send_frame(OP_TEXT, json.dumps(message, ensure_ascii=False).encode())
             return True
         except WebSocketClosed:
             return False
 
-    def receive(self):
+    def receive(self) -> str:
         """Retourne le prochain message texte (str). Repond aux pings, leve WebSocketClosed a la fermeture."""
         message = b''
         while True:
@@ -149,7 +153,7 @@ class WebSocket:
                 if final:
                     return message.decode('utf-8', errors='replace')
 
-    def close(self, code=1000):
+    def close(self, code: int = 1000) -> None:
         if self.closed:
             return
         try:
@@ -164,22 +168,22 @@ class WebSocket:
 
 
 class Session:
-    def __init__(self, timeout):
+    def __init__(self, timeout: float) -> None:
         self.id = ''.join(secrets.choice(ALPHABET) for _ in range(12))
         self.key = ''.join(secrets.choice(ALPHABET) for _ in range(24))
         self.timeout = timeout
         now = time.monotonic()
         self.created = time.time()
-        self.front = None
-        self.phone = None
+        self.front: WebSocket | None = None
+        self.phone: WebSocket | None = None
         self.phone_agent = ''
-        self.phone_since = None      # connexion du telephone en cours depuis
+        self.phone_since: float | None = None      # connexion du telephone en cours depuis
         self.phone_lost = now        # telephone absent depuis (creation = jamais connecte)
         self.front_lost = now
         self.scans = 0
         self.closed = False
 
-    def status(self):
+    def status(self) -> dict[str, Any]:
         now = time.monotonic()
         return {
             'id': self.id,
@@ -196,15 +200,15 @@ class Session:
 class Hub:
     """Sessions en memoire, partagees par les serveurs public et local du meme processus."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         self.lock = threading.RLock()
-        self.sessions = {}
+        self.sessions: dict[str, Session] = {}
         self.enabled = False  # passe a True quand `manage.py serve` gere les WebSockets
-        self._reaper = None
+        self._reaper: threading.Thread | None = None
 
     # -- sessions ------------------------------------------------------------------------------------------------------
 
-    def create(self, timeout):
+    def create(self, timeout: float | str) -> Session:
         timeout = max(MIN_TIMEOUT, min(MAX_TIMEOUT, int(timeout)))
         session = Session(timeout)
         with self.lock:
@@ -212,17 +216,17 @@ class Hub:
         self._start_reaper()
         return session
 
-    def get(self, session_id):
+    def get(self, session_id: str) -> Session | None:
         with self.lock:
             return self.sessions.get(session_id)
 
-    def check_key(self, session_id, key):
+    def check_key(self, session_id: str, key: Any) -> Session | None:
         session = self.get(session_id)
         if session is None or not key or not hmac.compare_digest(session.key.encode(), str(key).encode()):
             return None
         return session
 
-    def close(self, session_id, reason):
+    def close(self, session_id: str, reason: str) -> bool:
         with self.lock:
             session = self.sessions.pop(session_id, None)
         if session is None:
@@ -235,13 +239,13 @@ class Hub:
         logger.info('Session douchette %s fermee : %s', session.id, reason)
         return True
 
-    def _start_reaper(self):
+    def _start_reaper(self) -> None:
         with self.lock:
             if self._reaper is None or not self._reaper.is_alive():
                 self._reaper = threading.Thread(target=self._reap_loop, daemon=True, name='remote-scanner-reaper')
                 self._reaper.start()
 
-    def reap(self, now=None):
+    def reap(self, now: float | None = None) -> list[str]:
         """Ferme les sessions dont le telephone ou le front est deconnecte depuis trop longtemps."""
         now = time.monotonic() if now is None else now
         expired = []
@@ -256,7 +260,7 @@ class Hub:
             self.close(session_id, reason)
         return [session_id for session_id, _ in expired]
 
-    def _reap_loop(self):
+    def _reap_loop(self) -> None:
         while True:
             time.sleep(REAPER_PERIOD)
             try:
@@ -270,7 +274,7 @@ class Hub:
 
     # -- connexions ----------------------------------------------------------------------------------------------------
 
-    def run_phone(self, session, websocket, agent=''):
+    def run_phone(self, session: Session, websocket: WebSocket, agent: str = '') -> None:
         with self.lock:
             if session.closed:
                 websocket.send_json({'type': 'closed', 'reason': 'session fermée'})
@@ -311,7 +315,7 @@ class Hub:
             if current and front is not None and not session.closed:
                 front.send_json({'type': 'phone', 'connected': False, 'expires_in': session.timeout})
 
-    def _relay_scan(self, session, websocket, message):
+    def _relay_scan(self, session: Session, websocket: WebSocket, message: dict[str, Any]) -> None:
         code = str(message.get('code', '')).strip()[:2048]
         scan_id = message.get('id')
         if not code:
@@ -324,7 +328,7 @@ class Hub:
         websocket.send_json({'type': 'ack', 'id': scan_id, 'ok': delivered,
                              'message': 'reçu par le poste' if delivered else 'poste déconnecté : scan non transmis'})
 
-    def run_front(self, session, websocket):
+    def run_front(self, session: Session, websocket: WebSocket) -> None:
         with self.lock:
             if session.closed:
                 websocket.send_json({'type': 'closed', 'reason': 'session fermée'})
@@ -364,7 +368,7 @@ class Hub:
                 phone.send_json({'type': 'front', 'connected': False})
 
     @staticmethod
-    def _parse(text):
+    def _parse(text: str) -> dict[str, Any]:
         try:
             message = json.loads(text)
         except ValueError:

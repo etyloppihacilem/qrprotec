@@ -20,6 +20,8 @@ For the full list of settings and their values, see
 https://docs.djangoproject.com/en/6.1/ref/settings/
 """
 
+from __future__ import annotations
+
 import os
 from pathlib import Path
 
@@ -86,7 +88,7 @@ SILENCED_SYSTEM_CHECKS = [
 ]
 
 
-def _env_list(name, default):
+def _env_list(name: str, default: str) -> list[str]:
     return [value.strip() for value in os.environ.get(name, default).split(',') if value.strip()]
 
 

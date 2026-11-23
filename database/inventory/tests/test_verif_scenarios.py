@@ -1,7 +1,14 @@
 """Tests du back : scenarios de vérif communs au serveur, au front web et au poste."""
 
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Any
+
 from .base import *  # noqa: F401,F403
 from .base import setUpModule, tearDownModule  # noqa: F401 (PIN facultatif pendant ces tests)
+
+if TYPE_CHECKING:
+    from inventory.models import Lots
 
 
 class VerifScenariosTests(TestCase):
@@ -12,19 +19,19 @@ class VerifScenariosTests(TestCase):
 
     DIR = Path(__file__).resolve().parents[3] / 'tests' / 'verif-scenarios'
 
-    def scenarios(self):
+    def scenarios(self) -> list[Any]:
         files = sorted(self.DIR.glob('*.json'))
         self.assertTrue(files, f'aucun scenario dans {self.DIR}')
         return [(path.name, json.loads(path.read_text(encoding='utf-8'))) for path in files]
 
-    def build(self, scenario):
+    def build(self, scenario: dict[str, Any]) -> tuple[dict[str, Lots], dict[str, str]]:
         """Types, lots (noms numerotes : les sous-lots se suivent dans l'ordre du fichier) et items du scenario."""
         types = {}
         for code, flags in scenario['types'].items():
             types[code] = ItemType.objects.create(
                 type=code, name=code, perissable=flags.get('perissable', True), consumable=flags.get('consumable', True),
                 tear_off=flags.get('tear_off', False), physical=flags.get('physical', True))
-        lots = {}
+        lots: dict[str, Lots] = {}
         for index, data in enumerate(scenario['lots']):
             lot_type = LotType.objects.create(type=f'sc{index:04d}', name=data['id'], storage=data.get('storage', False))
             for code, quantity in data.get('requirements', {}).items():
@@ -43,7 +50,7 @@ class VerifScenariosTests(TestCase):
             iids[item['id']] = created[0].iid
         return lots, iids
 
-    def play(self, scenario):
+    def play(self, scenario: dict[str, Any]) -> dict[str, Any]:
         lots, iids = self.build(scenario)
         label = {iid: name for name, iid in iids.items()}
         lot_label = {lot.id: name for name, lot in lots.items()}
@@ -53,7 +60,7 @@ class VerifScenariosTests(TestCase):
         scans = [scan for scan in scenario['scans'] if 'item' in scan]
         order = [iids[scan['item']] for scan in scans]
         places = {iids[scan['item']]: lots[scan['place']].id for scan in scans if scan.get('place')}
-        checked = {}
+        checked: dict[str, list[str]] = {}
         for scan in scenario['scans']:
             if 'check' in scan:
                 checked.setdefault(lots[scan['lot']].id, []).append(scan['check'])
@@ -70,7 +77,7 @@ class VerifScenariosTests(TestCase):
             'discard': sorted(label[iid] for iid in report['replaced']),
         }
 
-    def test_scenarios_server(self):
+    def test_scenarios_server(self) -> None:
         for name, scenario in self.scenarios():
             with self.subTest(scenario=name), transaction.atomic():
                 expected = scenario['expected']
@@ -80,7 +87,7 @@ class VerifScenariosTests(TestCase):
                 self.assertEqual(result['discard'], sorted(expected.get('discard', [])), f'{name} : perimes a jeter')
                 transaction.set_rollback(True)
 
-    def test_scenarios_web(self):
+    def test_scenarios_web(self) -> None:
         """Le front web joue les memes scenarios (node, s'il est installe : sinon test saute)."""
         import shutil
         import subprocess

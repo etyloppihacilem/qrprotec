@@ -26,9 +26,12 @@ admins voient les files de n'importe ou (web, autre ordinateur), les annulent ou
 imprime une file lancee a son prochain passage (toutes les 20 s).
 """
 
+from __future__ import annotations
+
 import base64
 import binascii
 from datetime import timedelta
+from typing import TYPE_CHECKING, Any
 
 from django.db import transaction
 from django.db.models import Q
@@ -40,6 +43,10 @@ from . import serializers as ser
 from .idendity import SOURCE_VERIFIED, identity_name
 from .models import ItemsPacks, Items, ItemType, LabelPrint, LabelPrintKind, OperationKind
 
+if TYPE_CHECKING:
+    from datetime import date, datetime
+    from django.db.models.query import QuerySet
+
 MAX_COUNT = 200          # etiquettes par demande (rouleau de l'imprimante)
 RECENT_HOURS = 24        # impressions recentes montrees au poste (reimpression si le rouleau a coince)
 WEB_RECENT_DAYS = 7      # impressions faites montrees sur le web
@@ -47,23 +54,23 @@ MAX_LABEL_PIXELS = 1200 * 1200  # image d'une etiquette d'un front (largeur x ha
 
 
 class PrintError(Exception):
-    def __init__(self, message, code=400):
+    def __init__(self, message: str, code: int = 400) -> None:
         super().__init__(message)
         self.message = message
         self.code = code
 
 
-def _expiry():
+def _expiry() -> datetime:
     return timezone.now() - timedelta(hours=LabelPrint.EXPIRY_HOURS)
 
 
-def pending_rows():
+def pending_rows() -> QuerySet:
     """Demandes a imprimer : ni imprimees, ni annulees, ni expirees (plus de 24 h)."""
     return LabelPrint.objects.select_related('item_type').filter(printed__isnull=True, cancelled__isnull=True,
                                                                  created__gte=_expiry())
 
 
-def what(row):
+def what(row: LabelPrint) -> str:
     """« 5 × Compresses, péremption 31/12/2027 », ou « 3 étiquettes : Lot B+ 1 (clé) » pour celles d'un front."""
     if row.kind == LabelPrintKind.LABELS:
         return journal.plural(row.count, 'étiquette') + (f' : {row.title}' if row.title else '')
@@ -73,17 +80,17 @@ def what(row):
     return text
 
 
-def queue_name(row):
+def queue_name(row: LabelPrint) -> str:
     """Nom de la file : la personne qui demande, sinon l'ordinateur d'ou vient l'envoi."""
     if row.by:
         return identity_name(row.by)
     return row.front or 'Demandeur inconnu'
 
 
-def queues(rows, matricules=False):
+def queues(rows: list[LabelPrint], matricules: bool = False) -> list[dict[str, Any]]:
     """Demandes en attente groupees par file, la plus ancienne demande d'abord. matricules : avec le matricule de qui
     demande, pour que le poste retrouve la file d'un badge scanne (fronts seulement)."""
-    groups = {}
+    groups: dict[str, dict[str, Any]] = {}
     for row in sorted(rows, key=lambda row: row.created):
         group = groups.get(row.queue)
         if group is None:
@@ -102,7 +109,7 @@ def queues(rows, matricules=False):
     return list(groups.values())
 
 
-def print_dict(row, full=False):
+def print_dict(row: LabelPrint, full: bool = False) -> dict[str, Any]:
     """full : avec les items crees (etiquettes d'items) ou les images (etiquettes d'un front), pour imprimer."""
     items_kind = row.kind == LabelPrintKind.ITEMS
     data = {
@@ -138,7 +145,7 @@ def print_dict(row, full=False):
     return data
 
 
-def create(by, type_code, count, peremption):
+def create(by: str, type_code: str, count: int, peremption: date | None) -> LabelPrint:
     item_type = ItemType.objects.filter(type=type_code).first()
     if item_type is None:
         raise PrintError("Type d'item inconnu", 404)
@@ -154,7 +161,7 @@ def create(by, type_code, count, peremption):
                                      peremption=peremption if item_type.perissable else None)
 
 
-def _check_label(label):
+def _check_label(label: dict[str, Any]) -> dict[str, Any]:
     """Etiquette rendue par un front : {description, width, height, ppm, bits} (bits : base64, 1 bit par pixel,
     lignes de gauche a droite, octets de poids fort d'abord)."""
     if not isinstance(label, dict):
@@ -179,7 +186,7 @@ def _check_label(label):
     return checked
 
 
-def _check_label_type(label_type):
+def _check_label_type(label_type: dict[str, Any] | None) -> dict[str, Any] | None:
     """Type d'etiquette du modele (rouleau) : le poste imprime sur ce rouleau et attend qu'il soit charge.
     Absent ou vide : format libre."""
     if label_type in (None, '', {}):
@@ -212,7 +219,7 @@ def _check_label_type(label_type):
     return checked
 
 
-def create_labels(by, front, title, labels):
+def create_labels(by: str, front: str, title: str, labels: list[dict[str, Any]]) -> LabelPrint:
     """« Imprimer » sur le front d'un autre ordinateur : etiquettes deja rendues, envoyees au poste."""
     if not isinstance(labels, list) or not labels:
         raise PrintError('Aucune étiquette à imprimer')
@@ -223,7 +230,7 @@ def create_labels(by, front, title, labels):
                                      title=str(title or '')[:128], front=str(front or '')[:64], labels=checked)
 
 
-def web_list():
+def web_list() -> dict[str, Any]:
     """Types proposes (non archives) et etiquettes d'items demandees depuis le web : en attente, puis recentes."""
     since = timezone.now() - timedelta(days=WEB_RECENT_DAYS)
     rows = LabelPrint.objects.select_related('item_type').filter(kind=LabelPrintKind.ITEMS).filter(
@@ -235,7 +242,7 @@ def web_list():
             'expiry_hours': LabelPrint.EXPIRY_HOURS}
 
 
-def cancel(print_id, by):
+def cancel(print_id: int, by: str) -> LabelPrint:
     with transaction.atomic():
         row = LabelPrint.objects.select_related('item_type').filter(id=print_id).first()
         if row is None:
@@ -249,7 +256,7 @@ def cancel(print_id, by):
     return row
 
 
-def poste_list():
+def poste_list() -> dict[str, Any]:
     """Fenetre du poste (interrogee toutes les 20 s, donc sans les images ni les items) : demandes en attente (les
     plus anciennes d'abord) et impressions des dernieres 24 h."""
     since = timezone.now() - timedelta(hours=RECENT_HOURS)
@@ -259,11 +266,11 @@ def poste_list():
             'recent': [print_dict(row) for row in recent], 'expiry_hours': LabelPrint.EXPIRY_HOURS}
 
 
-def admin_queues(matricules=False):
+def admin_queues(matricules: bool = False) -> dict[str, Any]:
     """Admins, de n'importe ou (web, autre ordinateur) : files en attente au poste, avec leurs demandes."""
     pending = list(pending_rows().order_by('created'))
     listed = queues(pending, matricules)
-    by_queue = {}
+    by_queue: dict[str, list[dict[str, Any]]] = {}
     for row in pending:
         by_queue.setdefault(row.queue, []).append(print_dict(row))
     for group in listed:
@@ -271,7 +278,7 @@ def admin_queues(matricules=False):
     return {'queues': listed, 'expiry_hours': LabelPrint.EXPIRY_HOURS}
 
 
-def _queue_rows(queue):
+def _queue_rows(queue: str) -> list[LabelPrint]:
     if not isinstance(queue, str):
         raise PrintError('queue : file attendue')
     rows = [row for row in pending_rows().order_by('created') if row.queue == queue]
@@ -280,7 +287,7 @@ def _queue_rows(queue):
     return rows
 
 
-def launch_queue(queue, by):
+def launch_queue(queue: str, by: str) -> int:
     """« Lancer l'impression » a distance (admins) : le poste imprime ces demandes a son prochain passage, sans que
     personne n'appuie sur le bouton. Repond le nombre de demandes lancees."""
     with transaction.atomic():
@@ -291,7 +298,7 @@ def launch_queue(queue, by):
     return len(rows)
 
 
-def cancel_queue(queue, by):
+def cancel_queue(queue: str, by: str) -> int:
     """Annule toute une file (admins, de n'importe ou). Repond le nombre de demandes annulees."""
     with transaction.atomic():
         rows = _queue_rows(queue)
@@ -300,7 +307,7 @@ def cancel_queue(queue, by):
     return len(rows)
 
 
-def detail(print_id):
+def detail(print_id: int) -> dict[str, Any]:
     """Demande complete (items ou images), pour « Réimprimer » au poste."""
     row = LabelPrint.objects.select_related('item_type').filter(id=print_id).first()
     if row is None:
@@ -308,7 +315,7 @@ def detail(print_id):
     return print_dict(row, full=True)
 
 
-def print_now(print_id, front_name=''):
+def print_now(print_id: int, front_name: str = '') -> dict[str, Any]:
     """« Lancer l'impression » au poste. Etiquettes d'items : cree les items (reception au nom de qui les a
     demandes, au stock). Repond la demande complete, dont le poste imprime les etiquettes. Une seule fois : un second
     poste qui lance la meme demande est refuse, comme une demande annulee ou expiree."""
@@ -339,6 +346,6 @@ def print_now(print_id, front_name=''):
     return print_dict(row, full=True)
 
 
-def pending_tasks():
+def pending_tasks() -> list[tuple[LabelPrint, str]]:
     """Liste de taches de la gestion (De temps en temps) : demandes pas encore imprimees au poste."""
     return [(row, what(row)) for row in pending_rows().order_by('created')]

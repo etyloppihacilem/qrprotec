@@ -1,11 +1,18 @@
 """Tests du back : premiere configuration, PIN, connexion par nom, badges, connexion temporaire."""
 
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
 from .base import *  # noqa: F401,F403
 from .base import setUpModule, tearDownModule  # noqa: F401 (PIN facultatif pendant ces tests)
 
+if TYPE_CHECKING:
+    from inventory.models import Operation, Secouristes
+
 
 class SetupTests(ApiTestCase):
-    def test_setup_and_createadmin(self):
+    def test_setup_and_createadmin(self) -> None:
         from io import StringIO
         from django.core.management import call_command
         self.operator.delete()
@@ -33,10 +40,10 @@ class SetupTests(ApiTestCase):
 # PIN haches avec un algorithme rapide : les tests de blocage font une cinquantaine d'essais
 @override_settings(PASSWORD_HASHERS=['django.contrib.auth.hashers.MD5PasswordHasher'])
 class PinTests(ApiTestCase):
-    def auth(self, user, **extra):
+    def auth(self, user: Secouristes, **extra: Any) -> tuple[int, Any]:
         return self.call('POST', '/api/auth/', {'matricule': user.matricule, 'key': user.new_key, **extra}, local=False)
 
-    def test_admin_sets_pin_at_first_login_then_needs_it(self):
+    def test_admin_sets_pin_at_first_login_then_needs_it(self) -> None:
         admin = Secouristes(matricule='A001', nom='Ad', prenom='Min', role='admin')
         admin.renew_key()
         admin.save()
@@ -63,7 +70,7 @@ class PinTests(ApiTestCase):
         code, _ = self.call('PATCH', '/api/users/A001/', {'pin': ''})
         self.assertEqual(code, 400)
 
-    def test_lockout_and_optional_pin(self):
+    def test_lockout_and_optional_pin(self) -> None:
         code, body = self.auth(self.user)
         self.assertEqual(code, 200)  # secouriste sans PIN
         self.assertFalse(body['pin_required'])
@@ -80,13 +87,13 @@ class PinTests(ApiTestCase):
         self.user.refresh_from_db()
         self.assertEqual(self.auth(self.user)[0], 200)
 
-    def fail_pin(self, user, times):
+    def fail_pin(self, user: Secouristes, times: int) -> tuple[int, dict[str, Any]]:
         for _ in range(times):
             Secouristes.objects.filter(pk=user.pk).update(pin_locked_until=None)  # saute le blocage de 5 min
             code, body = self.auth(user, pin='000000')
         return code, body
 
-    def test_pin_blocked_after_failures_until_admin_reset(self):
+    def test_pin_blocked_after_failures_until_admin_reset(self) -> None:
         admin = Secouristes(matricule='A001', nom='Ad', prenom='Min', role='admin')
         admin.renew_key()
         admin.set_pin('482100')
@@ -149,7 +156,7 @@ class PinTests(ApiTestCase):
         self.assertFalse(body['pin_reset_required'])
         self.assertEqual(self.auth(self.user, pin='246800')[0], 200)
 
-    def test_local_pin_reset(self):
+    def test_local_pin_reset(self) -> None:
         self.call('PATCH', '/api/users/M001/', {'pin': '123456'})
         self.user.refresh_from_db()
         self.fail_pin(self.user, 50)
@@ -162,7 +169,7 @@ class PinTests(ApiTestCase):
         self.assertTrue(self.auth(self.user)[1]['pin_setup_required'])
 
 
-    def test_forgotten_pin(self):
+    def test_forgotten_pin(self) -> None:
         # sans PIN : rien a oublier
         code, body = self.call('POST', '/api/pin-forgot/', {'matricule': 'M001', 'key': self.user.new_key}, local=False)
         self.assertEqual(code, 400)
@@ -191,10 +198,10 @@ class PinTests(ApiTestCase):
 class PinModeTests(ApiTestCase):
     """PIN obligatoire ou desactive par secouriste, et PIN obligatoire par defaut (reglage du serveur)."""
 
-    def auth(self, user, **extra):
+    def auth(self, user: Secouristes, **extra: Any) -> tuple[int, Any]:
         return self.call('POST', '/api/auth/', {'matricule': user.matricule, 'key': user.new_key, **extra}, local=False)
 
-    def test_required_then_disabled(self):
+    def test_required_then_disabled(self) -> None:
         code, body = self.call('PATCH', '/api/users/M001/', {'pin_mode': 'required'})
         self.assertEqual((code, body['pin_mode'], body['pin_required']), (200, 'required', True))
         code, body = self.auth(self.user)
@@ -212,7 +219,7 @@ class PinModeTests(ApiTestCase):
         code, body = self.call('PATCH', '/api/users/M001/', {'pin': '135700'})
         self.assertEqual((body['pin_mode'], body['pin_required']), ('', True))
 
-    def test_server_roles(self):
+    def test_server_roles(self) -> None:
         self.assertEqual(self.auth(self.user)[0], 200)
         code, body = self.call('PATCH', '/api/server-settings/', {'pin_required_roles': ['gestion']})
         self.assertEqual((code, body['pin_required_roles']), (200, ['gestion']))
@@ -232,7 +239,7 @@ class PinModeTests(ApiTestCase):
         self.assertEqual(self.call('PATCH', '/api/server-settings/', {'pin_required_roles': []},
                                    session=views.session_token(self.user))[0], 403)
 
-    def test_pin_at_login(self):
+    def test_pin_at_login(self) -> None:
         """Code obligatoire mais pas demande a chaque connexion : il ne sert qu'a la connexion sans badge."""
         self.call('PATCH', '/api/server-settings/', {'pin_required_roles': ['normal']})
         code, body = self.auth(self.user, new_pin='246800', pin_at_login=False)
@@ -256,7 +263,7 @@ class PinModeTests(ApiTestCase):
         self.assertEqual(self.auth(self.user, new_pin='135700')[0], 200)
         self.assertEqual(self.auth(self.user)[0], 403)
 
-    def test_defaults(self):
+    def test_defaults(self) -> None:
         """Nouvelle installation : code obligatoire pour tous les roles (decochable), code a la connexion obligatoire
         pour les admins seulement."""
         with real_pin_default():
@@ -274,7 +281,7 @@ class PinModeTests(ApiTestCase):
             self.user.refresh_from_db()
             self.assertFalse(self.user.pin_mandatory)
 
-    def test_login_roles(self):
+    def test_login_roles(self) -> None:
         """Code a la connexion obligatoire pour un role : choisi a la premiere connexion, puis demande apres le badge a
         chaque connexion, case « Demander a chaque connexion » imposee."""
         code, body = self.call('PATCH', '/api/server-settings/', {'pin_login_roles': ['normal', 'admin']})
@@ -304,7 +311,7 @@ class PinModeTests(ApiTestCase):
         self.assertEqual(self.auth(self.user)[0], 200)
         self.assertEqual(self.call('PATCH', '/api/server-settings/', {'pin_login_roles': ['pompier']})[0], 400)
 
-    def test_login_mode_per_user(self):
+    def test_login_mode_per_user(self) -> None:
         """« Obligatoire a chaque connexion » pour un seul secouriste (pin_mode login)."""
         code, body = self.call('PATCH', '/api/users/M001/', {'pin_mode': 'login'})
         self.assertEqual((code, body['pin_mode'], body['pin_required'], body['pin_at_login_locked']),
@@ -319,14 +326,14 @@ class PinModeTests(ApiTestCase):
 class MyPinTests(ApiTestCase):
     """Code PIN choisi, change ou supprime par l'utilisateur dans ses reglages web."""
 
-    def auth(self, user, **extra):
+    def auth(self, user: Secouristes, **extra: Any) -> tuple[int, Any]:
         return self.call('POST', '/api/auth/', {'matricule': user.matricule, 'key': user.new_key, **extra}, local=False)
 
-    def my_pin(self, user, **data):
+    def my_pin(self, user: Secouristes, **data: Any) -> tuple[int, Any]:
         credentials = {'matricule': user.matricule, 'key': user.new_key, 'session': views.session_token(user)}
         return self.call('POST', '/api/me/pin/', {'user': credentials, **data}, local=False)
 
-    def test_set_change_then_disable(self):
+    def test_set_change_then_disable(self) -> None:
         code, body = self.my_pin(self.user, pin='12')
         self.assertEqual(code, 400)
         code, body = self.my_pin(self.user, pin='246800')
@@ -357,7 +364,7 @@ class MyPinTests(ApiTestCase):
         self.assertEqual(self.my_pin(self.operator, pin_at_login=False)[0], 403)
         self.assertEqual(self.call('POST', '/api/me/pin/', {'pin': '246800'}, local=False)[0], 403)
 
-    def test_disable_refused_when_mandatory(self):
+    def test_disable_refused_when_mandatory(self) -> None:
         # admin : PIN obligatoire
         self.operator.set_pin('482100')
         self.operator.save()
@@ -384,23 +391,25 @@ class MyPinTests(ApiTestCase):
 class NameLoginTests(ApiTestCase):
     """Connexion sans badge par nom, prenom et PIN : ne dit jamais si le nom existe, essais limites."""
 
-    def setUp(self):
+    def setUp(self) -> None:
         super().setUp()
         cache.clear()
         self.user.set_pin('246800')
         self.user.save()
 
-    def login(self, nom='Dupont', prenom='Jeanne', pin='246800', address='10.0.0.1'):
+    def login(self, nom: str = 'Dupont', prenom: str = 'Jeanne', pin: str = '246800', address: str = '10.0.0.1'
+             ) -> tuple[int, dict[str, str]]:
         response = self.client.post('/api/auth/name/', json.dumps({'nom': nom, 'prenom': prenom, 'pin': pin}),
                                     content_type='application/json', REMOTE_ADDR=address)
         return response.status_code, response.json()
 
-    def matricule_login(self, matricule='M001', pin=None, address='10.0.0.1'):
+    def matricule_login(self, matricule: str = 'M001', pin: str | None = None, address: str = '10.0.0.1'
+                       ) -> tuple[int, dict[str, Any]]:
         data = {'matricule': matricule, **({'pin': pin} if pin is not None else {})}
         response = self.client.post('/api/auth/', json.dumps(data), content_type='application/json', REMOTE_ADDR=address)
         return response.status_code, response.json()
 
-    def test_matricule_without_badge_key_needs_pin(self):
+    def test_matricule_without_badge_key_needs_pin(self) -> None:
         """Matricule seul (code sans l'URL du badge) : PIN toujours demande, refus qui ne dit pas si le matricule
         existe, essais comptes comme la connexion par nom."""
         for matricule in ('M001', 'X999'):
@@ -422,7 +431,7 @@ class NameLoginTests(ApiTestCase):
         self.user.save()
         self.assertEqual(self.matricule_login(pin='246800')[0], 403)
 
-    def test_login_and_session_as_badge(self):
+    def test_login_and_session_as_badge(self) -> None:
         code, body = self.login(nom='DUPONT', prenom='jeanne')
         self.assertEqual((code, body['matricule']), (200, 'M001'))
         credentials = {'matricule': 'M001', 'session': body['session']}
@@ -431,7 +440,7 @@ class NameLoginTests(ApiTestCase):
         self.assertEqual(idendity.identity_from_request({'user': credentials}), 'M:M001')
         self.assertIsNone(idendity.identity_from_request({'user': {'matricule': 'M001', 'session': 'faux'}}))
 
-    def test_compound_names_ignore_separators(self):
+    def test_compound_names_ignore_separators(self) -> None:
         """Tirets, espaces et apostrophes ne comptent pas : « Jean-Pierre Le Gall » se tape comme on veut."""
         self.user.prenom, self.user.nom = 'Jean-Pierre', "Le Gall-N'Diaye"
         self.user.save()
@@ -440,7 +449,7 @@ class NameLoginTests(ApiTestCase):
             self.assertEqual(self.login(nom=nom, prenom=prenom)[0], 200, (prenom, nom))
         self.assertEqual(self.login(nom='le gall', prenom='jean pierre')[0], 403)  # le nom reste complet
 
-    def test_refusals_look_the_same(self):
+    def test_refusals_look_the_same(self) -> None:
         unknown = self.login(nom='Personne')
         wrong = self.login(pin='111100')
         self.assertEqual(unknown, wrong)
@@ -449,7 +458,7 @@ class NameLoginTests(ApiTestCase):
         self.call('PATCH', '/api/users/M001/', {'pin_mode': 'disabled'})
         self.assertEqual(self.login(), unknown)
 
-    def test_failures_pause_without_blocking_badge_pin(self):
+    def test_failures_pause_without_blocking_badge_pin(self) -> None:
         for _ in range(5):
             self.login(pin='111100', address='10.0.0.2')
         self.user.refresh_from_db()
@@ -461,7 +470,7 @@ class NameLoginTests(ApiTestCase):
                                                           'pin': '246800'}, local=False)[0], 200)
         self.assertEqual(self.login(address='10.0.0.3')[0], 200)
 
-    def test_address_limit(self):
+    def test_address_limit(self) -> None:
         for _ in range(10):
             self.login(nom='Personne', address='10.0.0.4')
         self.assertEqual(self.login(address='10.0.0.4')[0], 429)
@@ -469,7 +478,7 @@ class NameLoginTests(ApiTestCase):
 
 
 class BadgeKeyTests(ApiTestCase):
-    def test_badge_key_only_at_creation_and_renewal(self):
+    def test_badge_key_only_at_creation_and_renewal(self) -> None:
         code, created = self.call('POST', '/api/users/', {'matricule': 'M002', 'nom': 'Martin', 'prenom': 'Paul'})
         key = created['key']
         self.assertIn(f'key={key}', created['badge_url'])
@@ -494,20 +503,20 @@ class BadgeKeyTests(ApiTestCase):
 class TempLoginTests(ApiTestCase):
     """QR code de connexion temporaire (outil de debug) : cree par un admin, valable 1 h, session de 24 h."""
 
-    def admin(self):
+    def admin(self) -> dict[str, str]:
         return {'matricule': 'P001', 'key': self.operator.new_key, 'session': self.operator_session}
 
-    def qr(self, matricule='M001'):
+    def qr(self, matricule: str = 'M001') -> tuple[int, dict[str, str]]:
         code, body = self.call('POST', '/api/debug/temp-login/', {'user': self.admin(), 'matricule': matricule},
                                local=False)
         return code, body
 
-    def token(self, url):
+    def token(self, url: str) -> tuple[str, str]:
         from urllib.parse import parse_qs, urlparse
         query = parse_qs(urlparse(url).query)
         return query['m'][0], query['t'][0]
 
-    def test_admin_creates_qr_and_rescuer_logs_in_for_24h(self):
+    def test_admin_creates_qr_and_rescuer_logs_in_for_24h(self) -> None:
         # refuse a un secouriste
         code, _ = self.call('POST', '/api/debug/temp-login/',
                             {'user': {'matricule': 'M001', 'key': self.user.new_key}, 'matricule': 'M001'}, local=False)
@@ -535,7 +544,7 @@ class TempLoginTests(ApiTestCase):
         with mock.patch('django.core.signing.time.time', return_value=time.time() + 25 * 3600):
             self.assertIsNone(views.credentials_user(credentials))
 
-    def test_qr_expires_after_one_hour_and_follows_the_badge(self):
+    def test_qr_expires_after_one_hour_and_follows_the_badge(self) -> None:
         _, body = self.qr()
         matricule, token = self.token(body['url'])
         with mock.patch('django.core.signing.time.time', return_value=time.time() + 3700):
@@ -548,7 +557,7 @@ class TempLoginTests(ApiTestCase):
         code, _ = self.call('POST', '/api/auth/temp/', {'matricule': matricule, 'token': token}, local=False)
         self.assertEqual(code, 403)
 
-    def test_never_for_an_admin(self):
+    def test_never_for_an_admin(self) -> None:
         code, _ = self.qr('P001')
         self.assertEqual(code, 400)
         forged = views.temp_login_token(self.operator)
@@ -560,18 +569,18 @@ class GuestCardTests(ApiTestCase):
     """Cartes d'invites : sans nom ni matricule, nom et prenom a la premiere connexion, 48 h ensuite (modifiable),
     desactivables meme activees ; creees au poste (impression) ou depuis l'outil de debug du web (24 h pour l'activer)."""
 
-    def key_of(self, url):
+    def key_of(self, url: str) -> tuple[str, str]:
         from urllib.parse import parse_qs, urlparse
         query = parse_qs(urlparse(url).query)
         return query['m'][0], query['key'][0]
 
-    def auth(self, matricule, key, **extra):
+    def auth(self, matricule: str, key: str, **extra: Any) -> tuple[int, Any]:
         return self.call('POST', '/api/auth/', {'matricule': matricule, 'key': key, **extra}, local=False)
 
-    def admin(self):
+    def admin(self) -> dict[str, str]:
         return {'matricule': 'P001', 'key': self.operator.new_key, 'session': self.operator_session}
 
-    def test_printed_card_named_at_first_login_then_expires(self):
+    def test_printed_card_named_at_first_login_then_expires(self) -> None:
         from datetime import timedelta
         from unittest import mock
         code, body = self.call('POST', '/api/users/guests/', {'count': 3})
@@ -620,7 +629,7 @@ class GuestCardTests(ApiTestCase):
         # jamais de role ni de PIN sur une carte d'invite
         self.assertEqual(self.call('PATCH', f'/api/users/{matricule}/', {'role': 'admin'})[0], 400)
 
-    def test_disable_activated_card_cuts_session(self):
+    def test_disable_activated_card_cuts_session(self) -> None:
         code, body = self.call('POST', '/api/users/guests/', {'count': 1, 'guest_hours': 12})
         matricule, key = self.key_of(body['cards'][0]['badge_url'])
         self.assertEqual(body['cards'][0]['hours'], 12)
@@ -646,7 +655,7 @@ class GuestCardTests(ApiTestCase):
         code, _ = self.call('GET', '/api/users/guests/', session=views.session_token(self.user))
         self.assertEqual(code, 403)
 
-    def test_web_debug_card_must_be_activated_within_24h(self):
+    def test_web_debug_card_must_be_activated_within_24h(self) -> None:
         from datetime import timedelta
         from unittest import mock
         code, _ = self.call('POST', '/api/debug/guest-cards/',
@@ -689,19 +698,19 @@ class GuestCardReuseTests(ApiTestCase):
     """Numero d'une carte jamais activee repris, invite qui revient (reactivation), cartes jamais dans « À venir »,
     antenne dans le rapport d'etat."""
 
-    def key_of(self, url):
+    def key_of(self, url: str) -> tuple[str, str]:
         from urllib.parse import parse_qs, urlparse
         query = parse_qs(urlparse(url).query)
         return query['m'][0], query['key'][0]
 
-    def auth(self, matricule, key, **extra):
+    def auth(self, matricule: str, key: str, **extra: Any) -> tuple[int, Any]:
         return self.call('POST', '/api/auth/', {'matricule': matricule, 'key': key, **extra}, local=False)
 
-    def new_card(self):
+    def new_card(self) -> tuple[str, str]:
         code, body = self.call('POST', '/api/users/guests/', {'count': 1})
         return self.key_of(body['cards'][0]['badge_url'])
 
-    def test_antenna_required_and_in_report(self):
+    def test_antenna_required_and_in_report(self) -> None:
         matricule, key = self.new_card()
         code, body = self.auth(matricule, key, guest_nom='Martin', guest_prenom='Léa')
         self.assertEqual((code, body.get('guest_name_required')), (400, True))
@@ -711,7 +720,7 @@ class GuestCardReuseTests(ApiTestCase):
         self.assertEqual(lot_report.who(f'M:{matricule}'), f"Léa Martin, invité de l'antenne Lyon 3, carte {matricule}")
         self.assertEqual(lot_report.who('M:M001'), 'Jeanne Dupont, M001')
 
-    def test_unused_card_number_reused_not_in_upcoming(self):
+    def test_unused_card_number_reused_not_in_upcoming(self) -> None:
         matricule, key = self.new_card()
         # une carte d'invite n'est pas une echeance : jamais dans « À venir », quel que soit l'horizon
         for days in (30, 90, 365):
@@ -727,7 +736,7 @@ class GuestCardReuseTests(ApiTestCase):
         # activee : plus de reprise du numero, plus dans « À venir »
         self.assertEqual(self.call('POST', f'/api/users/guests/{matricule}/', {'action': 'reuse'})[0], 400)
 
-    def test_returning_guest_reactivated_with_new_card(self):
+    def test_returning_guest_reactivated_with_new_card(self) -> None:
         from datetime import timedelta
         from unittest import mock
         matricule, key = self.new_card()
@@ -763,7 +772,7 @@ class PinLengthTests(ApiTestCase):
     """PIN : 6 chiffres au moins pour un nouveau code, pas de vraie limite haute ; les anciens codes de 4 chiffres
     restent valables a la connexion."""
 
-    def test_new_pin_six_digits_or_more_old_pins_still_work(self):
+    def test_new_pin_six_digits_or_more_old_pins_still_work(self) -> None:
         from django.contrib.auth.hashers import make_password
         with self.assertRaises(ValueError):
             self.user.set_pin('12345')
@@ -788,7 +797,8 @@ class AuthJournalTests(ApiTestCase):
     """Journal des operations : moyen d'authentification de chaque operation (details.auth). Web : moyen de connexion ;
     poste principal : carte ou PIN ; poste distant : en plus le nom de sa cle API."""
 
-    def report(self, extra, credentials=None, local=True, session=None):
+    def report(self, extra: dict[str, str] | None, credentials: dict[str, str] | None = None, local: bool = True,
+               session: str | None = None) -> str:
         body = {'lot': self.lot.id, 'comment': 'test', 'usable': True}
         if credentials:
             body['user'] = credentials
@@ -800,7 +810,7 @@ class AuthJournalTests(ApiTestCase):
             self.assertEqual(code, 201, data)
         return Operation.objects.filter(kind='report').latest('id').details.get('auth')
 
-    def test_auth_method_in_journal(self):
+    def test_auth_method_in_journal(self) -> None:
         from ..models import FrontKey
         self.user.set_pin('482100')
         self.user.pin_at_login = False
@@ -832,10 +842,10 @@ class LoginJournalTests(ApiTestCase):
     """Chaque connexion reussie est notee au journal (type « Connexion »), avec son moyen d'authentification : c'est
     l'historique des connexions de la page Utilisateurs du poste. Jamais annulable."""
 
-    def logins(self):
+    def logins(self) -> list[Operation]:
         return list(Operation.objects.filter(kind='login', by='M:M001').order_by('id'))
 
-    def test_logins_recorded_with_method(self):
+    def test_logins_recorded_with_method(self) -> None:
         from ..models import FrontKey
         self.user.set_pin('482100')
         self.user.pin_at_login = False
@@ -860,7 +870,7 @@ class LoginJournalTests(ApiTestCase):
         self.assertEqual(data['operations'][0]['details']['auth'], 'Poste distant (clé API « Borne B ») : nom + PIN')
         self.assertFalse(data['operations'][0]['undoable'])
 
-    def test_login_never_cancellable(self):
+    def test_login_never_cancellable(self) -> None:
         from .. import undo
         self.call('POST', '/api/auth/', {'matricule': 'M001', 'key': self.user.new_key}, local=False)
         login = self.logins()[-1]

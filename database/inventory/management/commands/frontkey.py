@@ -29,10 +29,13 @@ kiosk). Il a les droits du front de l'API locale : il imprime les « Impressions
 depuis le web ou un autre ordinateur) et gere les ordinateurs connectes (fenetre Utilisateurs).
 """
 
+from __future__ import annotations
+
 import getpass
 import os
 import re
 from pathlib import Path
+from typing import TYPE_CHECKING, Any
 
 from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
@@ -42,13 +45,16 @@ from django.utils import timezone
 from inventory import front_config
 from inventory.models import FrontKey
 
+if TYPE_CHECKING:
+    from django.core.management.base import CommandParser
+
 NAME_RE = re.compile(r'^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$')
 
 
 class Command(BaseCommand):
     help = "Gere les cles API des fronts distants (add, poste, list, revoke, delete)."
 
-    def add_arguments(self, parser):
+    def add_arguments(self, parser: CommandParser) -> None:
         sub = parser.add_subparsers(dest='action', required=True)
         add = sub.add_parser('add', help="cree une cle (affichee une seule fois)")
         add.add_argument('name')
@@ -73,7 +79,7 @@ class Command(BaseCommand):
         delete = sub.add_parser('delete', help="supprime un front")
         delete.add_argument('name')
 
-    def handle(self, *args, action, **options):
+    def handle(self, *args: Any, action: str, **options: Any) -> None:
         if action == 'list':
             return self.list()
         name = options['name']
@@ -95,7 +101,8 @@ class Command(BaseCommand):
             front.delete()
             self.stdout.write(f"Front {name} supprime.")
 
-    def add(self, name, replace, config=None, url=None, ca_file=None, poste=False):
+    def add(self, name: str, replace: bool, config: str | None = None, url: str | None = None,
+            ca_file: str | None = None, poste: bool = False) -> None:
         if not NAME_RE.match(name):
             raise CommandError("Nom invalide (lettres, chiffres, . _ -, 64 caracteres au plus)")
         if (url or ca_file) and not config:
@@ -140,7 +147,7 @@ class Command(BaseCommand):
         self.stdout.write(f"(ou frontkey add {name} --replace --config FICHIER : un fichier chiffre a importer)")
 
     @staticmethod
-    def read_ca(path):
+    def read_ca(path: str) -> str:
         try:
             pem = Path(path).read_text(encoding='ascii')
         except (OSError, UnicodeDecodeError) as error:
@@ -149,7 +156,7 @@ class Command(BaseCommand):
             raise CommandError(f"{path} n'est pas un certificat PEM")
         return pem
 
-    def ask_password(self):
+    def ask_password(self) -> str:
         password = os.environ.get('QRPROTEC_FRONT_CONFIG_PASSWORD', '')
         if not password:
             try:
@@ -162,7 +169,7 @@ class Command(BaseCommand):
             raise CommandError(f"Mot de passe trop court ({front_config.MIN_PASSWORD_LENGTH} caracteres au moins)")
         return password
 
-    def write_config(self, config, text):
+    def write_config(self, config: str, text: str) -> None:
         if config == '-':
             self.stdout.write(text, ending='')
             self.stdout.flush()
@@ -176,7 +183,7 @@ class Command(BaseCommand):
         except OSError as error:
             raise CommandError(f"Impossible d'ecrire {config} : {error}") from error
 
-    def list(self):
+    def list(self) -> None:
         fronts = FrontKey.objects.order_by('name')
         if not fronts:
             self.stdout.write("Aucun front distant (python manage.py frontkey add NOM).")

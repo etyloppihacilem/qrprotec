@@ -19,9 +19,12 @@ pourquoi elle serait une bonne idee, avec de quoi tracer deux graphes :
 Les phrases sont faites ici pour que le web et le poste disent la meme chose.
 """
 
+from __future__ import annotations
+
 import math
 from collections import defaultdict
 from datetime import timedelta
+from typing import TYPE_CHECKING, Any
 
 from django.utils import timezone
 
@@ -29,16 +32,19 @@ from . import forecast as stock_forecast
 from .journal import pl, plural
 from .models import ItemMovement, ItemType, Lots, MovementKind
 
+if TYPE_CHECKING:
+    from datetime import date
 
-def _day(value):
+
+def _day(value: date) -> str:
     return value.strftime('%d/%m/%Y')
 
 
-def _iso(value):
+def _iso(value: date) -> str | None:
     return value.isoformat() if value else None
 
 
-def lots_need():
+def lots_need() -> defaultdict[str, int]:
     """{type: quantite} que les lots actifs doivent contenir (attendus non facultatifs, contenu propre compris). Un
     type a unites compte en unites, sous-types attendus compris."""
     from . import services
@@ -46,7 +52,7 @@ def lots_need():
     preload = services.LotPreload(lots)
     fills = {row.type: (row.group_id, max(1, row.fills)) for row in ItemType.objects.filter(group__isnull=False)
              .only('type', 'group_id', 'fills')}
-    need = defaultdict(int)
+    need: defaultdict[str, int] = defaultdict(int)
     for lot in lots:
         for requirement in services.lot_requirements(lot, preload):
             if requirement.optional or not requirement.item_type.physical:
@@ -58,7 +64,8 @@ def lots_need():
     return need
 
 
-def monthly_uses(type_ids, today, months, fills=None):
+def monthly_uses(type_ids: list[str], today: date, months: int, fills: dict[Any, Any] | None = None
+                ) -> list[dict[str, Any]]:
     """Consommation des `months` derniers mois (mois en cours compris, tronque), par mois : utilises et jetes
     perimes (absences non annulees du journal). fills : unites par item d'un sous-type (type a unites)."""
     fills = fills or {}
@@ -80,7 +87,8 @@ def monthly_uses(type_ids, today, months, fills=None):
     return rows
 
 
-def explain(row, data, need=None, today=None):
+def explain(row: dict[str, Any], data: dict[str, Any], need: defaultdict[str, int] | None = None,
+            today: date | None = None) -> dict[str, Any] | None:
     """Detail de la commande suggeree de la ligne `row` des previsions (`data` : forecast(weekly=True))."""
     order = row.get('order')
     if not order:
@@ -201,24 +209,24 @@ def explain(row, data, need=None, today=None):
     }
 
 
-def _rate(value):
+def _rate(value: float) -> str:
     return f'{value:.1f}'.replace('.', ',').replace(',0', '') if value < 10 else str(round(value))
 
 
-def _history_types(row):
+def _history_types(row: dict[str, Any]) -> list[str]:
     if not row.get('is_group'):
         return [row['type']]
     return [row['type']] + list(ItemType.objects.filter(group_id=row['type']).values_list('type', flat=True))
 
 
-def _history_fills(row):
+def _history_fills(row: dict[str, Any]) -> dict[Any, Any]:
     if not row.get('is_group'):
         return {}
     return {code: max(1, fills) for code, fills in
             ItemType.objects.filter(group_id=row['type']).values_list('type', 'fills')}
 
 
-def for_rows(data, rows, today=None):
+def for_rows(data: dict[str, Any], rows: list[dict[str, Any]], today: date | None = None) -> dict[str, Any]:
     """Details des commandes de `rows` (lignes de `data`), {type: detail}, besoin des lots lu une fois."""
     rows = [row for row in rows if row.get('order')]
     if not rows:

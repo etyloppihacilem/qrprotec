@@ -1,3 +1,7 @@
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Any
+
 # ###################################646f75627420796f7572206f776e206578697374656e6365###################################
 #
 #              """          models.py
@@ -26,6 +30,11 @@ from django.db import transaction
 from django.utils import timezone
 
 from .base62 import encode_base62
+
+if TYPE_CHECKING:
+    import datetime as dt
+    from datetime import date, datetime
+    from django.db.models.query import QuerySet
 
 # iid = TYPE (6) + YYYYMMDD (8) + compteur base62 (8)
 TYPE_LENGTH = 6
@@ -80,7 +89,7 @@ def keys_match(expected: str | None, given: str | None) -> bool:
     return hmac.compare_digest(expected.encode(), given.encode())
 
 
-def qrprotec_setting(name):
+def qrprotec_setting(name: str) -> Any:
     return settings.QRPROTEC[name]
 
 
@@ -94,7 +103,7 @@ def name_key(name: str) -> str:
     return ' '.join(text.casefold().split())
 
 
-def peremption_code(peremption) -> str:
+def peremption_code(peremption: date | None) -> str:
     return peremption.strftime('%Y%m%d') if peremption else NO_DATE
 
 
@@ -136,7 +145,7 @@ class ItemStatus(models.TextChoices):
 
 
 # models.py
-def add_months(day, months):
+def add_months(day: date, months: int) -> date:
     """Meme jour `months` mois plus tard (dernier jour du mois s'il n'existe pas, ex : 31 janvier + 1 = 28 fevrier)."""
     index = day.month - 1 + months
     year, month = day.year + index // 12, index % 12 + 1
@@ -144,8 +153,8 @@ def add_months(day, months):
 
 
 class ItemsPacksManager(models.Manager):
-    def add_items(self, item_type, peremption, count, user, location=None, context=SeenWhile.CREATE, sealed_pack=None,
-                  now=None):
+    def add_items(self, item_type: ItemType, peremption: date | None, count: int, user: str, location: Lots | None = None, context: SeenWhile = SeenWhile.CREATE, sealed_pack: SealedPacks | None = None,
+                  now: datetime | None = None) -> list[Items]:
         if count <= 0:
             raise ValueError("La quantite doit etre positive")
         if not item_type.physical:
@@ -283,7 +292,7 @@ class ItemType(models.Model):
     def has_disinfection(self) -> bool:
         return self.disinfection_months > 0 and not self.consumable
 
-    def has_maintenance(self, kind) -> bool:
+    def has_maintenance(self, kind: str) -> bool:
         """Revision ou desinfection periodique (MAINTENANCE) activee sur ce type."""
         return getattr(self, MAINTENANCE[kind]['months']) > 0 and not self.consumable
 
@@ -293,12 +302,12 @@ class ItemType(models.Model):
         taches a cocher (ex : les casques du VPS). Un sous-lot facultatif (Lots.optional) l'est en entier."""
         return not self.consumable and not self.tasks and self.physical
 
-    def save(self, *args, **kwargs):
+    def save(self, *args: Any, **kwargs: Any) -> None:
         if self.unit:
             self.is_group = True  # un type a unites est un type parent
         super().save(*args, **kwargs)
 
-    def __str__(self):
+    def __str__(self) -> str:
         return f"{self.name} ({self.type})"
 
 
@@ -317,7 +326,7 @@ MAINTENANCE = {
 }
 
 
-def revision_blocked_q(today, prefix=''):
+def revision_blocked_q(today: date, prefix: str = '') -> Q:
     """Items dont la revision ou la desinfection en retard les rend inutilisables (meme regle que
     Items.needs_replacement)."""
     type_prefix = f'{prefix}pack__item_type__'
@@ -337,13 +346,13 @@ class ItemsPacks(models.Model):
 
     objects = ItemsPacksManager()
 
-    def save(self, *args, **kwargs):
+    def save(self, *args: Any, **kwargs: Any) -> None:
         if not self.id:
             self.id = self._build_id()
             self.verif_key_expires = self.key_expiration()
         super().save(*args, **kwargs)
 
-    def _build_id(self):
+    def _build_id(self) -> str:
         return f"{self.item_type_id}{peremption_code(self.peremption)}"
 
 
@@ -359,7 +368,7 @@ class SealedPacks(models.Model):
     opened = models.DateTimeField(blank=True, null=True)
     opened_by = models.CharField(max_length=32, blank=True, default='')
 
-    def save(self, *args, **kwargs):
+    def save(self, *args: Any, **kwargs: Any) -> None:
         if not self.id:
             self.id = encode_base62(Sequence.next('sealed_pack'), length=COUNTER_LENGTH)
         super().save(*args, **kwargs)
@@ -407,42 +416,42 @@ class Items(models.Model):
     disinfected_by = models.CharField(max_length=64, blank=True, default='')
 
     @property
-    def item_type(self):
+    def item_type(self) -> ItemType:
         return self.pack.item_type
 
     @property
-    def peremption(self):
+    def peremption(self) -> date | None:
         return self.pack.peremption
 
-    def is_expired(self, today=None) -> bool:
+    def is_expired(self, today: date | None = None) -> bool:
         peremption = self.pack.peremption
         if peremption is None:
             return False
         return peremption < (today or timezone.localdate())
 
-    def maintenance_late(self, kind, today=None) -> bool:
+    def maintenance_late(self, kind: str, today: date | None = None) -> bool:
         """Revision ou desinfection en retard (date prevue passee)."""
         due = getattr(self, MAINTENANCE[kind]['due'])
         return self.item_type.has_maintenance(kind) and due is not None and due < (today or timezone.localdate())
 
-    def revision_late(self, today=None) -> bool:
+    def revision_late(self, today: date | None = None) -> bool:
         """Revision en retard (date de prochaine revision passee)."""
         return self.maintenance_late('revision', today)
 
-    def disinfection_late(self, today=None) -> bool:
+    def disinfection_late(self, today: date | None = None) -> bool:
         return self.maintenance_late('disinfection', today)
 
-    def maintenance_blocked(self, today=None) -> bool:
+    def maintenance_blocked(self, today: date | None = None) -> bool:
         """Revision ou desinfection en retard sur un type qui ne permet pas de l'utiliser en retard."""
         return any(self.maintenance_late(kind, today) and not getattr(self.item_type, fields['usable'])
                    for kind, fields in MAINTENANCE.items())
 
-    def needs_replacement(self, today=None) -> bool:
+    def needs_replacement(self, today: date | None = None) -> bool:
         """Perime, signale inutilisable, desactive ou revision/desinfection en retard bloquante : ne compte plus dans
         son lot et doit etre remplace."""
         return self.unusable or self.disabled or self.is_expired(today) or self.maintenance_blocked(today)
 
-    def touch(self, user, context, now=None):
+    def touch(self, user: str, context: SeenWhile, now: datetime | None = None) -> None:
         self.last_seen = now or timezone.now()
         self.last_seen_by = user
         self.last_seen_while = context
@@ -493,7 +502,7 @@ class LotType(models.Model):
     # par emplacements, sa part de la liste du referentiel et ce qu'il a en plus.
     part_of = models.ForeignKey('self', on_delete=models.SET_NULL, null=True, blank=True, related_name='rangements')
 
-    def __str__(self):
+    def __str__(self) -> str:
         return f"{self.name} ({self.type})"
 
 
@@ -550,7 +559,7 @@ class KeyExpiry(models.IntegerChoices):
     EXPIRED = 2, 'Expirée'
 
     @classmethod
-    def of(cls, expires, today, warning_days):
+    def of(cls, expires: date, today: date, warning_days: int) -> KeyExpiry:
         if expires < today:
             return cls.EXPIRED
         if expires <= today + timedelta(days=warning_days):
@@ -566,12 +575,12 @@ STOCK_LOT_NAME = 'Stock'
 STORAGE_KIND_DEFAULT = 'rangement'
 
 
-def storage_kind_value(value) -> str:
+def storage_kind_value(value: str | None) -> str:
     """Genre de rangement saisi : texte libre, 32 caracteres, « rangement » s'il est vide."""
     return ' '.join(str(value or '').split())[:32] or STORAGE_KIND_DEFAULT
 
 
-def stock_lot_name(taken):
+def stock_lot_name(taken: QuerySet) -> str:
     """Nom du lot du stock : « Stock », sauf si un autre lot actif porte deja ce nom (taken : noms deja pris)."""
     keys = {name_key(name) for name in taken}
     for name in (STOCK_LOT_NAME, 'Stock général', 'Stock (rangements)'):
@@ -587,11 +596,11 @@ def lot_keys_expire() -> bool:
     return ServerSettings.get().declared_identity
 
 
-def default_lot_key_expiration():
+def default_lot_key_expiration() -> date:
     return timezone.localdate() + timedelta(days=qrprotec_setting('LOT_KEY_VALIDITY_DAYS'))
 
 
-def custom_order_key(lot):
+def custom_order_key(lot: Lots) -> tuple[bool, int]:
     """Cle de tri de l'ordre choisi (Lots.sort_order) : les lots ranges d'abord, dans leur ordre, les autres apres.
     A combiner avec l'ordre d'origine, ou dans un tri stable."""
     return (lot.sort_order is None, lot.sort_order or 0)
@@ -683,7 +692,7 @@ class Lots(models.Model):
     # sur un lot ordinaire.
     storage_kind = models.CharField(max_length=32, blank=True, default=STORAGE_KIND_DEFAULT)
 
-    def save(self, *args, **kwargs):
+    def save(self, *args: Any, **kwargs: Any) -> None:
         if not self.version:
             self.version = self.lot_type.version
         if not self.id:
@@ -691,7 +700,7 @@ class Lots(models.Model):
             self.verif_key_expires = self.key_expiration()
         super().save(*args, **kwargs)
 
-    def _build_id(self):
+    def _build_id(self) -> str:
         with transaction.atomic():
             seq, _ = LotSequence.objects.select_for_update().get_or_create(
                 lot_type=self.lot_type
@@ -701,14 +710,14 @@ class Lots(models.Model):
             unique_part = encode_base62(seq.last_sequence, length=8)
         return f"{self.lot_type_id}{unique_part}"
 
-    def key_expiration(self):
+    def key_expiration(self) -> date | None:
         """Expiration d'une nouvelle cle : aucune pour un rangement du stock."""
         return None if self.lot_type.storage else default_lot_key_expiration()
 
-    def check_key(self, key) -> bool:
+    def check_key(self, key: str | None) -> bool:
         return self.key_status(key) == 'valid'
 
-    def key_status(self, key) -> str:
+    def key_status(self, key: str | None) -> str:
         """Cle d'une etiquette privee scannee : 'valid', 'expired' (bonne cle, date depassee) ou 'wrong'."""
         if not keys_match(self.verif_key, key):
             return 'wrong'
@@ -721,15 +730,15 @@ class Lots(models.Model):
         hint = "L'étiquette clé est un QR code rangé à l'intérieur du lot"
         return hint + (f" ({self.key_location})." if self.key_location else ".")
 
-    def rotate_key(self):
+    def rotate_key(self) -> None:
         self.verif_key = generate_key()
         self.verif_key_expires = self.key_expiration()
         self.key_expiry_stage = KeyExpiry.VALID
 
-    def check_seal(self, code) -> bool:
+    def check_seal(self, code: str) -> bool:
         return self.is_sealed and keys_match(self.seal_code, code)
 
-    def check_seal_open(self, code) -> bool:
+    def check_seal_open(self, code: str) -> bool:
         return bool(self.seal_open_code) and keys_match(self.seal_open_code, code)
 
     @property
@@ -742,7 +751,7 @@ class Lots(models.Model):
         return self.lot_type_id == STOCK_LOT_TYPE
 
     @classmethod
-    def stock(cls):
+    def stock(cls) -> Lots | None:
         """Lot du stock, recree s'il manque (base creee avant la migration 0024 puis videe, par exemple)."""
         lot = cls.objects.select_related('lot_type').filter(lot_type_id=STOCK_LOT_TYPE).order_by('-active', 'created').first()
         if lot is None:
@@ -757,7 +766,7 @@ class Lots(models.Model):
             lot.save(update_fields=['active'])
         return lot
 
-    def ancestors(self):
+    def ancestors(self) -> list[Lots]:
         """Lots parents, du parent direct au lot global."""
         chain = []
         seen = {self.id}
@@ -768,13 +777,13 @@ class Lots(models.Model):
             lot = lot.parent
         return chain
 
-    def root(self):
+    def root(self) -> Lots:
         chain = self.ancestors()
         return chain[-1] if chain else self
 
-    def descendants(self, include_self=True):
+    def descendants(self, include_self: bool = True) -> list[Lots]:
         """Sous-lots actifs, en profondeur d'abord (ordre d'affichage), le lot lui-meme en tete."""
-        by_parent = {}
+        by_parent: dict[str | None, list[Lots]] = {}
         for lot in Lots.objects.select_related('lot_type').filter(active=True, parent__isnull=False):
             by_parent.setdefault(lot.parent_id, []).append(lot)
         for children in by_parent.values():
@@ -782,7 +791,7 @@ class Lots(models.Model):
         result = []
         seen = set()
 
-        def walk(lot, depth):
+        def walk(lot: Lots, depth: int) -> None:
             if lot.id in seen:
                 return
             seen.add(lot.id)
@@ -794,7 +803,7 @@ class Lots(models.Model):
         walk(self, 0)
         return result if include_self else result[1:]
 
-    def __str__(self):
+    def __str__(self) -> str:
         return f"{self.name} ({self.id})"
 
 
@@ -930,7 +939,7 @@ class Role(models.TextChoices):
 PIN_OPTIONAL_ROLES = ('normal', 'chef', 'gestion')
 
 
-def default_pin_required_roles():
+def default_pin_required_roles() -> list[str]:
     """Code obligatoire par defaut pour tous les roles (a choisir a la premiere connexion), decochable par role."""
     return list(PIN_OPTIONAL_ROLES)
 
@@ -1031,13 +1040,13 @@ class Secouristes(models.Model):
     guest_created_by = models.ForeignKey('self', on_delete=models.SET_NULL, null=True, blank=True, related_name='+')
 
     @property
-    def guest_expires(self):
+    def guest_expires(self) -> datetime | None:
         """Fin de validite d'une carte d'invite activee (None : pas une carte d'invite, ou pas encore activee)."""
         if not self.guest or self.guest_activated is None:
             return None
         return self.guest_activated + timedelta(hours=self.guest_hours)
 
-    def guest_state(self, now=None) -> str:
+    def guest_state(self, now: datetime | None = None) -> str:
         """Etat d'une carte d'invite : disabled, unused (a activer), expired_unused (pas activee a temps), active,
         expired."""
         now = now or timezone.now()
@@ -1049,26 +1058,26 @@ class Secouristes(models.Model):
             return 'expired_unused' if late else 'unused'
         return 'active' if now < self.guest_expires else 'expired'
 
-    def web_pref(self, name):
+    def web_pref(self, name: str) -> bool:
         """Valeur d'un reglage du web (WEB_PREFS), sa valeur par defaut s'il n'a jamais ete change."""
         return bool((self.web_prefs or {}).get(name, WEB_PREFS[name][1]))
 
-    def web_prefs_full(self):
+    def web_prefs_full(self) -> dict[str, bool]:
         """Tous les reglages du web, valeurs par defaut comprises."""
         return {name: self.web_pref(name) for name in WEB_PREFS}
 
-    def contact_admin(self):
+    def contact_admin(self) -> Secouristes | None:
         """Admin a contacter si le PIN est bloque : celui choisi pour l'utilisateur, sinon l'admin par defaut."""
         contact = self.pin_contact
         if contact is None or not contact.active or contact.role != Role.ADMIN:
             contact = Secouristes.objects.filter(default_contact=True, active=True, role=Role.ADMIN).first()
         return None if contact is None or contact.matricule == self.matricule else contact
 
-    def push_role_types(self):
+    def push_role_types(self) -> list[str]:
         """Types de notifications web que le role permet (gestion et admin seulement)."""
         return [name for name, (_, roles, _) in PUSH_TYPES.items() if self.role in roles]
 
-    def push_types(self):
+    def push_types(self) -> list[str]:
         """Types que cet utilisateur peut recevoir : ceux de son role, moins ceux qu'un admin a coupes."""
         if not self.active:
             return []
@@ -1110,12 +1119,12 @@ class Secouristes(models.Model):
             return True
         return self.pin_mode != PinMode.DISABLED and self.role in self._pin_login_roles()
 
-    def _pin_login_roles(self):
+    def _pin_login_roles(self) -> list[str]:
         """Reglage du serveur « code a la connexion obligatoire » par role (meme principe que _pin_required_roles)."""
         value = getattr(self, 'server_pin_login_roles', None)
         return ServerSettings.get().pin_login_roles if value is None else value
 
-    def _pin_required_roles(self):
+    def _pin_required_roles(self) -> list[str]:
         """Reglage du serveur « code obligatoire » par role. Une liste d'utilisateurs le pose une fois pour tous dans
         `server_pin_required_roles` (sans quoi chaque utilisateur relirait les reglages, plusieurs fois)."""
         value = getattr(self, 'server_pin_required_roles', None)
@@ -1127,11 +1136,11 @@ class Secouristes(models.Model):
         (pour lui, ou pour son role par le reglage du serveur, sauf s'il l'a desactive pour lui)."""
         return not self.pin_mandatory
 
-    def set_pin_at_login(self, value):
+    def set_pin_at_login(self, value: bool) -> None:
         """Case « Demander a chaque connexion » (toujours cochee pour un admin)."""
         self.pin_at_login = True if self.pin_at_login_locked else bool(value)
 
-    def set_pin_mode(self, mode):
+    def set_pin_mode(self, mode: str) -> None:
         """PIN obligatoire, desactive (le PIN existant est supprime) ou reglage par defaut."""
         if mode not in PinMode.values:
             raise ValueError('pin_mode : required, disabled ou vide (réglage par défaut)')
@@ -1143,7 +1152,7 @@ class Secouristes(models.Model):
             self.pin_reset_required = False
         self.pin_mode = mode
 
-    def set_pin(self, pin):
+    def set_pin(self, pin: str) -> None:
         """pin vide : supprime le PIN (refuse pour un admin). Leve ValueError si le format est invalide."""
         pin = str(pin or '').strip()
         if pin and self.pin_mode == PinMode.DISABLED:
@@ -1159,13 +1168,13 @@ class Secouristes(models.Model):
         self._clear_pin_failures()
         self.pin_reset_required = False
 
-    def reset_pin(self):
+    def reset_pin(self) -> None:
         """Deblocage par un admin : plus de PIN, l'utilisateur en choisit un nouveau a sa prochaine connexion."""
         self.pin_hash = ''
         self._clear_pin_failures()
         self.pin_reset_required = True
 
-    def forget_pin(self):
+    def forget_pin(self) -> None:
         """Code oublie : le PIN est bloque jusqu'a ce qu'un admin le reinitialise (meme lien que les 50 essais)."""
         if self.pin_blocked is None:
             self.pin_blocked = timezone.now()
@@ -1173,7 +1182,7 @@ class Secouristes(models.Model):
             self.pin_failures = 0
             self.pin_locked_until = None
 
-    def _clear_pin_failures(self):
+    def _clear_pin_failures(self) -> None:
         self.pin_failures = 0
         self.pin_failures_total = 0
         self.pin_locked_until = None
@@ -1184,7 +1193,7 @@ class Secouristes(models.Model):
     def pin_locked(self) -> bool:
         return self.pin_locked_until is not None and self.pin_locked_until > timezone.now()
 
-    def check_pin(self, pin) -> bool:
+    def check_pin(self, pin: str) -> bool:
         """Verifie le PIN et compte les echecs : blocage temporaire apres PIN_MAX_FAILURES, puis blocage jusqu'a
         intervention d'un admin apres PIN_BLOCK_AFTER_FAILURES echecs depuis le dernier PIN correct.
 
@@ -1246,14 +1255,14 @@ class Secouristes(models.Model):
             return False
         return not self.guest or self.guest_state() in ('unused', 'active')
 
-    def check_key(self, key) -> bool:
+    def check_key(self, key: str | None) -> bool:
         return (
             self.badge_valid()
             and isinstance(key, str)
             and keys_match(self.key_hash, hash_key(key))
         )
 
-    def __str__(self):
+    def __str__(self) -> str:
         if self.guest:
             if not self.prenom and not self.nom:
                 return f"Carte d'invité {self.matricule}"
@@ -1290,7 +1299,7 @@ class Verifs(models.Model):
     # recue plus de SENT_GAP apres son heure : faite hors connexion, envoyee plus tard
     SENT_GAP = timedelta(minutes=2)
 
-    def sent_late(self):
+    def sent_late(self) -> dt.datetime | None:  # dt : le champ `datetime` masque la classe ici
         """Heure de reception d'une verif faite hors connexion et envoyee plus tard (montree a cote de l'heure des
         scans pour reperer un antidatage : compte rendu, vérifs récentes, rapport d'état), None si envoyee tout de
         suite."""
@@ -1472,7 +1481,7 @@ class NotificationSettings(models.Model):
         return self.key_expiry_warning_days
 
     @classmethod
-    def get(cls):
+    def get(cls) -> NotificationSettings:
         settings_row, _ = cls.objects.get_or_create(pk=1)
         return settings_row
 
@@ -1535,7 +1544,7 @@ class ServerSettings(models.Model):
     guest_hours = models.PositiveSmallIntegerField(default=48)
 
     @classmethod
-    def get(cls):
+    def get(cls) -> ServerSettings:
         settings_row, _ = cls.objects.get_or_create(pk=1)
         return settings_row
 
@@ -1551,7 +1560,7 @@ class SmsRecipient(models.Model):
     last_sent = models.DateTimeField(blank=True, null=True)
     last_status = models.CharField(max_length=128, blank=True, default='')
 
-    def __str__(self):
+    def __str__(self) -> str:
         return self.name
 
 
@@ -1575,7 +1584,7 @@ class Passkey(models.Model):
     created = models.DateTimeField(default=timezone.now)
     last_used = models.DateTimeField(blank=True, null=True)
 
-    def __str__(self):
+    def __str__(self) -> str:
         return f'passkey {self.device or self.pk} de {self.user}'
 
 
@@ -1604,10 +1613,10 @@ class PushSubscription(models.Model):
     last_sent = models.DateTimeField(blank=True, null=True)
     last_status = models.CharField(max_length=128, blank=True, default='')
 
-    def __str__(self):
+    def __str__(self) -> str:
         return f'{self.user_id} : {self.endpoint[:48]}'
 
-    def wants(self, name):
+    def wants(self, name: str) -> bool:
         """Type choisi sur cet appareil et permis a son utilisateur."""
         return getattr(self, name) and name in self.user.push_types()
 
@@ -1623,7 +1632,7 @@ class ServerProblem(models.Model):
     last_seen = models.DateTimeField(default=timezone.now)
     notified = models.DateTimeField(blank=True, null=True)               # derniere notification envoyee
 
-    def __str__(self):
+    def __str__(self) -> str:
         return f'{self.source} : {self.message}'
 
 
@@ -1646,17 +1655,17 @@ class FrontKey(models.Model):
     poste = models.BooleanField(default=False)
 
     @staticmethod
-    def hash_key(key):
+    def hash_key(key: str) -> str:
         return hash_key(key)
 
     @classmethod
-    def create(cls, name, poste=False):
+    def create(cls, name: str, poste: bool = False) -> tuple[FrontKey, str]:
         """Cree une cle et retourne (FrontKey, cle en clair)."""
         key = cls.PREFIX + secrets.token_urlsafe(32)
         return cls.objects.create(name=name, key_hash=cls.hash_key(key), poste=bool(poste)), key
 
     @classmethod
-    def authenticate(cls, key, address=''):
+    def authenticate(cls, key: str, address: str = '') -> FrontKey | None:
         """FrontKey valide correspondant a `key`, ou None. Note la derniere utilisation (au plus 1/min)."""
         if not key or not key.startswith(cls.PREFIX) or len(key) > 128:
             return None
@@ -1668,7 +1677,7 @@ class FrontKey(models.Model):
             cls.objects.filter(pk=front.pk).update(last_used=now, last_address=address[:64])
         return front
 
-    def __str__(self):
+    def __str__(self) -> str:
         return self.name
 
 
@@ -1683,7 +1692,7 @@ class FrontConfigDownload(models.Model):
     expires = models.DateTimeField()
     downloads = models.PositiveIntegerField(default=0)
 
-    def __str__(self):
+    def __str__(self) -> str:
         return f'{self.front.name} (jusqu\'a {self.expires:%H:%M})'
 
 
@@ -1760,7 +1769,8 @@ class Checklist(models.Model):
     note = models.CharField(max_length=500, blank=True, default='')
     owner = models.ForeignKey('Secouristes', on_delete=models.PROTECT, related_name='checklists')
     # secouristes a qui la liste est attribuee (ajoutes par un chef, ou en ouvrant son lien ou son QR code)
-    members = models.ManyToManyField('Secouristes', blank=True, related_name='assigned_checklists')
+    members: models.ManyToManyField[Secouristes, Any] = models.ManyToManyField(
+        'Secouristes', blank=True, related_name='assigned_checklists')
     is_template = models.BooleanField(default=False)
     status = models.CharField(max_length=10, choices=ChecklistStatus.choices, default=ChecklistStatus.DRAFT)
     created = models.DateTimeField(default=timezone.now)
@@ -1779,12 +1789,12 @@ class Checklist(models.Model):
     class Meta:
         ordering = ['-updated']
 
-    def save(self, *args, **kwargs):
+    def save(self, *args: Any, **kwargs: Any) -> None:
         if not self.id:
             self.id = generate_key(12)
         super().save(*args, **kwargs)
 
-    def __str__(self):
+    def __str__(self) -> str:
         return self.name
 
 

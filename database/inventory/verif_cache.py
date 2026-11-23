@@ -15,17 +15,24 @@ Les items d'un lot n'y sont que par leur iid (« items », « missing_items ») 
 enregistrements d'items, avec « optional » (items facultatifs dans ce lot). Les clés des lots et les codes des
 scellés n'y sont jamais : ils restent contrôlés par le serveur.
 """
+
+from __future__ import annotations
+
 import hashlib
 import json
 import threading
 import time
 from datetime import timedelta
+from typing import TYPE_CHECKING, Any
 
 from django.utils import timezone
 
 from . import serializers as ser
 from .idendity import is_anonymized
 from .models import ItemStatus, ItemType, Items, Lots, SealedPacks
+
+if TYPE_CHECKING:
+    from datetime import date
 
 BUCKETS = 256
 # items qui ne sont plus dans le stock (supprimes, remplaces) : gardes tant qu'une vieille etiquette peut encore
@@ -41,14 +48,14 @@ _lock = threading.Lock()
 _last = {'at': 0.0, 'records': None, 'anonymized': None}
 
 
-def _item_records(today):
+def _item_records(today: date) -> dict[str, Any]:
     since = timezone.now() - timedelta(days=GONE_DAYS)
     queryset = (Items.objects.select_related('pack__item_type', 'location__lot_type')
                 .exclude(status__in=(ItemStatus.DELETED, ItemStatus.REPLACED), last_seen__lt=since))
     return {f'i:{item.iid}': ser.item_dict(item, today) for item in queryset.iterator(chunk_size=500)}
 
 
-def _strip_items(row):
+def _strip_items(row: dict[str, Any]) -> dict[str, Any]:
     """Lignes d'items d'un lot (detail du lot) remplacees par leurs iids, « optional » a part."""
     optional = [item['iid'] for item in row.get('items', []) + row.get('missing_items', []) if item.get('optional')]
     row['items'] = [item['iid'] for item in row.get('items', [])]
@@ -57,7 +64,7 @@ def _strip_items(row):
     return row
 
 
-def _lot_records(today):
+def _lot_records(today: date) -> dict[str, Any]:
     """Lots globaux et lots seuls, avec tous leurs sous-lots (« descendants ») : le front trouve un sous-lot dans
     l'arbre de son lot global, la vérif se fait toujours depuis le lot global (loadLot)."""
     records = {}
@@ -72,17 +79,17 @@ def _lot_records(today):
     return records
 
 
-def _pack_records():
+def _pack_records() -> dict[Any, Any]:
     since = timezone.now() - timedelta(days=OPENED_PACK_DAYS)
     queryset = SealedPacks.objects.select_related('item_type').exclude(opened__lt=since)
     return {f'p:{pack.id}': ser.sealed_pack_dict(pack) for pack in queryset}
 
 
-def _type_records():
+def _type_records() -> dict[str, Any]:
     return {f't:{item_type.type}': ser.item_type_dict(item_type) for item_type in ItemType.objects.all()}
 
 
-def build():
+def build() -> Any:
     """Tous les enregistrements du cache, {cle: valeur}."""
     with _lock:
         now = time.monotonic()
@@ -97,7 +104,7 @@ def build():
         return records
 
 
-def forget():
+def forget() -> None:
     """Prochain build() recalcule tout (tests, apres une ecriture)."""
     with _lock:
         _last.update(at=0.0, records=None)
@@ -107,13 +114,13 @@ def bucket_of(key: str) -> int:
     return hashlib.sha1(key.encode()).digest()[0] % BUCKETS
 
 
-def _serialized(value) -> str:
+def _serialized(value: dict[str, Any]) -> str:
     return json.dumps(value, sort_keys=True, ensure_ascii=False, separators=(',', ':'), default=str)
 
 
-def snapshot(records):
+def snapshot(records: dict[str, Any]) -> dict[int, Any]:
     """{seau: (empreinte, {cle: valeur})} ; empreinte : sha1 des enregistrements du seau, tries par cle."""
-    buckets = {}
+    buckets: dict[str, dict[str, Any]] = {}
     for key, value in records.items():
         buckets.setdefault(bucket_of(key), {})[key] = value
     result = {}
@@ -129,7 +136,7 @@ def snapshot(records):
     return result
 
 
-def diff(known):
+def diff(known: dict[str, str] | None) -> dict[str, Any]:
     """Réponse du serveur au front qui a déjà les seaux `known` ({seau: empreinte}) : les seaux changés seulement.
 
     {"version": empreinte de tout le cache, "generated": date, "buckets": {seau: {"hash", "records"}}, "count"}"""

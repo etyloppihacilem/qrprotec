@@ -1,11 +1,18 @@
 """Tests du back : API publique, identite declaree, reglages web, sessions du poste."""
 
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
 from .base import *  # noqa: F401,F403
 from .base import setUpModule, tearDownModule  # noqa: F401 (PIN facultatif pendant ces tests)
 
+if TYPE_CHECKING:
+    from inventory.models import Items, Secouristes
+
 
 class IidTests(ApiTestCase):
-    def test_iid_format(self):
+    def test_iid_format(self) -> None:
         items = self.create(self.compresses, self.today + timedelta(days=100), 3)
         iid = items[2].iid
         self.assertEqual(len(iid), 22)
@@ -16,18 +23,18 @@ class IidTests(ApiTestCase):
         more = self.create(self.compresses, self.today + timedelta(days=100), 1)
         self.assertEqual(decode_base62(more[0].iid[14:]), 4)
 
-    def test_non_perishable_has_no_date(self):
+    def test_non_perishable_has_no_date(self) -> None:
         item = self.create(self.garrot, None, 1)[0]
         self.assertEqual(item.iid[6:14], '00000000')
         self.assertFalse(item.is_expired())
 
-    def test_perishable_requires_date(self):
+    def test_perishable_requires_date(self) -> None:
         with self.assertRaises(ValueError):
             self.create(self.compresses, None, 1)
 
 
 class PublicApiTests(ApiTestCase):
-    def test_health_release_version(self):
+    def test_health_release_version(self) -> None:
         """Version de release ecrite par le RPM dans inventory/VERSION, vide sans le fichier (Reglages web et poste)."""
         import tempfile
         from pathlib import Path
@@ -43,14 +50,14 @@ class PublicApiTests(ApiTestCase):
                 self.assertEqual(self.call('GET', '/api/health/', local=False)[1]['version'], '1.4.0')
             version.release_version.cache_clear()
 
-    def test_management_routes_are_local_only(self):
+    def test_management_routes_are_local_only(self) -> None:
         code, _ = self.call('GET', '/api/item-types/', local=False)
         self.assertEqual(code, 404)
         code, body = self.call('GET', '/api/item-types/')
         self.assertEqual(code, 200)
         self.assertEqual(len(body), 2)
 
-    def test_badge_verif_needs_a_label_not_the_key(self):
+    def test_badge_verif_needs_a_label_not_the_key(self) -> None:
         """Avec un badge, plus d'etiquette cle : l'etiquette (publique ou cle) d'un lot de la verif suffit."""
         items = self.create(self.compresses, self.today + timedelta(days=10), 2)
         payload = {'items': [item.iid for item in items], 'user': {'matricule': 'M001', 'key': self.user.new_key}}
@@ -72,7 +79,7 @@ class PublicApiTests(ApiTestCase):
                             local=False)
         self.assertEqual(code, 200)
 
-    def test_badge_restock_needs_a_label_not_the_key(self):
+    def test_badge_restock_needs_a_label_not_the_key(self) -> None:
         items = self.create(self.compresses, self.today + timedelta(days=10), 1)
         payload = {'items': [items[0].iid], 'user': {'matricule': 'M001', 'key': self.user.new_key}}
         code, body = self.call('POST', f'/api/lots/{self.lot.id}/add/', payload, local=False)
@@ -81,7 +88,7 @@ class PublicApiTests(ApiTestCase):
         code, body = self.call('POST', f'/api/lots/{self.lot.id}/add/', dict(payload, labels=[self.lot.id]), local=False)
         self.assertEqual(code, 200, body)
 
-    def test_public_verif_requires_lot_key(self):
+    def test_public_verif_requires_lot_key(self) -> None:
         items = self.create(self.compresses, self.today + timedelta(days=10), 2)
         payload = {'items': [item.iid for item in items]}
         code, _ = self.call('POST', f'/api/lots/{self.lot.id}/verif/', payload, local=False)
@@ -96,7 +103,7 @@ class PublicApiTests(ApiTestCase):
         self.assertTrue(body['complete'])
         self.assertEqual(Items.objects.get(iid=items[0].iid).last_seen_by, 'M:M001')
 
-    def test_public_lot_detail_hides_key(self):
+    def test_public_lot_detail_hides_key(self) -> None:
         code, body = self.call('GET', f'/api/lots/{self.lot.id}/', local=False)
         self.assertEqual(code, 200)
         self.assertNotIn('verif_key', body)
@@ -105,7 +112,7 @@ class PublicApiTests(ApiTestCase):
         self.assertEqual(body['verif_key'], self.lot.verif_key)
         self.assertIn(f'key={self.lot.verif_key}', body['private_url'])
 
-    def test_key_check_without_login(self):
+    def test_key_check_without_login(self) -> None:
         # poste sans personne de connecte : la cle n'est pas renvoyee, le serveur la compare (bug « clé périmée »)
         path = f'/api/lots/{self.lot.id}/?key='
         code, body = self.call('GET', path + self.lot.verif_key, session=False)
@@ -126,7 +133,7 @@ class PublicApiTests(ApiTestCase):
         self.assertEqual(body['key_check'], 'expired')
         self.assertIn('a expiré', body['key_error'])
 
-    def test_lot_key_expiry_ignored_while_badge_required(self):
+    def test_lot_key_expiry_ignored_while_badge_required(self) -> None:
         from .. import notifications, tasks
         Lots.objects.filter(pk=self.lot.pk).update(verif_key_expires=self.today - timedelta(days=1))
         titles = lambda: [task['title'] for task in tasks._periodic_tasks(self.today)]
@@ -136,7 +143,7 @@ class PublicApiTests(ApiTestCase):
         self.assertEqual(len(notifications.check_key_expirations(self.today)['lot_key_expiring']), 1)
         self.assertIn(f'Étiquette clé : {self.lot.name}', titles())
 
-    def test_missing_key_message_explains_label(self):
+    def test_missing_key_message_explains_label(self) -> None:
         # l'etiquette cle n'est plus exigee que sans badge, sous un nom declare (option du serveur)
         models.ServerSettings.objects.update_or_create(pk=1, defaults={'declared_identity': True})
         Lots.objects.filter(pk=self.lot.pk).update(key_location='poche intérieure du couvercle')
@@ -147,12 +154,12 @@ class PublicApiTests(ApiTestCase):
         code, body = self.call('GET', f'/api/lots/{self.lot.id}/', local=False)
         self.assertEqual(body['key_location'], 'poche intérieure du couvercle')
 
-    def test_key_location_update(self):
+    def test_key_location_update(self) -> None:
         code, body = self.call('PATCH', f'/api/lots/{self.lot.id}/update/', {'key_location': '  sous le plateau  '})
         self.assertEqual(code, 200)
         self.assertEqual(body['key_location'], 'sous le plateau')
 
-    def test_item_detail_last_location(self):
+    def test_item_detail_last_location(self) -> None:
         # fiche d'item du front web : lot actuel, puis le lot quitte en dernier une fois l'item sorti
         sub = Lots(lot_type=self.lot_type, name='Poche', name_short='P', created_by='test', parent=self.lot)
         sub.save()
@@ -171,10 +178,10 @@ class PublicApiTests(ApiTestCase):
         self.assertEqual(body['last_location']['id'], sub.id)
         self.assertFalse(body['last_location']['current'])
 
-    def test_default_lot_key_validity_is_one_year(self):
+    def test_default_lot_key_validity_is_one_year(self) -> None:
         self.assertEqual(self.lot.verif_key_expires, self.today + timedelta(days=365))
 
-    def test_auth(self):
+    def test_auth(self) -> None:
         code, body = self.call('POST', '/api/auth/', {'matricule': 'M001', 'key': self.user.new_key}, local=False)
         self.assertEqual(code, 200)
         self.assertEqual(body['prenom'], 'Jeanne')
@@ -186,14 +193,14 @@ class PublicApiTests(ApiTestCase):
         self.assertEqual(code, 403)
 
     @override_settings(QRPROTEC={**__import__('django.conf').conf.settings.QRPROTEC, 'LOCAL_API_TOKEN': 'secret'})
-    def test_local_token(self):
+    def test_local_token(self) -> None:
         code, _ = self.call('GET', '/api/stock/')
         self.assertEqual(code, 403)
         response = self.client.get('/api/stock/', HTTP_X_QRPROTEC_TOKEN='secret',
                                    HTTP_X_QRPROTEC_SESSION=self.operator_session, **LOCAL)
         self.assertEqual(response.status_code, 200)
 
-    def test_remote_front_key(self):
+    def test_remote_front_key(self) -> None:
         remote = {'qrprotec.role': 'remote', 'REMOTE_ADDR': '127.0.0.1'}
         # sans cle, ou avec le jeton local seulement : refuse
         self.assertEqual(self.client.get('/api/stock/', **remote).status_code, 401)
@@ -215,7 +222,7 @@ class PublicApiTests(ApiTestCase):
         # le front local fonctionne toujours sans cle, en meme temps qu'un front distant
         self.assertEqual(self.call('GET', '/api/stock/')[0], 200)
 
-    def test_remote_front_maintenance(self):
+    def test_remote_front_maintenance(self) -> None:
         import tempfile
         from pathlib import Path
 
@@ -243,7 +250,7 @@ class PublicApiTests(ApiTestCase):
             # l'API locale du poste ne passe jamais par la maintenance
             self.assertEqual(self.call('GET', '/api/stock/')[0], 200)
 
-    def test_frontkey_command(self):
+    def test_frontkey_command(self) -> None:
         from io import StringIO
 
         from django.core.management import CommandError, call_command
@@ -258,7 +265,7 @@ class PublicApiTests(ApiTestCase):
         self.assertIsNone(FrontKey.authenticate(key))
         self.assertNotIn(key, FrontKey.objects.get().key_hash)
 
-    def test_front_config_from_poste(self):
+    def test_front_config_from_poste(self) -> None:
         """Poste, admin : cle + fichier chiffre telechargeable 5 minutes par le lien du QR code."""
         from datetime import timedelta
         from unittest import mock
@@ -309,7 +316,7 @@ class PublicApiTests(ApiTestCase):
         self.assertFalse(FrontKey.objects.filter(name='b').exists())
         self.assertEqual(self.client.post('/api/front-configs/', {'name': 'b'}).status_code, 404)  # API publique
 
-    def test_front_config_revoke_restore_delete(self):
+    def test_front_config_revoke_restore_delete(self) -> None:
         """Onglet Ordinateurs connectes : revoquer (lien en cours coupe), reactiver, supprimer, journal."""
         from unittest import mock
 
@@ -339,7 +346,8 @@ class PublicApiTests(ApiTestCase):
         self.assertIn('ordinateur « accueil » révoqué', summaries)
         self.assertIn('ordinateur « accueil » supprimé', summaries)
 
-    def remote_call(self, method, path, key, data=None):
+    def remote_call(self, method: str, path: str, key: str, data: dict[str, Any] | None = None
+                   ) -> tuple[int, dict[str, Any]]:
         """Requete d'un front distant (API distante, cle de front), l'admin du test connecte."""
         extra = {'HTTP_X_QRPROTEC_KEY': key, 'HTTP_X_QRPROTEC_SESSION': self.operator_session,
                  'qrprotec.role': 'remote', 'REMOTE_ADDR': '127.0.0.1'}
@@ -349,7 +357,7 @@ class PublicApiTests(ApiTestCase):
             response = self.client.post(path, json.dumps(data or {}), content_type='application/json', **extra)
         return response.status_code, response.json()
 
-    def test_main_poste_key(self):
+    def test_main_poste_key(self) -> None:
         """Back sans kiosk : la cle marquee « poste principal » a les droits du front de l'API locale (ordinateurs
         connectes, impressions en attente), une simple cle non ; le poste ne se coupe pas lui-meme l'acces."""
         from io import StringIO
@@ -394,7 +402,7 @@ class PublicApiTests(ApiTestCase):
         call_command('frontkey', 'list', stdout=out)
         self.assertIn('poste principal', out.getvalue())
 
-    def test_server_ca_pem(self):
+    def test_server_ca_pem(self) -> None:
         import tempfile
         from pathlib import Path
 
@@ -406,7 +414,7 @@ class PublicApiTests(ApiTestCase):
             ca.write_text('-----BEGIN CERTIFICATE-----\nY\n')
             self.assertEqual(front_config.server_ca_pem('https://x.org', '', str(ca)), ca.read_text())
 
-    def test_frontkey_config_file(self):
+    def test_frontkey_config_file(self) -> None:
         """frontkey add --config : URL, cle et certificat chiffres en AES, relus avec le mot de passe."""
         import json
         import os
@@ -470,13 +478,13 @@ class PublicApiTests(ApiTestCase):
 class DeclaredIdentityTests(ApiTestCase):
     """Identite declaree (nom sans badge) : reglage du serveur, desactive par defaut."""
 
-    def verif(self, payload, local=False):
+    def verif(self, payload: dict[str, Any], local: bool = False) -> tuple[int, dict[str, Any], list[Items]]:
         items = self.create(self.compresses, self.today + timedelta(days=10), 2)
         payload = {'items': [item.iid for item in items], 'key': self.lot.verif_key, **payload}
         code, body = self.call('POST', f'/api/lots/{self.lot.id}/verif/', payload, local=local, session=False)
         return code, body, items
 
-    def test_disabled_by_default(self):
+    def test_disabled_by_default(self) -> None:
         code, health = self.call('GET', '/api/health/', local=False)
         self.assertFalse(health['declared_identity'])
         code, body, _ = self.verif({'name': 'Jean'})
@@ -493,7 +501,7 @@ class DeclaredIdentityTests(ApiTestCase):
                                                                       'name': 'Jean'}, local=False)
         self.assertEqual(code, 403)
 
-    def test_enabled_by_admin(self):
+    def test_enabled_by_admin(self) -> None:
         self.assertEqual(self.call('PATCH', '/api/server-settings/', {'declared_identity': True},
                                    session=views.session_token(self.user))[0], 403)
         code, body = self.call('PATCH', '/api/server-settings/', {'declared_identity': True})
@@ -521,12 +529,12 @@ class DeclaredIdentityTests(ApiTestCase):
 class WebPrefsTests(ApiTestCase):
     """Reglages du front web (explication de la vérif) : par l'utilisateur et par un admin au poste."""
 
-    def my_prefs(self, prefs, user=None):
+    def my_prefs(self, prefs: dict[str, Any], user: Secouristes | None = None) -> tuple[int, dict[str, str]]:
         user = user or self.user
         credentials = {'matricule': user.matricule, 'key': user.new_key, 'session': views.session_token(user)}
         return self.call('POST', '/api/me/prefs/', {'user': credentials, 'web_prefs': prefs}, local=False)
 
-    def test_defaults_user_and_admin(self):
+    def test_defaults_user_and_admin(self) -> None:
         code, body = self.call('POST', '/api/auth/', {'matricule': 'M001', 'key': self.user.new_key}, local=False)
         self.assertEqual(body['web_prefs'], {'verif_help_hidden': False, 'scan_bubble': False, 'passkey_offered': False})
         # l'utilisateur coche « ne plus afficher ce message » : les autres reglages restent tels quels
@@ -554,12 +562,12 @@ class WebPrefsTests(ApiTestCase):
 class ScannerVolumeTests(ApiTestCase):
     """Volume de la douchette : choisi par chaque utilisateur, sinon defaut du serveur fixe par un admin."""
 
-    def login(self, user):
+    def login(self, user: Secouristes) -> dict[str, Any]:
         code, body = self.call('POST', '/api/auth/', {'matricule': user.matricule, 'key': user.new_key}, local=False)
         self.assertEqual(code, 200)
         return body
 
-    def test_default_then_own_volume(self):
+    def test_default_then_own_volume(self) -> None:
         self.assertEqual(self.call('GET', '/api/health/', local=False)[1]['scanner_volume_default'], 4)
         self.assertEqual(self.login(self.user)['scanner_volume'], 4)
         session = views.session_token(self.user)
@@ -578,7 +586,7 @@ class ScannerVolumeTests(ApiTestCase):
         self.call('PATCH', '/api/me/scanner-volume/', {'volume': None}, session=session)
         self.assertEqual(self.login(self.user)['scanner_volume'], 8)
 
-    def test_admin_sets_user_volume(self):
+    def test_admin_sets_user_volume(self) -> None:
         m = self.user.matricule
         row = next(user for user in self.call('GET', '/api/users/')[1] if user['matricule'] == m)
         self.assertIsNone(row['scanner_volume'])  # defaut du serveur
@@ -596,7 +604,7 @@ class ScannerVolumeTests(ApiTestCase):
 class PublicNamesTests(ApiTestCase):
     """API publique : prenom seul, plus le debut du nom qui distingue les homonymes de meme prenom."""
 
-    def test_short_names(self):
+    def test_short_names(self) -> None:
         people = [(1, 'Michel', 'Dubois'), (2, 'Julien', 'Dubois'), (3, 'Julien', 'Saxe')]
         self.assertEqual(idendity.short_names(people), {1: 'Michel', 2: 'Julien D.', 3: 'Julien S.'})
         people.append((4, 'julien', 'Deraine'))
@@ -609,11 +617,11 @@ class PublicNamesTests(ApiTestCase):
         self.assertEqual(idendity.short_names([(1, 'Yann', 'Le Gall'), (2, 'Yann', 'Le Roux')]),
                          {1: 'Yann Le G.', 2: 'Yann Le R.'})
 
-    def test_declared_short_name(self):
+    def test_declared_short_name(self) -> None:
         self.assertEqual(idendity.declared_short_name('Jean martin dupuis'), 'Jean M.')
         self.assertEqual(idendity.declared_short_name(' Jean '), 'Jean')
 
-    def test_public_api_hides_last_names(self):
+    def test_public_api_hides_last_names(self) -> None:
         Secouristes.objects.create(matricule='M002', nom='Durand', prenom='Jeanne')
         items = self.create(self.compresses, self.today + timedelta(days=10), 2)
         payload = {'items': [item.iid for item in items], 'key': self.lot.verif_key,
@@ -638,13 +646,13 @@ class FrontSessionTests(ApiTestCase):
     """Le poste (API locale ou distante) n'a plus de privilege en soi : les routes de gestion exigent
     l'utilisateur connecte, reconnu par son jeton de session."""
 
-    def session(self, matricule, role):
+    def session(self, matricule: str, role: str) -> tuple[Secouristes, str]:
         user = Secouristes(matricule=matricule, nom='N', prenom='P', role=role)
         user.renew_key()
         user.save()
         return user, views.session_token(user)
 
-    def test_routes_by_role(self):
+    def test_routes_by_role(self) -> None:
         normal = views.session_token(self.user)
         _, gestion = self.session('G001', 'gestion')
         # personne de connecte : lectures du kiosk seulement, sans les cles des lots
@@ -670,7 +678,7 @@ class FrontSessionTests(ApiTestCase):
         self.assertEqual(self.call('GET', '/api/notifications/', session=gestion)[0], 403)
         self.assertEqual(self.call('GET', '/api/users/')[0], 200)  # admin
 
-    def test_identity_comes_from_session(self):
+    def test_identity_comes_from_session(self) -> None:
         items = self.create(self.compresses, self.today + timedelta(days=60), 2)
         normal = views.session_token(self.user)
         # le matricule envoye par le poste est ignore : c'est l'utilisateur de la session qui verifie
@@ -683,7 +691,7 @@ class FrontSessionTests(ApiTestCase):
         code, _ = self.call('POST', f'/api/lots/{self.lot.id}/verif/', {'items': [], 'user': 'P001'}, session=False)
         self.assertEqual(code, 403)
 
-    def test_session_invalid_after_badge_renewal_or_deactivation(self):
+    def test_session_invalid_after_badge_renewal_or_deactivation(self) -> None:
         user, token = self.session('G002', 'gestion')
         self.assertEqual(self.call('GET', '/api/stock/', session=token)[0], 200)
         user.active = False
@@ -694,7 +702,7 @@ class FrontSessionTests(ApiTestCase):
         user.save()
         self.assertEqual(self.call('GET', '/api/stock/', session=token)[0], 403)
 
-    def test_remote_needs_session_and_has_no_django_admin(self):
+    def test_remote_needs_session_and_has_no_django_admin(self) -> None:
         _, key = FrontKey.create('accueil')
         remote = {'qrprotec.role': 'remote', 'REMOTE_ADDR': '127.0.0.1', 'HTTP_X_QRPROTEC_KEY': key}
         self.assertEqual(self.client.get('/api/stock/', **remote).status_code, 403)
@@ -704,7 +712,7 @@ class FrontSessionTests(ApiTestCase):
                                          **remote).status_code, 200)
         self.assertEqual(self.client.get('/admin/', **remote).status_code, 404)
 
-    def test_first_admin_without_session(self):
+    def test_first_admin_without_session(self) -> None:
         self.operator.delete()
         code, body = self.call('POST', '/api/users/', {'matricule': 'R001', 'nom': 'a', 'prenom': 'b', 'role': 'normal'},
                                session=False)

@@ -27,9 +27,12 @@ Chaque tache : {category, level ('bad' rouge, 'warn' orange, 'info'), title, det
 'inventory', 'lot_admin', 'label_prints' (fenetres du poste ou pages du web), 'consumables' (poste seulement).
 """
 
+from __future__ import annotations
+
 import math
 from collections import Counter, defaultdict
 from datetime import datetime, timedelta
+from typing import TYPE_CHECKING, Any
 
 from django.db.models import Max
 from django.utils import timezone
@@ -48,6 +51,9 @@ from .models import (
     STOCK_LOT_TYPE, Secouristes, ServerSettings, StockOrder, Verifs, lot_keys_expire, qrprotec_setting,
 )
 from .reports import target_name
+
+if TYPE_CHECKING:
+    from datetime import date
 
 CATEGORIES = [
     ('reports', 'Signalements', 'Problèmes signalés par les secouristes : les prendre en charge, puis les résoudre.'),
@@ -81,7 +87,7 @@ UPCOMING_ORANGE_DAYS = 2  # orange dans les 2 jours
 EVENTS_DAYS = 90  # evenements a venir : horizon par defaut (les fronts proposent 30 jours, 3 mois, 1 an)
 
 
-def _iso(value):
+def _iso(value: str | datetime | date | None) -> str | None:
     if value is None or isinstance(value, str):
         return value
     if isinstance(value, datetime):
@@ -89,19 +95,21 @@ def _iso(value):
     return value.isoformat()
 
 
-def _day(value):
+def _day(value: datetime | date) -> str:
     """JJ/MM/AAAA d'une date ou d'un horodatage (texte des taches)."""
     if isinstance(value, datetime):
         value = timezone.localtime(value).date()
     return value.strftime('%d/%m/%Y')
 
 
-def task(category, level, title, detail='', date=None, link='', lot=None, item=None, report=None, sort=0):
+def task(category: str, level: str, title: str, detail: str = '', date: str | datetime | date | None = None,
+         link: str = '', lot: str | None = None, item: str | None = None, report: int | None = None,
+         sort: int | tuple[int, int] | tuple[int, float] = 0) -> dict[str, Any]:
     return {'category': category, 'level': level, 'title': title, 'detail': detail, 'date': _iso(date), 'link': link,
             'lot': lot, 'item': item, 'report': report, '_sort': sort}
 
 
-def _report_tasks():
+def _report_tasks() -> list[dict[str, Any]]:
     tasks = []
     for report in ProblemReport.objects.select_related('item_type').exclude(status=ReportStatus.RESOLVED):
         fresh = report.status == ReportStatus.NEW
@@ -116,13 +124,13 @@ def _report_tasks():
     return tasks
 
 
-def _missing_text(row):
+def _missing_text(row: dict[str, Any]) -> str:
     parts = [services.lacking_text(req) for req in row['requirements'] if req['present'] < req['required']]
     text = ', '.join(parts[:4]) + (f" et {plural(len(parts) - 4, 'autre')}" if len(parts) > 4 else '')
     return f'manque {text}' if parts else ''
 
 
-def _recommended_reason(row):
+def _recommended_reason(row: dict[str, Any]) -> tuple[str, str | None]:
     if row['restocked_count']:
         return (f"réassort de {plural(row['restocked_count'], 'item')}"
                 + (f" par {row['restocked_by']}" if row['restocked_by'] else ''), row['restocked'])
@@ -134,7 +142,7 @@ def _recommended_reason(row):
     return ('scellé ouvert' + (f" par {row['unsealed_by']}" if row['unsealed_by'] else ''), row['unsealed'])
 
 
-def _lot_tasks(rows, today):
+def _lot_tasks(rows: list[dict[str, Any]], today: date) -> list[dict[str, Any]]:
     tasks = []
     routine_days = qrprotec_setting('ROUTINE_VERIF_DAYS')
     has_children = {row['parent'] for row in rows if row['parent']}
@@ -178,12 +186,12 @@ def _lot_tasks(rows, today):
     return tasks
 
 
-def _place(item):
+def _place(item: Items) -> str:
     return (item.location.name if item.location_id else 'stock' if item.status == ItemStatus.ACTIVE
             else item.get_status_display().lower())
 
 
-def _revision_tasks(today):
+def _revision_tasks(today: date) -> list[dict[str, Any]]:
     """Revisions et desinfections en retard ou dans les 30 jours (une tache par item et par entretien)."""
     tasks = []
     for kind, item, due in services.maintenance_due(today, REVISION_WINDOW_DAYS):
@@ -211,7 +219,7 @@ def _revision_tasks(today):
     return tasks
 
 
-def _stock_verif_tasks():
+def _stock_verif_tasks() -> list[dict[str, Any]]:
     """Sorties du stock (a la main ou par une liste de materiel) depuis la derniere verif du stock, par lieu : le
     stock hors rangement, ou chaque rangement (sa propre verif compte aussi). Au retour d'une liste, chaque item est
     remis dans le rangement d'ou il est sorti (on fait confiance aux secouristes) : la vérif n'est proposee qu'au bout
@@ -254,7 +262,7 @@ def _stock_verif_tasks():
     return tasks
 
 
-def open_orders():
+def open_orders() -> dict[str, list[StockOrder]]:
     """Commandes passees en cours (case « Commandé »), par type d'item. Clot au passage celles qui sont livrees : les
     items de ce type receptionnes depuis la commande la remplissent, les plus anciennes commandes d'abord."""
     by_type = defaultdict(list)
@@ -277,14 +285,14 @@ def open_orders():
     return {type_id: orders for type_id, orders in by_type.items() if orders}
 
 
-def order_dict(order, today):
+def order_dict(order: StockOrder, today: date) -> dict[str, Any]:
     days = (today - timezone.localtime(order.placed).date()).days
     return {'id': order.id, 'type': order.item_type_id, 'name': order.item_type.name, 'quantity': order.quantity,
             'received': order.received, 'placed': _iso(order.placed), 'placed_by': identity_name(order.placed_by),
             'days': days, 'late': days >= ORDER_DELIVERY_DAYS}
 
 
-def _forecast_tasks(today, orders):
+def _forecast_tasks(today: date, orders: dict[str, list[StockOrder]]) -> list[dict[str, Any]]:
     data = stock_forecast.forecast(months=6, weekly=True)
     limit = today + timedelta(days=ORDER_WINDOW_DAYS)
     tasks = []
@@ -339,7 +347,7 @@ def _forecast_tasks(today, orders):
     return tasks
 
 
-def _periodic_tasks(today):
+def _periodic_tasks(today: date) -> list[dict[str, Any]]:
     tasks = []
     # etiquettes d'items demandees depuis le web, pas encore imprimees au poste
     for row, text in label_prints.pending_tasks():
@@ -397,7 +405,7 @@ def _periodic_tasks(today):
     return tasks
 
 
-def _unsorted_tasks():
+def _unsorted_tasks() -> list[dict[str, Any]]:
     """Items en stock sans rangement, quand il y a des rangements ou les mettre : derniere priorite du TECH."""
     if not Lots.objects.filter(active=True, lot_type__storage=True).exclude(lot_type_id=STOCK_LOT_TYPE).exists():
         return []  # pas de rangements : le stock est en vrac, rien a ranger
@@ -413,7 +421,7 @@ def _unsorted_tasks():
                  f"{plural(len(items), 'item')} en stock sans rangement : {summary}", None, 'inventory')]
 
 
-def upcoming_expiries(rows, today, days=UPCOMING_DAYS):
+def upcoming_expiries(rows: list[dict[str, Any]], today: date, days: int = UPCOMING_DAYS) -> list[dict[str, Any]]:
     """Peremptions a venir (pas des taches) : items actifs, non desactives, qui periment dans les `days` jours, une
     ligne par lieu, type et date, ce qui perime en premier en tete. level : 'warn' (orange, 2 jours), 'soon' (jaune,
     7 jours), 'info'."""
@@ -436,13 +444,13 @@ def upcoming_expiries(rows, today, days=UPCOMING_DAYS):
     return result
 
 
-def _consumable_tasks(today):
+def _consumable_tasks(today: date) -> list[dict[str, Any]]:
     """Bobines ou rubans a commander (poste seulement : le web ne montre pas les consommables)."""
     return [task('orders', row['level'], row['title'], row['detail'], None, 'consumables', sort=row['autonomy'])
             for row in consumables.order_tasks(today)]
 
 
-def todo(today=None, consumables_tasks=False):
+def todo(today: date | None = None, consumables_tasks: bool = False) -> dict[str, Any]:
     """Taches a faire, par categorie dans l'ordre de priorite, la plus urgente en tete de chaque categorie.
     consumables_tasks : bobines et rubans a commander (fronts du poste, pas le web)."""
     today = today or timezone.localdate()
@@ -482,13 +490,14 @@ EVENT_KINDS = {
 EVENT_LEVEL_ORDER = {'bad': 0, 'warn': 1, 'soon': 2, 'info': 3}
 
 
-def _when(days):
+def _when(days: int) -> str:
     if days < 0:
         return f"en retard de {plural(-days, 'jour')}"
     return "aujourd'hui" if days == 0 else 'demain' if days == 1 else f'dans {days} jours'
 
 
-def event(kind, date, today, title, detail='', level=None, link='', lot=None, item=None, **extra):
+def event(kind: str, date: date, today: date, title: str, detail: str = '', level: str | None = None, link: str = '',
+          lot: str | None = None, item: str | None = None, **extra: Any) -> dict[str, Any]:
     days = (date - today).days
     if level is None:
         level = ('bad' if days < 0 else 'warn' if days <= UPCOMING_ORANGE_DAYS else
@@ -498,7 +507,7 @@ def event(kind, date, today, title, detail='', level=None, link='', lot=None, it
             'item': item, **extra}
 
 
-def _maintenance_events(today, days):
+def _maintenance_events(today: date, days: int) -> list[dict[str, Any]]:
     """Revisions et desinfections en retard ou dans l'horizon, une par item et par entretien, avec de quoi la faire
     (« Réviser », « Désinfecter ») ou en saisir la date a la main depuis l'evenement."""
     rows = []
@@ -523,7 +532,7 @@ def _maintenance_events(today, days):
     return rows
 
 
-def _lot_disinfection_events(today, days):
+def _lot_disinfection_events(today: date, days: int) -> list[dict[str, Any]]:
     rows = []
     for lot in services.lots_disinfection_due(today, days):
         info = ser.lot_disinfection(lot, today)
@@ -543,18 +552,18 @@ MONTH_NAMES = ['janvier', 'février', 'mars', 'avril', 'mai', 'juin', 'juillet',
 SHORT_MONTHS = ['janv.', 'févr.', 'mars', 'avr.', 'mai', 'juin', 'juil.', 'août', 'sept.', 'oct.', 'nov.', 'déc.']
 
 
-def _month_name(date, today):
+def _month_name(date: date, today: date) -> str:
     """« décembre », avec l'annee seulement si ce n'est pas celle d'aujourd'hui (« janvier 2027 »)."""
     name = MONTH_NAMES[date.month - 1]
     return name if date.year == today.year else f'{name} {date.year}'
 
 
-def _month_of(name):
+def _month_of(name: str) -> str:
     """« Péremptions de décembre », « Péremptions d'avril », « Péremptions d'août »."""
     return f"d'{name}" if name[0] in 'aeiouéèêâàîôûœ' else f'de {name}'
 
 
-def _expiry_groups(rows, today, days):
+def _expiry_groups(rows: list[dict[str, Any]], today: date, days: int) -> list[dict[str, Any]]:
     """Peremptions a venir regroupees par mois, a la fin de la liste (pas une carte par peremption : trop nombreuses).
     Un groupe par mois, compte en items, avec le detail compact trie par lot, puis par type, puis par date (le stock
     apres les lots)."""
@@ -579,7 +588,7 @@ def _expiry_groups(rows, today, days):
     return groups
 
 
-def _list_events(today, days):
+def _list_events(today: date, days: int) -> list[Any]:
     """Listes de materiel a preparer, datees dans l'horizon (depart ou evenement prevu)."""
     lists = (Checklist.objects.select_related('owner')
              .filter(is_template=False, status=ChecklistStatus.DRAFT, date__gte=today,
@@ -590,7 +599,7 @@ def _list_events(today, days):
             for checklist in lists]
 
 
-def _expiry_key_events(today, days):
+def _expiry_key_events(today: date, days: int) -> list[dict[str, Any]]:
     limit = today + timedelta(days=days)
     rows = []
     if lot_keys_expire():
@@ -603,7 +612,7 @@ def _expiry_key_events(today, days):
     return rows
 
 
-def _order_events(today, days):
+def _order_events(today: date, days: int) -> list[dict[str, Any]]:
     """Commandes recommandees par les previsions dont la date limite tombe dans l'horizon (anticipables : on les voit
     venir), sauf celles deja commandees (case « Commandé »). Chacune avec son detail (« Pourquoi cette commande ? »)
     et de quoi la cocher « Commandé ». Date de l'evenement : la date limite pour commander."""
@@ -629,7 +638,7 @@ def _order_events(today, days):
     return result
 
 
-def events(today=None, days=EVENTS_DAYS):
+def events(today: date | None = None, days: int = EVENTS_DAYS) -> dict[str, Any]:
     """Evenements a venir sur `days` jours, separes des taches : revisions et desinfections (en retard d'abord),
     listes de materiel prevues, etiquettes cles et badges qui expirent, commandes recommandees. Un evenement par
     ligne, par date croissante (le retard en tete) ; a date egale, le plus grave d'abord. Pas les cartes d'invites : ce ne sont pas des

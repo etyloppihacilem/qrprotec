@@ -1,11 +1,18 @@
 """Tests du back : gestion (API locale)."""
 
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
 from .base import *  # noqa: F401,F403
 from .base import setUpModule, tearDownModule  # noqa: F401 (PIN facultatif pendant ces tests)
 
+if TYPE_CHECKING:
+    from inventory.models import Secouristes
+
 
 class ManagementTests(ApiTestCase):
-    def test_batch_with_sealed_pack_and_stock(self):
+    def test_batch_with_sealed_pack_and_stock(self) -> None:
         date = (self.today + timedelta(days=200)).isoformat()
         code, body = self.call('POST', '/api/items/batch/',
                                {'type': 'compre', 'peremption': date, 'count': 5, 'sealed_pack': True, 'user': 'M001'})
@@ -33,7 +40,7 @@ class ManagementTests(ApiTestCase):
         self.assertEqual(row['stock_fresh'], 5)
         self.assertEqual(row['min_quantity'], 10)
 
-    def test_batch_several_sealed_packs(self):
+    def test_batch_several_sealed_packs(self) -> None:
         date = (self.today + timedelta(days=200)).isoformat()
         code, body = self.call('POST', '/api/items/batch/', {'type': 'compre', 'peremption': date, 'count': 4,
                                                              'sealed_pack': True, 'packs': 3, 'user': 'M001'})
@@ -58,7 +65,7 @@ class ManagementTests(ApiTestCase):
                                                           'sealed_pack': True, 'packs': 101})
         self.assertEqual(code, 400)
 
-    def test_batch_into_storage(self):
+    def test_batch_into_storage(self) -> None:
         storage_type = LotType.objects.create(type='armoir', name='Armoire', storage=True)
         armoire = Lots(lot_type=storage_type, name='Armoire', name_short='A', created_by='test', parent=Lots.stock())
         armoire.save()
@@ -79,7 +86,7 @@ class ManagementTests(ApiTestCase):
         self.assertEqual(code, 400)
         self.assertEqual(Items.objects.filter(location=self.lot).count(), 0)
 
-    def test_store_reception(self):
+    def test_store_reception(self) -> None:
         storage_type = LotType.objects.create(type='armoir', name='Armoire', storage=True)
         armoire = Lots(lot_type=storage_type, name='Armoire', name_short='A', created_by='test', parent=Lots.stock())
         armoire.save()
@@ -104,7 +111,7 @@ class ManagementTests(ApiTestCase):
         code, _ = self.call('POST', '/api/receptions/store/', {'reception': iids[2], 'location': self.lot.id})
         self.assertEqual(code, 400)
 
-    def test_reception_storage_suggestion(self):
+    def test_reception_storage_suggestion(self) -> None:
         storage_type = LotType.objects.create(type='armoir', name='Armoire', storage=True)
         armoire = Lots(lot_type=storage_type, name='Armoire', name_short='A', created_by='test', parent=Lots.stock())
         armoire.save()
@@ -125,7 +132,7 @@ class ManagementTests(ApiTestCase):
         code, body = self.call('GET', '/api/receptions/storage/?type=garrot')
         self.assertIsNone(body['location'])
 
-    def test_create_entities(self):
+    def test_create_entities(self) -> None:
         code, body = self.call('POST', '/api/item-types/', {'type': 'serphy', 'name': 'Serum phy', 'perissable': True})
         self.assertEqual(code, 201)
         code, _ = self.call('POST', '/api/item-types/', {'type': 'trop_long', 'name': 'x'})
@@ -142,7 +149,7 @@ class ManagementTests(ApiTestCase):
         self.assertTrue(body['id'].startswith('sacpse'))
         self.assertEqual(len(body['id']), 14)
 
-    def test_requirement_locations_order(self):
+    def test_requirement_locations_order(self) -> None:
         """Emplacements du contenu attendu : ordre choisi par la TECH, nouveaux a la suite, meme emplacement malgre la
         casse ou les accents, inutilises oublies ; exigences rendues dans cet ordre, sans emplacement en dernier."""
         ItemType.objects.create(type='serphy', name='Sérum phy')
@@ -167,7 +174,7 @@ class ManagementTests(ApiTestCase):
         self.assertEqual([location for location, _ in lot_sheet.requirement_groups(self.lot)],
                          ['Pochette bleue', 'Pochette rouge', lot_sheet.NO_LOCATION])
 
-    def test_lot_own_content(self):
+    def test_lot_own_content(self) -> None:
         """Contenu propre d'un lot : items en plus du type (ajoutes a sa quantite ou seuls), emplacements et ordre de
         ce lot ; le type reste la base des autres lots, et un lot qui reprend l'ordre du type le suit."""
         ItemType.objects.create(type='serphy', name='Sérum phy')
@@ -206,7 +213,7 @@ class ManagementTests(ApiTestCase):
         self.assertEqual(code, 400)
         self.assertIn('Sac A', body['error'])
 
-    def test_content_versions(self):
+    def test_content_versions(self) -> None:
         """Une nouvelle version du contenu (type de lot, contenu propre d'un lot) n'est creee que si le contenu change
         et qu'une verif a deja ete faite sur la version en cours ; sinon elle est corrigee en place."""
         url = '/api/lot-types/sacpse/requirements/'
@@ -240,7 +247,7 @@ class ManagementTests(ApiTestCase):
         self.lot.refresh_from_db()
         self.assertEqual(self.lot.version, lot_version + 1)
 
-    def test_user_fonction(self):
+    def test_user_fonction(self) -> None:
         """Role dans l'equipe : texte libre, Secouriste par defaut, sans effet sur les droits."""
         code, body = self.call('POST', '/api/users/', {'matricule': 'M002', 'nom': 'Martin', 'prenom': 'Paul'})
         self.assertEqual((code, body['fonction'], body['role']), (201, 'Secouriste', 'normal'))
@@ -254,7 +261,7 @@ class ManagementTests(ApiTestCase):
         code, body = self.call('PATCH', '/api/users/M002/', {'fonction': 'x' * 40})
         self.assertEqual(len(body['fonction']), 32)
 
-    def test_item_type_tasks(self):
+    def test_item_type_tasks(self) -> None:
         """Taches d'un type d'item (etiquette de taches) : nettoyees, exposees sur l'item avec l'URL de l'etiquette."""
         code, body = self.call('POST', '/api/item-types/', {'type': 'defibr', 'name': 'DAE',
                                                             'tasks': [' Voyant  vert ', '', 'Électrodes', 'Voyant vert']})
@@ -273,7 +280,7 @@ class ManagementTests(ApiTestCase):
         code, body = self.call('GET', f'/api/items/{self.create(self.garrot, None, 1)[0].iid}/', local=False)
         self.assertEqual(body['tasks'], [])
 
-    def test_delete_requires_reason(self):
+    def test_delete_requires_reason(self) -> None:
         item = self.create(self.garrot, None, 1)[0]
         code, _ = self.call('POST', f'/api/items/{item.iid}/delete/', {})
         self.assertEqual(code, 400)
@@ -284,10 +291,10 @@ class ManagementTests(ApiTestCase):
 
 
 class RoleTests(ApiTestCase):
-    def badge(self, user):
+    def badge(self, user: Secouristes) -> dict[str, str]:
         return {'matricule': user.matricule, 'key': user.new_key}
 
-    def test_roles_and_public_summaries(self):
+    def test_roles_and_public_summaries(self) -> None:
         code, body = self.call('POST', '/api/users/', {'matricule': 'G001', 'nom': 'Gest', 'prenom': 'Ion',
                                                        'role': 'gestion'})
         self.assertEqual(code, 201)

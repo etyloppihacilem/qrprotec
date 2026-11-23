@@ -1,3 +1,8 @@
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Any
+from collections.abc import Callable
+
 # ###################################646f75627420796f7572206f776e206578697374656e6365###################################
 #
 #              """          middleware.py
@@ -16,6 +21,12 @@ from django.http import JsonResponse
 
 from .idendity import anonymized, names_cache
 
+if TYPE_CHECKING:
+    from django.core.handlers.wsgi import WSGIHandler
+    from django.http.response import HttpResponseBase
+    from inventory.models import FrontKey
+    from django.http import HttpRequest
+
 ROLE_ENVIRON_KEY = 'qrprotec.role'
 LOCAL_TOKEN_HEADER = 'HTTP_X_QRPROTEC_TOKEN'
 FRONT_KEY_HEADER = 'HTTP_X_QRPROTEC_KEY'
@@ -27,10 +38,10 @@ class NoIndexMiddleware:
     suivre aucun lien : le site sert une equipe, pas le public. Complete robots.txt pour les robots qui
     arrivent sur une URL de QR code sans passer par la racine."""
 
-    def __init__(self, get_response):
+    def __init__(self, get_response: Callable[[HttpRequest], HttpResponseBase]) -> None:
         self.get_response = get_response
 
-    def __call__(self, request):
+    def __call__(self, request: HttpRequest) -> HttpResponseBase:
         response = self.get_response(request)
         response.setdefault('X-Robots-Tag', 'noindex, nofollow')
         return response
@@ -39,19 +50,19 @@ class NoIndexMiddleware:
 class RoleWSGIHandler:
     """Enveloppe WSGI qui marque les requetes selon le serveur (port) qui les a recues."""
 
-    def __init__(self, application, role, scheme=None):
+    def __init__(self, application: WSGIHandler, role: str, scheme: str | None = None) -> None:
         self.application = application
         self.role = role
         self.scheme = scheme  # 'https' quand le serveur de developpement chiffre lui-meme (serve --https)
 
-    def __call__(self, environ, start_response):
+    def __call__(self, environ: dict[str, Any], start_response: Callable[..., Any]) -> Any:
         environ[ROLE_ENVIRON_KEY] = self.role
         if self.scheme:
             environ['wsgi.url_scheme'] = self.scheme
         return self.application(environ, start_response)
 
 
-def local_access_error(remote_address, token_header):
+def local_access_error(remote_address: str, token_header: str) -> str | None:
     """Message d'erreur si le client n'a pas acces a l'API locale (adresse ou jeton), None sinon."""
     config = settings.QRPROTEC
     allowed = config['LOCAL_API_ALLOWED_ADDRESSES']
@@ -63,14 +74,14 @@ def local_access_error(remote_address, token_header):
     return None
 
 
-def remote_client_address(remote_address, forwarded_for):
+def remote_client_address(remote_address: str, forwarded_for: str | None) -> str:
     """Adresse du front distant : l'API distante n'est joignable que via le reverse proxy (Caddy)."""
     if forwarded_for:
         return forwarded_for.split(',')[0].strip()
     return remote_address or ''
 
 
-def authenticate_front(key, address):
+def authenticate_front(key: str, address: str) -> tuple[FrontKey | None, str | None]:
     """(FrontKey, None) si la cle de front distant est valide, (None, message d'erreur) sinon."""
     from .models import FrontKey  # le middleware est charge avant les applications
 
@@ -82,7 +93,7 @@ def authenticate_front(key, address):
     return front, None
 
 
-def maintenance_refusal(front_name):
+def maintenance_refusal(front_name: str) -> str | None:
     """Message de maintenance si le site est en maintenance et que ce front distant n'y est pas admis, None sinon.
 
     Pendant la maintenance, Caddy ne laisse passer jusqu'a l'API distante que les requetes a cle de front, et
@@ -118,10 +129,10 @@ class ApiRoleMiddleware:
     identifient la machine, le badge et le PIN la personne.
     """
 
-    def __init__(self, get_response):
+    def __init__(self, get_response: Callable[[HttpRequest], HttpResponseBase]) -> None:
         self.get_response = get_response
 
-    def __call__(self, request):
+    def __call__(self, request: HttpRequest) -> HttpResponseBase:
         config = settings.QRPROTEC
         role = request.META.get(ROLE_ENVIRON_KEY, config['DEFAULT_API_ROLE'])
         request.qrprotec_local = False

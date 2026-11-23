@@ -1,15 +1,18 @@
 """Tests du back : signalements, desactivation, revisions."""
 
+from __future__ import annotations
+
+
 from .base import *  # noqa: F401,F403
 from .base import setUpModule, tearDownModule  # noqa: F401 (PIN facultatif pendant ces tests)
 
 
 @override_settings(QRPROTEC={**settings.QRPROTEC, 'NOTIFY_SYNC': True})
 class ProblemReportTests(ApiTestCase):
-    def setUp(self):
+    def setUp(self) -> None:
         super().setUp()
         from .. import webpush
-        self.sent = []  # textes des notifications web
+        self.sent: list[str] = []  # textes des notifications web
         original = webpush.notify_event
         webpush.notify_event = lambda field, title, body, **web: (self.sent.append(body) or 1)
         self.addCleanup(setattr, webpush, 'notify_event', original)
@@ -17,11 +20,11 @@ class ProblemReportTests(ApiTestCase):
         self.items = self.create(self.compresses, self.today + timedelta(days=30), 2)
         Items.objects.filter(iid__in=[item.iid for item in self.items]).update(location=self.lot)
 
-    def report(self, data, local=False):
+    def report(self, data: dict[str, Any], local: bool = False) -> tuple[int, dict[str, Any]]:
         payload = {'user': self.badge, **data} if not local else data
         return self.call('POST', '/api/reports/', payload, local=local)
 
-    def test_login_required(self):
+    def test_login_required(self) -> None:
         code, _ = self.call('POST', '/api/reports/', {'item': self.items[0].iid, 'usable': True}, local=False)
         self.assertEqual(code, 403)
         code, _ = self.call('POST', '/api/reports/', {'item': self.items[0].iid, 'usable': True}, session=False)
@@ -29,7 +32,7 @@ class ProblemReportTests(ApiTestCase):
         code, body = self.report({'item': self.items[0].iid})  # la question « utilisable ? » est obligatoire
         self.assertEqual(code, 400)
 
-    def test_report_notifies_admins_and_lists(self):
+    def test_report_notifies_admins_and_lists(self) -> None:
         with self.captureOnCommitCallbacks(execute=True):
             code, body = self.report({'item': self.items[0].iid, 'comment': 'Emballage déchiré', 'usable': True})
         self.assertEqual(code, 201)
@@ -54,7 +57,7 @@ class ProblemReportTests(ApiTestCase):
         self.assertEqual(body['report']['target'], 'Compresses (Sac A)')
         self.assertTrue(Operation.objects.filter(kind='report').exists())
 
-    def test_admin_update(self):
+    def test_admin_update(self) -> None:
         _, body = self.report({'item': self.items[0].iid, 'usable': True})
         report_id = body['report']['id']
         # un secouriste ne gere pas les signalements
@@ -77,7 +80,7 @@ class ProblemReportTests(ApiTestCase):
         code, body = self.call('POST', '/api/reports/list/', {'show': 'all'})
         self.assertEqual(len(body['reports']), 1)
 
-    def test_three_messages_at_most(self):
+    def test_three_messages_at_most(self) -> None:
         """Trois messages au plus : le signalement, la reponse en cours (remplacee a chaque bouton « En cours ») et
         celle de la resolution (effacee si le signalement est rouvert)."""
         _, body = self.report({'item': self.items[0].iid, 'usable': True, 'comment': 'Emballage déchiré'})
@@ -102,7 +105,7 @@ class ProblemReportTests(ApiTestCase):
         code, body = self.call('POST', url, {'status': 'progress', 'usable': True, 'note': ''})
         self.assertEqual(body['note'], '')
 
-    def test_list_puts_reports_to_handle_first(self):
+    def test_list_puts_reports_to_handle_first(self) -> None:
         _, first = self.report({'item': self.items[0].iid, 'usable': True})
         self.call('POST', f"/api/reports/{first['report']['id']}/", {'status': 'resolved'})
         _, usable = self.report({'item': self.items[0].iid, 'usable': True})
@@ -115,7 +118,7 @@ class ProblemReportTests(ApiTestCase):
         self.assertEqual([row['id'] for row in body['reports']],
                          [new['report']['id'], broken['report']['id'], usable['report']['id'], first['report']['id']])
 
-    def test_unusable_item_must_be_replaced(self):
+    def test_unusable_item_must_be_replaced(self) -> None:
         broken, other = self.items
         self.report({'item': broken.iid, 'usable': False})
         code, body = self.call('GET', f'/api/lots/{self.lot.id}/')
@@ -131,7 +134,7 @@ class ProblemReportTests(ApiTestCase):
         self.assertTrue(report['complete'])
         self.assertEqual(report['replaced'], [broken.iid])
 
-    def test_lot_reported_unusable_shows_on_its_fiche(self):
+    def test_lot_reported_unusable_shows_on_its_fiche(self) -> None:
         # signalement d'un lot « non utilisable » : rouge et visible de tous sur sa fiche, meme apres une verif complete
         _, body = self.report({'lot': self.lot.id, 'comment': 'Sac déchiré', 'usable': False})
         report_id = body['report']['id']
@@ -159,7 +162,7 @@ class ProblemReportTests(ApiTestCase):
         _, lot = self.call('GET', f'/api/lots/{self.lot.id}/', local=False)
         self.assertEqual(lot['reports'], [])
 
-    def test_item_type_report_listed_on_lot(self):
+    def test_item_type_report_listed_on_lot(self) -> None:
         self.report({'lot': self.lot.id, 'type': 'compre', 'usable': True}, local=True)
         _, lot = self.call('GET', f'/api/lots/{self.lot.id}/', local=False)
         self.assertEqual([row['type_name'] for row in lot['reports']], ['Compresses'])
@@ -170,7 +173,7 @@ class ProblemReportTests(ApiTestCase):
         self.assertEqual(len(lot['reports']), 1)
         self.assertFalse(lot['unusable'])
 
-    def test_reported_item_never_missing(self):
+    def test_reported_item_never_missing(self) -> None:
         reported, other = self.items
         self.report({'item': reported.iid, 'usable': True})
         for _ in range(3):
@@ -179,7 +182,7 @@ class ProblemReportTests(ApiTestCase):
         item = Items.objects.get(iid=reported.iid)
         self.assertEqual((item.status, item.missed_verifs), (ItemStatus.ACTIVE, 0))
 
-    def test_resolve_non_compliant_item(self):
+    def test_resolve_non_compliant_item(self) -> None:
         disabled, removed = self.items
         _, body = self.report({'item': disabled.iid, 'usable': False, 'comment': 'Date effacée'})
         first = body['report']['id']
@@ -210,15 +213,15 @@ class ProblemReportTests(ApiTestCase):
 
 
 class ItemDisableTests(ApiTestCase):
-    def setUp(self):
+    def setUp(self) -> None:
         super().setUp()
         self.items = self.create(self.compresses, self.today + timedelta(days=30), 3)
         Items.objects.filter(iid__in=[item.iid for item in self.items[:2]]).update(location=self.lot)
 
-    def disable(self, data, **kwargs):
+    def disable(self, data: dict[str, Any], **kwargs: Any) -> tuple[int, Any]:
         return self.call('POST', '/api/items/disable/', data, **kwargs)
 
-    def test_disable_one_item(self):
+    def test_disable_one_item(self) -> None:
         target, other, _ = self.items
         code, _ = self.disable({'items': [target.iid]})
         self.assertEqual(code, 400)  # raison obligatoire
@@ -247,7 +250,7 @@ class ItemDisableTests(ApiTestCase):
         self.assertEqual(body['count'], 1)
         self.assertFalse(Items.objects.get(iid=target.iid).disabled)
 
-    def test_receptions_and_whole_reception(self):
+    def test_receptions_and_whole_reception(self) -> None:
         later = self.create(self.compresses, self.today + timedelta(days=30), 2)  # autre reception, meme paquet
         code, rows = self.call('GET', '/api/receptions/?type=compre')
         self.assertEqual(code, 200)
@@ -264,7 +267,7 @@ class ItemDisableTests(ApiTestCase):
         self.assertEqual((row['stock_fresh'], row['stock_expired']), (2, 1))
         self.assertEqual((row['lots_fresh'], row['lots_expired']), (0, 2))
 
-    def test_sealed_pack_report_and_disable(self):
+    def test_sealed_pack_report_and_disable(self) -> None:
         date = (self.today + timedelta(days=200)).isoformat()
         _, body = self.call('POST', '/api/items/batch/',
                             {'type': 'compre', 'peremption': date, 'count': 3, 'sealed_pack': True, 'user': 'M001'})
@@ -295,17 +298,17 @@ class ItemDisableTests(ApiTestCase):
 class RevisionTests(ApiTestCase):
     """Revision periodique du materiel non consommable : date de prochaine revision, taches, retard bloquant ou non."""
 
-    def setUp(self):
+    def setUp(self) -> None:
         super().setUp()
         from .. import webpush
-        self.sent = []
+        self.sent: list[tuple[str, str]] = []
         self.addCleanup(setattr, webpush, 'notify_event', webpush.notify_event)
         webpush.notify_event = lambda field, title, body, **web: self.sent.append((field, body)) or 1
         self.aspi = ItemType.objects.create(type='aspimu', name='Aspirateur', consumable=False, revision_months=3,
                                             revision_tasks=['Batterie chargée', 'Tuyau propre'])
         LotRequirements.objects.create(lot_type=self.lot_type, item_type=self.aspi, quantity=1)
 
-    def test_new_item_due_after_interval(self):
+    def test_new_item_due_after_interval(self) -> None:
         item = self.create(self.aspi, None, 1)[0]
         self.assertEqual(item.revision_due, models.add_months(self.today, 3))
         code, body = self.call('GET', f'/api/items/{item.iid}/', local=False)
@@ -314,7 +317,7 @@ class RevisionTests(ApiTestCase):
         self.assertFalse(body['revision_late'])
         self.assertEqual(models.add_months(date(2026, 1, 31), 1), date(2026, 2, 28))
 
-    def test_revise_requires_all_tasks_and_sets_next_due(self):
+    def test_revise_requires_all_tasks_and_sets_next_due(self) -> None:
         item = self.create(self.aspi, None, 1)[0]
         code, body = self.call('POST', f'/api/items/{item.iid}/revision/', {'tasks': ['Batterie chargée']})
         self.assertEqual(code, 400)
@@ -341,7 +344,7 @@ class RevisionTests(ApiTestCase):
         code, _ = self.call('POST', f'/api/items/{garrot.iid}/revision/', {'tasks': []})
         self.assertEqual(code, 400)
 
-    def test_late_revision_blocks_only_when_not_usable(self):
+    def test_late_revision_blocks_only_when_not_usable(self) -> None:
         item = self.create(self.aspi, None, 1)[0]
         Items.objects.filter(iid=item.iid).update(location=self.lot, revision_due=self.today - timedelta(days=1))
         item.refresh_from_db()
@@ -358,7 +361,7 @@ class RevisionTests(ApiTestCase):
         self.assertEqual(lot['expired_count'], 1)
         self.assertEqual(lot['next_revision'], (self.today - timedelta(days=1)).isoformat())
 
-    def test_enabling_revision_dates_existing_items(self):
+    def test_enabling_revision_dates_existing_items(self) -> None:
         ItemType.objects.filter(type='aspimu').update(revision_months=0)
         item = self.create(ItemType.objects.get(type='aspimu'), None, 1)[0]
         self.assertIsNone(item.revision_due)
@@ -367,7 +370,7 @@ class RevisionTests(ApiTestCase):
         item.refresh_from_db()
         self.assertEqual(item.revision_due, models.add_months(self.today, 6))
 
-    def test_disinfection_separate_from_revision(self):
+    def test_disinfection_separate_from_revision(self) -> None:
         # un item peut avoir une revision ET une desinfection, chacune avec sa date, ses taches, son retard
         self.aspi.disinfection_months = 1
         self.aspi.disinfection_tasks = ['Désinfectant passé']
@@ -405,7 +408,7 @@ class RevisionTests(ApiTestCase):
         code, _ = self.call('POST', f'/api/items/{garrot.iid}/revision/', {'kind': 'disinfection', 'tasks': []})
         self.assertEqual(code, 400)
 
-    def test_manual_maintenance_date(self):
+    def test_manual_maintenance_date(self) -> None:
         item = self.create(self.aspi, None, 1)[0]
         url = f'/api/items/{item.iid}/maintenance/date/'
         # derniere revision faite il y a 2 mois : prochaine dans 1 mois (periodicite 3), cycle au mois 3
@@ -433,7 +436,7 @@ class RevisionTests(ApiTestCase):
                             local=False)
         self.assertEqual(code, 403)
 
-    def test_events_in_date_order(self):
+    def test_events_in_date_order(self) -> None:
         self.aspi.disinfection_months = 1
         self.aspi.save()
         late, soon = self.create(self.aspi, None, 2)
@@ -458,7 +461,7 @@ class RevisionTests(ApiTestCase):
         days = [row['days'] for row in body['events']]
         self.assertEqual(days, sorted(days))
 
-    def test_lot_disinfection(self):
+    def test_lot_disinfection(self) -> None:
         url = f'/api/lots/{self.lot.id}/disinfection/'
         code, _ = self.call('POST', url, {'done': True})
         self.assertEqual(code, 400)  # pas de periodicite
@@ -483,7 +486,7 @@ class RevisionTests(ApiTestCase):
         code, body = self.call('GET', '/api/maintenance/')
         self.assertEqual([lot['id'] for lot in body['lots']], [self.lot.id])
 
-    def test_maintenance_overview(self):
+    def test_maintenance_overview(self) -> None:
         late, ok = self.create(self.aspi, None, 2)
         Items.objects.filter(iid=late.iid).update(revision_due=self.today - timedelta(days=1))
         self.create(self.garrot, None, 1)  # consommable : absent
@@ -493,7 +496,7 @@ class RevisionTests(ApiTestCase):
         code, _ = self.call('GET', '/api/maintenance/', session=False)
         self.assertEqual(code, 403)
 
-    def test_daily_revision_summary(self):
+    def test_daily_revision_summary(self) -> None:
         from django.core.management import call_command
         late, soon, later = self.create(self.aspi, None, 3)
         Items.objects.filter(iid=late.iid).update(location=self.lot, revision_due=self.today - timedelta(days=2))

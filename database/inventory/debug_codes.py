@@ -17,6 +17,10 @@ ni les liens de deblocage de PIN : ce sont des identifiants de personnes. Les se
 pour leur creer a la demande un QR code de connexion temporaire (views.debug_temp_login), jamais leur badge.
 """
 
+from __future__ import annotations
+
+from typing import Any
+
 from django.utils import timezone
 
 from . import serializers as ser
@@ -25,7 +29,7 @@ from .idendity import short_names
 from .models import Checklist, Items, LabelStyle, Lots, Role, SealedPacks, Secouristes, compact_iid
 
 
-def item_code(item):
+def item_code(item: Items) -> str:
     """Contenu du code imprime sur l'etiquette de l'item, d'apres le style de son type (voir LabelStyle)."""
     item_type = item.pack.item_type
     short = compact_iid(item.iid)
@@ -34,7 +38,7 @@ def item_code(item):
     return ser.public_url('task' if item_type.tasks else 'item', id=short)
 
 
-def item_row(item):
+def item_row(item: Items) -> dict[str, Any]:
     item_type = item.pack.item_type
     return {
         'iid': item.iid,
@@ -52,7 +56,7 @@ def item_row(item):
     }
 
 
-def lot_codes(lot, virtual=False):
+def lot_codes(lot: Lots, virtual: bool = False) -> list[dict[str, str]]:
     """Etiquettes du lot : publique, cle (seule etiquette d'un rangement), scelle et ouverture du scelle en cours.
     Un lot de referentiel sans contenu a lui (services.virtual_lot, ex : le B+) n'a ni etiquette publique ni cle."""
     codes = []
@@ -69,10 +73,10 @@ def lot_codes(lot, virtual=False):
     return codes
 
 
-def lot_tree():
+def lot_tree() -> list[tuple[Lots, int]]:
     """Tous les lots, actifs d'abord, en arbre (profondeur d'abord, freres par nom) : chaque lot suit son parent."""
     lots = list(Lots.objects.select_related('lot_type').all())
-    by_parent = {}
+    by_parent: dict[str | None, list[Lots]] = {}
     known = {lot.id for lot in lots}
     for lot in lots:
         by_parent.setdefault(lot.parent_id if lot.parent_id in known else None, []).append(lot)
@@ -80,7 +84,7 @@ def lot_tree():
         children.sort(key=lambda lot: (not lot.active, lot.is_stock, lot.name.lower(), lot.id))
     rows, seen = [], set()
 
-    def walk(lot, depth):
+    def walk(lot: Lots, depth: int) -> None:
         if lot.id in seen:
             return
         seen.add(lot.id)
@@ -95,7 +99,7 @@ def lot_tree():
     return rows
 
 
-def rescuers():
+def rescuers() -> list[dict[str, Any]]:
     """Secouristes qui peuvent recevoir un QR code de connexion temporaire : actifs, badge valide, pas admin."""
     users = list(Secouristes.objects.filter(active=True, guest=False, key_expires__gte=timezone.localdate())
                  .exclude(role=Role.ADMIN))
@@ -105,7 +109,7 @@ def rescuers():
     return sorted(rows, key=lambda row: row['name'].lower())
 
 
-def lot_row(lot, depth):
+def lot_row(lot: Lots, depth: int) -> dict[str, Any]:
     virtual = services.virtual_lot(lot)
     return {
         'id': lot.id,
@@ -124,7 +128,7 @@ def lot_row(lot, depth):
     }
 
 
-def catalog():
+def catalog() -> dict[str, Any]:
     items = list(Items.objects.select_related('pack__item_type')
                  .order_by('pack__item_type__name', 'pack__peremption', 'iid'))
     return {

@@ -19,8 +19,11 @@ Autonomie : stock / consommation par jour des 90 derniers jours (ou depuis le de
 ServerSettings.consumable_alert_days jours, une tache « Commander » apparait dans la Gestion de la TECH du poste.
 """
 
+from __future__ import annotations
+
 from datetime import timedelta
 from decimal import Decimal, InvalidOperation
+from typing import TYPE_CHECKING, Any
 
 from django.db.models import Min, Sum
 from django.utils import timezone
@@ -30,6 +33,9 @@ from .models import (
     ConsumableKind, ConsumableMove, ConsumableMoveKind, ConsumableRef, LabelSupport, PrintCount, ServerSettings,
 )
 from .print_counts import category_label, parse_decimal, _number
+
+if TYPE_CHECKING:
+    from datetime import date
 
 RIBBON_GAP_MM = Decimal(3)  # espace entre deux etiquettes sur le ruban (etiquettes pre-decoupees)
 RATE_DAYS = 90              # consommation moyenne sur les 90 derniers jours
@@ -42,26 +48,26 @@ class ConsumableError(Exception):
     pass
 
 
-def pool_key(ref):
+def pool_key(ref: ConsumableRef) -> str:
     if ref.kind == ConsumableKind.RIBBON:
         return RIBBON_KEY
     return f'{_number(ref.width_mm)}x{_number(ref.height_mm)}-{ref.support}'
 
 
-def pool_label(ref):
+def pool_label(ref: ConsumableRef) -> str:
     if ref.kind == ConsumableKind.RIBBON:
         return 'Rubans de transfert'
     return category_label(ref.width_mm, ref.height_mm, ref.support)
 
 
-def roll_units(ref):
+def roll_units(ref: ConsumableRef) -> int:
     """Etiquettes d'une bobine, ou millimetres d'un rouleau de ruban."""
     if ref.kind == ConsumableKind.RIBBON:
         return int((ref.length_m or 0) * 1000)
     return ref.per_roll
 
 
-def ref_dict(ref):
+def ref_dict(ref: ConsumableRef) -> dict[str, Any]:
     return {
         'id': ref.id, 'kind': ref.kind, 'name': ref.name, 'supplier': ref.supplier,
         'width_mm': float(ref.width_mm) if ref.width_mm is not None else None,
@@ -74,7 +80,7 @@ def ref_dict(ref):
     }
 
 
-def ref_summary(ref):
+def ref_summary(ref: ConsumableRef) -> str:
     """« boîte de 12 bobines de 2 000 étiquettes, 57,00 € » / « boîte de 25 rouleaux de 74 m »."""
     if ref.kind == ConsumableKind.RIBBON:
         text = f'boîte de {ref.per_box} rouleau{"x" if ref.per_box > 1 else ""} de {_number(ref.length_m or 0)} m'
@@ -86,18 +92,18 @@ def ref_summary(ref):
     return text
 
 
-def _thousands(value):
+def _thousands(value: int | Decimal) -> str:
     return f'{int(value):,}'.replace(',', ' ')
 
 
-def _euros(value):
+def _euros(value: Decimal) -> str:
     return f'{Decimal(value):.2f}'.replace('.', ',') + ' €'
 
 
 # ---------------------------------------------------------------------------------------------------------------------
 # References
 
-def _decimal(value, field, minimum, maximum, places='0.1'):
+def _decimal(value: str | int | bool | None, field: str, minimum: int, maximum: int, places: str = '0.1') -> Decimal:
     try:
         number = parse_decimal(value).quantize(Decimal(places))
     except (InvalidOperation, ValueError, TypeError):
@@ -107,7 +113,7 @@ def _decimal(value, field, minimum, maximum, places='0.1'):
     return number
 
 
-def _int(value, field, minimum, maximum):
+def _int(value: int, field: str, minimum: int, maximum: int) -> int:
     try:
         number = int(value)
     except (TypeError, ValueError):
@@ -117,7 +123,7 @@ def _int(value, field, minimum, maximum):
     return number
 
 
-def save_ref(data, ref=None):
+def save_ref(data: dict[str, Any], ref: ConsumableRef | None = None) -> ConsumableRef | None:
     """Cree ou modifie une reference. Le type (bobines / rubans) ne change plus apres la creation."""
     creating = ref is None
     if creating:
@@ -159,7 +165,7 @@ def save_ref(data, ref=None):
 # ---------------------------------------------------------------------------------------------------------------------
 # Receptions et inventaires
 
-def add_move(data, by):
+def add_move(data: dict[str, Any], by: str) -> ConsumableMove:
     ref = ConsumableRef.objects.filter(id=data.get('ref')).first()
     if ref is None:
         raise ConsumableError('Référence inconnue')
@@ -180,13 +186,13 @@ def add_move(data, by):
                                          by=by[:64])
 
 
-def delete_move(move_id):
+def delete_move(move_id: int) -> None:
     deleted, _ = ConsumableMove.objects.filter(id=move_id).delete()
     if not deleted:
         raise ConsumableError('Mouvement inconnu')
 
 
-def move_dict(move):
+def move_dict(move: ConsumableMove) -> dict[str, Any]:
     ref = move.ref
     unit = 'm' if ref.kind == ConsumableKind.RIBBON else 'étiquette'
     parts = []
@@ -206,7 +212,7 @@ def move_dict(move):
     }
 
 
-def _units_text(kind, units):
+def _units_text(kind: str, units: int) -> str:
     if kind == ConsumableKind.RIBBON:
         meters = Decimal(units) / 1000
         meters = meters.quantize(Decimal('0.1') if meters < 10 else Decimal('1'))
@@ -217,7 +223,7 @@ def _units_text(kind, units):
 # ---------------------------------------------------------------------------------------------------------------------
 # Stock estime, consommation, autonomie
 
-def _consumption(key, since=None, until=None):
+def _consumption(key: str, since: date | None = None, until: date | None = None) -> int:
     """Etiquettes (categorie) ou millimetres de ruban imprimes, jours `since` exclu a `until` inclus."""
     rows = PrintCount.objects.all()
     if since is not None:
@@ -235,7 +241,7 @@ def _consumption(key, since=None, until=None):
                        support=support).aggregate(total=Sum('count'))['total'] or 0
 
 
-def _stock(key, moves):
+def _stock(key: str, moves: list[ConsumableMove]) -> tuple[int | None, date | None]:
     """(stock, depuis) : None si aucun mouvement (stock inconnu)."""
     if not moves:
         return None, None
@@ -248,7 +254,7 @@ def _stock(key, moves):
     return base + received - _consumption(key, since=since), since
 
 
-def _rate(key, today):
+def _rate(key: str, today: date) -> Decimal:
     """Consommation par jour (etiquettes ou mm) sur les 90 derniers jours, ou depuis le debut du compteur."""
     first = PrintCount.objects.aggregate(first=Min('day'))['first']
     if first is None:
@@ -258,7 +264,7 @@ def _rate(key, today):
     return Decimal(used) / days
 
 
-def _unit_price(refs, moves):
+def _unit_price(refs: list[ConsumableRef], moves: list[ConsumableMove]) -> Decimal | None:
     """Prix d'une etiquette ou d'un mm : reference de la derniere reception qui a un prix, sinon la plus recente."""
     ordered = [move.ref for move in reversed(moves) if move.kind == ConsumableMoveKind.RECEPTION]
     ordered += sorted(refs, key=lambda ref: ref.created, reverse=True)
@@ -269,7 +275,7 @@ def _unit_price(refs, moves):
     return None
 
 
-def _duration(days):
+def _duration(days: int) -> str:
     """Autonomie lisible : « environ 12 jours », « environ 4 mois », « plus de 2 ans »."""
     if days < 60:
         return f'environ {days} jour{"s" if days > 1 else ""}'
@@ -278,7 +284,7 @@ def _duration(days):
     return 'plus de 2 ans'
 
 
-def _stock_text(kind, stock, ref):
+def _stock_text(kind: str, stock: int, ref: ConsumableRef) -> str:
     """« 8 600 étiquettes, ≈ 4 bobines (12 par boîte) » ; rubans : « 152 m, ≈ 2 rouleaux »."""
     text = _units_text(kind, max(stock, 0))
     per_roll = roll_units(ref) if ref else 0
@@ -291,13 +297,13 @@ def _stock_text(kind, stock, ref):
     return text
 
 
-def pools(today=None, settings_row=None):
+def pools(today: date | None = None, settings_row: ServerSettings | None = None) -> list[dict[str, Any]]:
     today = today or timezone.localdate()
     settings_row = settings_row or ServerSettings.get()
     alert_days = settings_row.consumable_alert_days
     refs = list(ConsumableRef.objects.all())
     moves = list(ConsumableMove.objects.select_related('ref').order_by('created', 'id'))
-    grouped = {}
+    grouped: dict[Any, dict[str, Any]] = {}
     for ref in refs:
         grouped.setdefault(pool_key(ref), {'refs': [], 'moves': [], 'kind': ref.kind, 'label': pool_label(ref)})
         grouped[pool_key(ref)]['refs'].append(ref)
@@ -341,7 +347,7 @@ def pools(today=None, settings_row=None):
     return result
 
 
-def summary():
+def summary() -> dict[str, Any]:
     settings_row = ServerSettings.get()
     moves = ConsumableMove.objects.select_related('ref').order_by('-created', '-id')[:RECENT_MOVES]
     return {
@@ -354,13 +360,13 @@ def summary():
     }
 
 
-def set_alert_days(value):
+def set_alert_days(value: int) -> None:
     settings_row = ServerSettings.get()
     settings_row.consumable_alert_days = _int(value, 'Alerte (jours)', 1, 365)
     settings_row.save(update_fields=['consumable_alert_days'])
 
 
-def order_tasks(today=None):
+def order_tasks(today: date | None = None) -> list[dict[str, Any]]:
     """Taches « Commander » de la Gestion de la TECH (poste seulement) : stock epuise ou sous le seuil d'alerte."""
     tasks = []
     for pool in pools(today):

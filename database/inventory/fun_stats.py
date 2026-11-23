@@ -18,9 +18,13 @@ récentes ». Chaque participant d'une vérif à plusieurs la compte. Seuls les 
 entrent dans les podiums : ni noms declares ni invites. Noms courts seulement (prenom, jamais le nom de famille).
 """
 
+from __future__ import annotations
+
 from collections import Counter, defaultdict
 from datetime import datetime, time, timedelta
 from itertools import combinations
+from typing import TYPE_CHECKING, Any
+from collections.abc import Callable
 
 from django.db.models import Q
 from django.utils import timezone
@@ -28,6 +32,9 @@ from django.utils import timezone
 from .idendity import SOURCE_VERIFIED, anonymized, identity_name
 from .models import (Checklist, ItemMovement, Lots, MovementKind, Operation, OperationKind, ProblemReport,
                      Secouristes, Verifs, VerifItem, VerifResult)
+
+if TYPE_CHECKING:
+    from datetime import date
 
 CASCADE_GAP = timedelta(minutes=30)  # comme views.public.CASCADE_GAP (Vérifs récentes)
 PODIUM = 3
@@ -38,7 +45,7 @@ MONTHS = ['janvier', 'février', 'mars', 'avril', 'mai', 'juin', 'juillet', 'ao�
 DAY_START = 5
 
 
-def period(value=None, today=None):
+def period(value: str | int | None = None, today: date | None = None) -> tuple[datetime, datetime, str]:
     """(debut, fin, libelle) : 12 derniers mois par defaut, ou une annee civile (« 2025 »)."""
     today = today or timezone.localdate()
     tz = timezone.get_current_timezone()
@@ -51,7 +58,7 @@ def period(value=None, today=None):
     return start, timezone.now(), '12 derniers mois'
 
 
-def years():
+def years() -> list[int]:
     """Annees civiles avec au moins une vérif, la plus recente d'abord."""
     first = Verifs.objects.order_by('datetime').values_list('datetime', flat=True).first()
     if first is None:
@@ -59,14 +66,14 @@ def years():
     return list(range(timezone.localdate().year, timezone.localtime(first).year - 1, -1))
 
 
-def _person(identity):
+def _person(identity: str) -> str | None:
     """Cle d'un secouriste connecte (M:matricule), None pour un nom declare ou un invite."""
     return identity if identity and identity.startswith(SOURCE_VERIFIED + ':') else None
 
 
-def _sessions(verifs, parents):
+def _sessions(verifs: list[Verifs], parents: dict[str, str | None]) -> list[dict[str, Any]]:
     """Vérifs reunies en sessions : [{at, by, people, lots, root, present, expired, missing, complete, ids}]."""
-    def root(lot_id):
+    def root(lot_id: str) -> str:
         seen = set()
         while parents.get(lot_id) and lot_id not in seen:
             seen.add(lot_id)
@@ -74,7 +81,7 @@ def _sessions(verifs, parents):
         return lot_id
 
     sessions = []
-    open_by = {}  # (by, racine) -> derniere session, pour rattacher les etapes d'une cascade
+    open_by: dict[tuple[str, str], dict[str, Any]] = {}  # (by, racine) -> derniere session, pour rattacher les etapes d'une cascade
     for verif in verifs:  # par date croissante
         key = (verif.by, root(verif.lot_id) if verif.lot_id else None)
         last = open_by.get(key)
@@ -95,7 +102,8 @@ def _sessions(verifs, parents):
     return sessions
 
 
-def _podium(counter, unit, unit_plural=None, minimum=1, name=identity_name):
+def _podium(counter: Counter, unit: str, unit_plural: str | None = None, minimum: int = 1,
+            name: Callable[[str], str] = identity_name) -> list[dict[str, Any]]:
     """Les PODIUM premiers d'un Counter (ex aequo au meme rang). name : cle -> nom affiche (nom court d'une
     identite stockee par defaut)."""
     rows = [(key, value) for key, value in counter.most_common() if value >= minimum]
@@ -111,18 +119,18 @@ def _podium(counter, unit, unit_plural=None, minimum=1, name=identity_name):
     return podium
 
 
-def _when(dt):
+def _when(dt: datetime) -> str:
     local = timezone.localtime(dt)
     return f"le {local.day} {MONTHS[local.month - 1]} {local.year} à {local.hour} h {local.minute:02d}"
 
 
-def _night_minutes(dt):
+def _night_minutes(dt: datetime) -> int:
     """Minutes depuis DAY_START (5 h) : plus c'est grand, plus c'est tard dans la nuit."""
     local = timezone.localtime(dt)
     return ((local.hour - DAY_START) % 24) * 60 + local.minute
 
 
-def compute(value=None):
+def compute(value: str | int | None = None) -> dict[str, Any]:
     """Stats fun de la periode : {period, years, totals, awards}. awards : cartes {key, emoji, title, text, podium?,
     record?} dans l'ordre de presentation, sans les cartes vides (rien a montrer cette annee)."""
     start, end, label = period(value)
@@ -130,21 +138,21 @@ def compute(value=None):
         return _compute(start, end, label)
 
 
-def _compute(start, end, label):
+def _compute(start: datetime, end: datetime, label: str) -> dict[str, Any]:
     parents = dict(Lots.objects.values_list('id', 'parent_id'))
     names = dict(Lots.objects.values_list('id', 'name'))
     verifs = list(Verifs.objects.filter(datetime__gte=start, datetime__lt=end).order_by('datetime', 'id'))
     sessions = _sessions(verifs, parents)
     session_of = {verif_id: session for session in sessions for verif_id in session['ids']}
 
-    per_person = Counter()
-    duos = Counter()
-    partners = defaultdict(set)
-    scanned = Counter()
-    per_day = Counter()
-    lot_counter = Counter()
-    weekday = Counter()
-    month = Counter()
+    per_person: Counter[str] = Counter()
+    duos: Counter[tuple[str, str]] = Counter()
+    partners: defaultdict[str, set[str]] = defaultdict(set)
+    scanned: Counter[str] = Counter()
+    per_day: Counter[tuple[str, date]] = Counter()
+    lot_counter: Counter[str] = Counter()
+    weekday: Counter[int] = Counter()
+    month: Counter[int] = Counter()
     night = None
     early = None
     for session in sessions:
@@ -173,7 +181,7 @@ def _compute(start, end, label):
     expired_rows = list(VerifItem.objects.filter(verif__in=[v.id for v in verifs])
                         .filter(Q(expired=True) | Q(result=VerifResult.REPLACED))
                         .values_list('verif_id', 'item__pack__peremption', 'item__pack__item_type__name'))
-    hunters = Counter()
+    hunters: Counter[str] = Counter()
     oldest = None
     verif_at = {verif.id: verif.datetime for verif in verifs}
     for verif_id, peremption, type_name in expired_rows:
@@ -187,7 +195,8 @@ def _compute(start, end, label):
 
     awards = []
 
-    def add(key, emoji, title, text, podium=None, record=None):
+    def add(key: str, emoji: str, title: str, text: str, podium: list[dict[str, Any]] | None = None,
+            record: dict[str, Any] | None = None) -> None:
         if podium or record:
             awards.append({'key': key, 'emoji': emoji, 'title': title, 'text': text, 'podium': podium or [],
                            'record': record})
@@ -231,7 +240,7 @@ def _compute(start, end, label):
     operations = Operation.objects.filter(at__gte=start, at__lt=end)
     seals = Counter(op for op in operations.filter(kind=OperationKind.SEAL).values_list('by', flat=True) if _person(op))
     add('seals', '🔒', 'Pro du scellé', 'Le plus de lots scellés.', _podium(seals, 'scellé'))
-    restocks = Counter()
+    restocks: Counter[str] = Counter()
     for by, details in operations.filter(kind=OperationKind.RESTOCK).values_list('by', 'details'):
         if _person(by):
             restocks[by] += (details or {}).get('count') or 1
@@ -282,7 +291,7 @@ def _compute(start, end, label):
             'end': timezone.localtime(end).date().isoformat(), 'years': years(), 'totals': totals, 'awards': awards}
 
 
-def _duration(days):
+def _duration(days: int) -> str:
     if days >= 730:
         return f"plus de {days // 365} ans"
     if days >= 365:
@@ -292,14 +301,15 @@ def _duration(days):
     return f"{days} jours" if days > 1 else '1 jour'
 
 
-def _forgotten_lot(verifs, parents, names, start, end):
+def _forgotten_lot(verifs: list[Verifs], parents: dict[str, str | None], names: dict[str, str], start: datetime,
+                   end: datetime) -> dict[str, str] | None:
     """Lot actif (pas un rangement, pas un sous-lot) resté le plus longtemps sans vérif sur la periode."""
     tops = {lot.id: lot for lot in Lots.objects.select_related('lot_type').filter(
         active=True, parent__isnull=True, lot_type__storage=False)}
     if not tops:
         return None
 
-    def root(lot_id):
+    def root(lot_id: str) -> str:
         seen = set()
         while parents.get(lot_id) and lot_id not in seen:
             seen.add(lot_id)

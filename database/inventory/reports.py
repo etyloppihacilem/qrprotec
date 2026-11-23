@@ -18,6 +18,10 @@ Un item signale inutilisable doit etre remplace comme un perime tant que son sig
 (Items.unusable) ; un item signale n'est pas marque disparu par une verif (Items.reported).
 """
 
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Any
+
 from django.db import transaction
 from django.db.models import Case, IntegerField, Q, Value, When
 from django.utils import timezone
@@ -28,16 +32,20 @@ from .models import (
     Items, ItemStatus, ItemType, Lots, OperationKind, ProblemReport, ReportResolution, ReportStatus, SealedPacks,
 )
 
+if TYPE_CHECKING:
+    from datetime import datetime
+    from django.db.models.query import QuerySet
+
 COMMENT_LENGTH = 1000
 NOTE_LENGTH = 1000
 
 
-def _local(value):
+def _local(value: datetime | None) -> str | None:
     """Horodatage en heure locale, comme le reste de l'API (le poste l'affiche tel quel)."""
     return timezone.localtime(value).isoformat(timespec='seconds') if value else None
 
 
-def open_reports_q(item):
+def open_reports_q(item: Items) -> Q:
     """Signalements ouverts qui portent sur l'item : sur lui, ou sur son paquet ferme."""
     where = Q(item=item)
     if item.sealed_pack_id:
@@ -45,7 +53,7 @@ def open_reports_q(item):
     return where & ~Q(status=ReportStatus.RESOLVED)
 
 
-def refresh_item(item):
+def refresh_item(item: Items) -> None:
     """Met a jour les drapeaux de l'item d'apres ses signalements ouverts (et ceux de son paquet ferme)."""
     if item is None:
         return
@@ -57,7 +65,7 @@ def refresh_item(item):
         item.save(update_fields=['reported', 'unusable'])
 
 
-def report_items(report):
+def report_items(report: ProblemReport) -> list[Items]:
     """Items concernes : l'item signale, ou tous ceux du paquet ferme signale."""
     if report.item_id:
         return [report.item]
@@ -66,12 +74,12 @@ def report_items(report):
     return []
 
 
-def refresh_items(report):
+def refresh_items(report: ProblemReport) -> None:
     for item in report_items(report):
         refresh_item(item)
 
 
-def target_name(report):
+def target_name(report: ProblemReport) -> str:
     """« Tensiomètre (B+ · Sac de soin) », « Paquet de Compresses (00000012) », « Sac de soin » : ce qui est
     signale."""
     if report.sealed_pack_id:
@@ -83,7 +91,7 @@ def target_name(report):
     return report.lot_name or 'Lot inconnu'
 
 
-def report_dict(report):
+def report_dict(report: ProblemReport) -> dict[str, Any]:
     data = {
         'id': report.id,
         'created': _local(report.created),
@@ -112,7 +120,8 @@ def report_dict(report):
     return data
 
 
-def create(identity, lot_id='', iid='', type_code='', comment='', usable=True, pack_id=''):
+def create(identity: str, lot_id: str = '', iid: str = '', type_code: str = '', comment: str = '', usable: bool = True,
+           pack_id: str = '') -> tuple[ProblemReport, Items | None]:
     """Nouveau signalement ; retourne (signalement, item ou None). L'item donne son lot et son type, le paquet ferme
     son type (le signalement vaut pour tous ses items)."""
     item = None
@@ -159,7 +168,8 @@ def create(identity, lot_id='', iid='', type_code='', comment='', usable=True, p
     return report, item
 
 
-def update(report, identity, status=None, usable=None, note=None, resolution=None, resolution_note=None):
+def update(report: ProblemReport, identity: str, status: str | None = None, usable: bool | None = None,
+           note: str | None = None, resolution: str | None = None, resolution_note: str | None = None) -> ProblemReport:
     """Prise en charge par un admin : statut, objet utilisable ou non, et sa reponse. Trois messages au plus par
     signalement : celui du signalement (comment), la reponse du TECH en le passant en cours (`note`, la zone de texte
     enregistree a chaque bouton « En cours », remplacee a chaque fois) et celle de la resolution (`resolution_note`,
@@ -236,32 +246,32 @@ def update(report, identity, status=None, usable=None, note=None, resolution=Non
     return report
 
 
-def item_reports(item):
+def item_reports(item: Items) -> list[dict[str, Any]]:
     """Signalements ouverts d'un item (et de son paquet ferme) : popup au scan, sur le poste et le web."""
     if not item.reported:
         return []
     return _summaries(ProblemReport.objects.filter(open_reports_q(item)))
 
 
-def pack_reports(sealed_pack):
+def pack_reports(sealed_pack: SealedPacks) -> list[dict[str, Any]]:
     """Signalements ouverts d'un paquet ferme : popup au scan de son etiquette."""
     return _summaries(ProblemReport.objects.filter(sealed_pack=sealed_pack).exclude(status=ReportStatus.RESOLVED))
 
 
-def lot_reports_q():
+def lot_reports_q() -> Q:
     """Signalements ouverts qui portent sur un lot lui-meme ou sur un type d'item d'un lot (pas sur un item ni sur un
     paquet ferme : ceux-la suivent l'item, voir open_reports_q)."""
     return Q(item__isnull=True, sealed_pack__isnull=True, lot__isnull=False) & ~Q(status=ReportStatus.RESOLVED)
 
 
-def lot_reports(lot):
+def lot_reports(lot: Lots) -> list[dict[str, Any]]:
     """Signalements ouverts d'un lot (le lot ou un type d'item du lot) : affiches sur sa fiche, sur le web et le
     poste. Un seul signale inutilisable rend le lot non utilisable (rouge) jusqu'a sa resolution."""
     return [summary(report) for report in ProblemReport.objects.filter(lot_reports_q(), lot=lot)
             .select_related('item_type').order_by('usable', 'created', 'id')]
 
 
-def summary(report):
+def summary(report: ProblemReport) -> dict[str, Any]:
     return {
         'id': report.id,
         'created': _local(report.created),
@@ -277,11 +287,11 @@ def summary(report):
     }
 
 
-def _summaries(queryset):
+def _summaries(queryset: QuerySet) -> list[dict[str, Any]]:
     return [summary(report) for report in queryset.select_related('item_type').order_by('created')]
 
 
-def listing(show='open', limit=200):
+def listing(show: str = 'open', limit: int = 200) -> dict[str, Any]:
     """Signalements ouverts (show='open') ou tous ; compteurs par etat. Ceux a traiter en haut, comme leurs couleurs :
     nouveaux (rouge), en cours avec l'objet inutilisable (orange), en cours encore utilisable, puis resolus ; les
     plus recents d'abord a egalite."""

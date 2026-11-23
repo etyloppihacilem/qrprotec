@@ -26,6 +26,8 @@ Rien que la bibliotheque standard de Python ; le back est celui du RPM (/usr/sha
 avec Django installe).
 """
 
+from __future__ import annotations
+
 import argparse
 import base64
 import json
@@ -46,8 +48,10 @@ import threading
 import time
 import urllib.error
 import urllib.request
+from collections.abc import Iterable
 from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
+from typing import Any
 
 # Reglages du banc, figes pour que les scores des machines soient comparables.
 # QRPROTEC_BENCH_QUICK=1 raccourcit tout (essai du script, score non comparable).
@@ -93,14 +97,14 @@ KEY_METRICS = [
 
 
 class Report:
-    def __init__(self):
-        self.values = {}
-        self.lines = []
+    def __init__(self) -> None:
+        self.values: dict[str, Any] = {}
+        self.lines: list[tuple[str, str, str, str]] = []
 
-    def section(self, title):
+    def section(self, title: str) -> None:
         print(f'\n== {title} ==')
 
-    def add(self, key, value, label, verdict=INFO, hint=''):
+    def add(self, key: str | None, value: Any, label: str, verdict: str = INFO, hint: str = '') -> None:
         if key:
             self.values[key] = value
         shown = f'{value:.2f}' if isinstance(value, float) else ('oui' if value is True else 'non' if value is False
@@ -112,7 +116,7 @@ class Report:
         self.lines.append((verdict, label, shown, hint))
 
 
-def grade(value, good, warn, lower_is_better=True):
+def grade(value: float | None, good: float, warn: float, lower_is_better: bool = True) -> str:
     if value is None:
         return BAD
     if lower_is_better:
@@ -120,14 +124,14 @@ def grade(value, good, warn, lower_is_better=True):
     return OK if value >= good else WARN if value >= warn else BAD
 
 
-def pct(values, p):
+def pct(values: list[float], p: float) -> float | None:
     if not values:
         return None
     ordered = sorted(values)
     return ordered[min(len(ordered) - 1, int(round(p / 100 * (len(ordered) - 1))))]
 
 
-def run(cmd, timeout=20):
+def run(cmd: list[str], timeout: float = 20) -> tuple[int | None, str]:
     try:
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
         return result.returncode, result.stdout + result.stderr
@@ -135,7 +139,7 @@ def run(cmd, timeout=20):
         return None, str(error)
 
 
-def read(path, default=''):
+def read(path: str | Path, default: str = '') -> str:
     try:
         return Path(path).read_text().strip()
     except OSError:
@@ -144,7 +148,7 @@ def read(path, default=''):
 
 # ---------------------------------------------------------------------------------------------------- machine
 
-def machine(rep, target):
+def machine(rep: Report, target: str) -> None:
     rep.section('Machine')
     cpu = re.search(r'model name\s*:\s*(.*)', read('/proc/cpuinfo'))
     rep.add('machine.cpu', cpu.group(1) if cpu else platform.processor(), 'Processeur')
@@ -184,22 +188,22 @@ def machine(rep, target):
             'tient une coupure de courant' if battery else 'prevoir un onduleur')
 
 
-def existing_parent(path):
+def existing_parent(path: str | Path) -> Path:
     path = Path(path)
     while not path.exists():
         path = path.parent
     return path
 
 
-def backup_dir():
+def backup_dir() -> str:
     match = re.search(r'^\s*QRPROTEC_BACKUP_DIR=["\']?([^"\'\n]+)', read('/etc/qrprotec/backup.conf'), re.M)
     return match.group(1).strip() if match else '/var/backups/qrprotec'
 
 
-def storage(rep):
+def storage(rep: Report) -> None:
     """Place libre la ou vivent vraiment la base et les sauvegardes (chemins du RPM), pas dans le dossier de test :
     sous Fedora Server, / est un volume LVM de 15 Go par defaut et le reste du disque n'est pas attribue."""
-    places = {}
+    places: dict[str, tuple[str, list[tuple[str, str]]]] = {}
     for label, path in (('base', '/var/lib/qrprotec'), ('sauvegardes', backup_dir())):
         code, out = run(['findmnt', '-no', 'TARGET,SOURCE', '--target', str(existing_parent(path))])
         mount, _, source = out.strip().partition(' ') if code == 0 and out.strip() else ('/', '', '')
@@ -227,7 +231,7 @@ def storage(rep):
 
 # -------------------------------------------------------------------------------------------------- Bluetooth
 
-def bluetooth(rep):
+def bluetooth(rep: Report) -> None:
     """Presence du Bluetooth seulement (la douchette Inateck est en BLE) : aucun appareil a allumer ni a approcher."""
     rep.section('Bluetooth (douchette)')
     adapters = sorted(p for p in Path('/sys/class/bluetooth').glob('hci*') if ':' not in p.name)
@@ -261,7 +265,7 @@ def bluetooth(rep):
 
 # ------------------------------------------------------------------------------------------------ kiosk / ecran
 
-def kiosk(rep):
+def kiosk(rep: Report) -> None:
     rep.section('Kiosk : ecran, carte graphique, son')
     cards = sorted(Path('/sys/class/drm').glob('card[0-9]'))
     drivers = [os.path.basename(os.path.realpath(c / 'device/driver')) for c in cards if (c / 'device/driver').exists()]
@@ -284,7 +288,7 @@ def kiosk(rep):
 
 # -------------------------------------------------------------------------------------------------------- disque
 
-def disk(rep, directory, count):
+def disk(rep: Report, directory: str, count: int) -> None:
     rep.section(f'Disque ({directory})')
     latencies = []
     path = Path(directory) / f'.qrprotec-bench-{os.getpid()}'
@@ -318,7 +322,7 @@ def disk(rep, directory, count):
 
 # -------------------------------------------------------------------------------------------------------- SQLite
 
-def sqlite_conn(path):
+def sqlite_conn(path: str) -> sqlite3.Connection:
     # meme configuration que DATABASES['default']['OPTIONS'] du back (settings.py)
     conn = sqlite3.connect(path, timeout=20, isolation_level=None, check_same_thread=False)
     conn.execute('PRAGMA journal_mode=WAL')
@@ -326,7 +330,7 @@ def sqlite_conn(path):
     return conn
 
 
-def sqlite_bench(rep, directory):
+def sqlite_bench(rep: Report, directory: str) -> None:
     rep.section('SQLite (WAL + IMMEDIATE, comme en production)')
     tmp = Path(tempfile.mkdtemp(prefix='qrprotec-bench-', dir=directory))
     try:
@@ -356,7 +360,7 @@ def sqlite_bench(rep, directory):
         latencies, errors = [], []
         lock = threading.Lock()
 
-        def writer(number):
+        def writer(number: int) -> None:
             local = sqlite_conn(path)
             for round_ in range(40):
                 start = time.perf_counter()
@@ -404,7 +408,7 @@ def sqlite_bench(rep, directory):
 
 # ----------------------------------------------------------------------------------------------------------- CPU
 
-def cpu_task(_=None):
+def cpu_task(_: object = None) -> float:
     """Travail type d'une requete Django (dicts, JSON, regex, tri), en pur Python : un seul coeur."""
     start = time.perf_counter()
     pattern = re.compile(r'([a-z]{6})-(\d{4})')
@@ -414,7 +418,7 @@ def cpu_task(_=None):
         text = json.dumps(rows)
         rows = json.loads(text)
         rows.sort(key=lambda row: (row['lot'], row['type'], row['iid']))
-        groups = {}
+        groups: dict[tuple[int, str], list[int]] = {}
         for row in rows:
             match = pattern.match(row['type'])
             groups.setdefault((row['lot'], match.group(1)), []).append(row['qty'])
@@ -422,7 +426,7 @@ def cpu_task(_=None):
     return (time.perf_counter() - start) * 1000
 
 
-def cpu(rep):
+def cpu(rep: Report) -> None:
     rep.section('CPU (Python, comme Django)')
     single = min(cpu_task() for _ in range(3))
     rep.add('cpu.single_ms', single, 'Un coeur, meilleur de 3 (ms)', grade(single, 1500, 4000),
@@ -438,10 +442,11 @@ def cpu(rep):
 CPU_SENSORS = ('k10temp', 'zenpower', 'coretemp', 'cpu_thermal', 'soc_thermal')
 
 
-def temperatures():
+def temperatures() -> float | None:
     """Temperature du processeur (°C) : capteurs du CPU en priorite (k10temp, coretemp...), sinon tous ; les valeurs
     impossibles (capteur absent ou mal lu, ex. 179 °C) sont ignorees."""
-    cpu, other = [], []
+    cpu: list[float] = []
+    other: list[float] = []
     for sensor in Path('/sys/class/hwmon').glob('hwmon*/temp*_input'):
         value = read(sensor)
         if value.isdigit() and 1000 <= int(value) <= 125000:
@@ -455,7 +460,7 @@ def temperatures():
     return max(temps) if temps else None
 
 
-def endurance(rep, minutes):
+def endurance(rep: Report, minutes: float) -> None:
     rep.section(f'Chauffe ({minutes:g} min de charge sur tous les coeurs)')
     stop = time.monotonic() + minutes * 60
     workers = max(1, (os.cpu_count() or 1) - 1)  # un coeur garde pour la mesure
@@ -485,7 +490,7 @@ def endurance(rep, minutes):
 
 # -------------------------------------------------------------------------------------------------- back QRProtec
 
-def django_ok(python, vendor=None):
+def django_ok(python: str, vendor: Path | None = None) -> bool:
     env = dict(os.environ, PYTHONPATH=str(vendor)) if vendor else None
     try:
         return subprocess.run([python, '-c', 'import django, rest_framework, cryptography'], env=env,
@@ -494,7 +499,7 @@ def django_ok(python, vendor=None):
         return False
 
 
-def find_backend():
+def find_backend() -> tuple[Path | None, Path | None, str]:
     """(dossier du back, vendor/ ou None, python qui a Django) : depot (Python courant, .venv de poetry, `poetry env`),
     sinon back du RPM avec ses dependances figees. (None, None, message) si rien ne convient."""
     repo = Path(__file__).resolve().parent.parent.parent
@@ -514,7 +519,7 @@ def find_backend():
                         'racine du depot, ou installer le RPM qrprotec')
 
 
-def free_port():
+def free_port() -> int:
     with socket.socket() as sock:
         sock.bind(('127.0.0.1', 0))
         return sock.getsockname()[1]
@@ -566,7 +571,7 @@ print('BENCH_JSON=' + json.dumps({'user': {'matricule': 'BENCH', 'key': key}, 'l
 
 
 class Backend:
-    def __init__(self, backend, vendor, python, workdir):
+    def __init__(self, backend: Path, vendor: Path | None, python: str, workdir: Path) -> None:
         self.backend, self.vendor, self.python, self.workdir = backend, vendor, python, workdir
         self.db = workdir / 'db.sqlite3'
         self.port = free_port()
@@ -577,11 +582,11 @@ class Backend:
             self.env['PYTHONPATH'] = f'{backend}:{vendor}'
         self.process = None
 
-    def manage(self, *args, timeout=600):
+    def manage(self, *args: str, timeout: float = 600) -> subprocess.CompletedProcess[str]:
         cmd = [self.python, str(self.backend / 'manage.py'), *args]
         return subprocess.run(cmd, cwd=self.workdir, env=self.env, capture_output=True, text=True, timeout=timeout)
 
-    def start(self):
+    def start(self) -> float:
         log = open(self.workdir / 'serve.log', 'w')
         cmd = [self.python, str(self.backend / 'manage.py'), 'serve', '--no-public', '--no-remote',
                '--local', f'127.0.0.1:{self.port}']
@@ -598,11 +603,11 @@ class Backend:
                 time.sleep(0.05)
         raise RuntimeError('serve ne repond pas apres 60 s')
 
-    def rss_mb(self):
+    def rss_mb(self) -> float | None:
         match = re.search(r'VmHWM:\s*(\d+)', read(f'/proc/{self.process.pid}/status'))
         return int(match.group(1)) / 1024 if match else None
 
-    def stop(self):
+    def stop(self) -> None:
         if self.process and self.process.poll() is None:
             self.process.terminate()
             try:
@@ -611,7 +616,8 @@ class Backend:
                 self.process.kill()
 
 
-def request(port, method, path, body=None, session=None, timeout=60):
+def request(port: int, method: str, path: str, body: Any = None, session: str | None = None,
+            timeout: float = 60) -> tuple[int, float, Any]:
     data = json.dumps(body).encode() if body is not None else None
     req = urllib.request.Request(f'http://127.0.0.1:{port}{path}', data=data, method=method)
     req.add_header('Content-Type', 'application/json')
@@ -630,14 +636,17 @@ def request(port, method, path, body=None, session=None, timeout=60):
     return status, (time.perf_counter() - start) * 1000, payload
 
 
-def load(port, session, lots, clients, seconds):
+def load(port: int, session: str, lots: Iterable[str], clients: int, seconds: float
+         ) -> tuple[list[float], list[str], int, dict[str, list[float]]]:
     """Secouristes simules : etat des lots, fiche d'un lot, verif complete d'un lot (ecriture), parfois la fiche PDF."""
     stop = time.monotonic() + seconds
     lot_ids = list(lots)
-    latencies, errors, client_errors, lock = [], [], [0], threading.Lock()
-    per_kind = {}
+    latencies: list[float] = []
+    errors: list[str] = []
+    client_errors, lock = [0], threading.Lock()
+    per_kind: dict[str, list[float]] = {}
 
-    def client(number):
+    def client(number: int) -> None:
         rng = random.Random(number)
         while time.monotonic() < stop:
             lot = rng.choice(lot_ids)
@@ -671,7 +680,7 @@ def load(port, session, lots, clients, seconds):
 class WSClient:
     """Client WebSocket minimal (trames texte masquees), assez pour /ws/live/."""
 
-    def __init__(self, port, path):
+    def __init__(self, port: int, path: str) -> None:
         self.sock = socket.create_connection(('127.0.0.1', port), timeout=10)
         key = base64.b64encode(os.urandom(16)).decode()
         self.sock.sendall((f'GET {path} HTTP/1.1\r\nHost: 127.0.0.1\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n'
@@ -686,7 +695,7 @@ class WSClient:
             raise ConnectionError(head.split(b'\r\n')[0].decode())
         self.lock = threading.Lock()
 
-    def send(self, message):
+    def send(self, message: dict[str, Any]) -> None:
         payload = json.dumps(message).encode()
         mask = os.urandom(4)
         size = len(payload)
@@ -695,7 +704,7 @@ class WSClient:
         with self.lock:
             self.sock.sendall(header + mask + bytes(b ^ mask[i % 4] for i, b in enumerate(payload)))
 
-    def _exact(self, count):
+    def _exact(self, count: int) -> bytes:
         data = b''
         while len(data) < count:
             chunk = self.sock.recv(count - len(data))
@@ -704,7 +713,7 @@ class WSClient:
             data += chunk
         return data
 
-    def receive(self):
+    def receive(self) -> Any:
         while True:
             first, second = self._exact(2)
             size = second & 0x7F
@@ -718,25 +727,29 @@ class WSClient:
             if first & 0x0F == 0x8:
                 raise ConnectionError('ferme')
 
-    def close(self):
+    def close(self) -> None:
         try:
             self.sock.close()
         except OSError:
             pass
 
 
-def ws_bench(port, user, lots, scanners, watchers, seconds):
+def ws_bench(port: int, user: dict[str, str], lots: Iterable[str], scanners: int, watchers: int, seconds: float
+             ) -> tuple[list[float], list[str]]:
     """Pages de scan qui publient leur etat, pages de suivi qui le recoivent : delai de diffusion."""
-    sent, delays, failures, lock = {}, [], [], threading.Lock()
+    sent: dict[tuple[str, int], float] = {}
+    delays: list[float] = []
+    failures: list[str] = []
+    lock = threading.Lock()
     stop = time.monotonic() + seconds
     lot_ids = list(lots)
-    watch_clients = []
+    watch_clients: list[WSClient] = []
     for _ in range(watchers):
         client = WSClient(port, '/ws/live/watch')
         client.send({'type': 'hello', 'user': user})
         watch_clients.append(client)
 
-    def watch(client):
+    def watch(client: WSClient) -> None:
         client.sock.settimeout(2)
         while time.monotonic() < stop + 1:
             try:
@@ -757,7 +770,7 @@ def ws_bench(port, user, lots, scanners, watchers, seconds):
                 if mark in sent:
                     delays.append((time.perf_counter() - sent[mark]) * 1000)
 
-    def scan(number):
+    def scan(number: int) -> None:
         try:
             client = WSClient(port, '/ws/live/scanner')
             client.send({'type': 'hello', 'user': user, 'solo': True})
@@ -796,7 +809,7 @@ def ws_bench(port, user, lots, scanners, watchers, seconds):
     return delays, failures
 
 
-def app(rep, args):
+def app(rep: Report, args: argparse.Namespace) -> None:
     rep.section('Back QRProtec (copie de la base, ports libres)')
     backend, vendor, python = find_backend()
     if backend is None:
@@ -897,7 +910,7 @@ def app(rep, args):
 
 # -------------------------------------------------------------------------------------------------------- score
 
-def scale(value, good, bad, log=True):
+def scale(value: float | None, good: float, bad: float, log: bool = True) -> float:
     """1 si value atteint good, 0 a bad, entre les deux sur une echelle logarithmique (latences) ou lineaire."""
     if value is None:
         return 0.0
@@ -906,7 +919,7 @@ def scale(value, good, bad, log=True):
     return max(0.0, min(1.0, (bad - value) / (bad - good)))
 
 
-def score(values):
+def score(values: dict[str, Any]) -> tuple[int, str, list[tuple[str, float, float, str]], list[str]]:
     """(score sur 100, verdict, [(partie, points, sur, detail)], [raisons d'elimination])."""
     v = values.get
     load = v('app.load_10.p95_ms')
@@ -952,7 +965,7 @@ def score(values):
     return total, verdict, rows, blockers
 
 
-def print_score(values):
+def print_score(values: dict[str, Any]) -> tuple[int, str, list[str]]:
     total, verdict, rows, blockers = score(values)
     color = '' if not sys.stdout.isatty() else ('\033[31m' if blockers or total < 40 else '\033[33m' if total < 60
                                                 else '\033[32m')
@@ -969,7 +982,7 @@ def print_score(values):
 
 # ------------------------------------------------------------------------------------------------------ compare
 
-def compare(paths):
+def compare(paths: list[str]) -> None:
     results = []
     for path in paths:
         data = json.loads(Path(path).read_text())
@@ -1003,7 +1016,7 @@ def compare(paths):
         print(f'{label:<44}' + ''.join(cells))
 
 
-def main():
+def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument('--db', help='base a copier pour le test (ex : /var/lib/qrprotec/db.sqlite3) ; '
                         'sinon base fictive de %d lots' % LOTS)

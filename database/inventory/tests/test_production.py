@@ -1,5 +1,9 @@
 """Tests du back : production (concurrence, journaux, requetes, defauts surs, purge)."""
 
+from __future__ import annotations
+
+from typing import Any
+
 from .base import *  # noqa: F401,F403
 from .base import setUpModule, tearDownModule  # noqa: F401 (PIN facultatif pendant ces tests)
 
@@ -12,7 +16,7 @@ class ConcurrencyTests(TransactionTestCase):
     # repond « database table is locked » sans jamais attendre, le test ne voudrait rien dire.
 
     @classmethod
-    def setUpClass(cls):
+    def setUpClass(cls) -> None:
         import sqlite3
         import tempfile
         from django.db import connections
@@ -30,7 +34,7 @@ class ConcurrencyTests(TransactionTestCase):
         super().setUpClass()
 
     @classmethod
-    def tearDownClass(cls):
+    def tearDownClass(cls) -> None:
         from django.db import connections
         super().tearDownClass()
         connections['default'].close()
@@ -41,7 +45,7 @@ class ConcurrencyTests(TransactionTestCase):
     setUp = ApiTestCase.setUp
     create = ApiTestCase.create
 
-    def parallel(self, requests):
+    def parallel(self, requests: list[tuple[str, str, dict[str, Any], dict[str, str]]]) -> list[tuple[int, Any]]:
         """Lance les requetes (method, path, data, extra) ensemble ; renvoie les (code, corps) dans l'ordre."""
         import threading
         from django.db import connection
@@ -49,7 +53,7 @@ class ConcurrencyTests(TransactionTestCase):
         barrier = threading.Barrier(len(requests))
         results = [None] * len(requests)
 
-        def run(index, method, path, data, extra):
+        def run(index: int, method: str, path: str, data: Any, extra: dict[str, Any]) -> None:
             try:
                 client = Client()
                 barrier.wait()
@@ -66,7 +70,7 @@ class ConcurrencyTests(TransactionTestCase):
             thread.join(30)
         return results
 
-    def test_simultaneous_verifs_all_saved(self):
+    def test_simultaneous_verifs_all_saved(self) -> None:
         lots, requests = [], []
         for number in range(6):
             lot = Lots(lot_type=self.lot_type, name=f'Sac {number}', name_short=f'S{number}', created_by='test')
@@ -80,7 +84,7 @@ class ConcurrencyTests(TransactionTestCase):
         for lot in lots:
             self.assertEqual(Items.objects.filter(location=lot.id, status=ItemStatus.ACTIVE).count(), 2)
 
-    def test_lots_summary_cached_until_database_changes(self):
+    def test_lots_summary_cached_until_database_changes(self) -> None:
         """« État des lots » garde son calcul tant que la base ne change pas (datacache), et le refait des qu'une autre
         connexion (ici une verif dans un autre thread) a ecrit."""
         from .. import datacache
@@ -103,14 +107,14 @@ class ConcurrencyTests(TransactionTestCase):
         self.assertEqual((code, count(body)), (200, 2))
         datacache.clear()
 
-    def test_parallel_wrong_pins_are_all_counted(self):
+    def test_parallel_wrong_pins_are_all_counted(self) -> None:
         admin = Secouristes(matricule='A001', nom='Ad', prenom='Min', role='admin')
         admin.renew_key()
         admin.set_pin('482100')
         admin.save()
         attempts = 12
         data = {'matricule': 'A001', 'key': admin.new_key}
-        requests = [('POST', '/api/auth/', {**data, 'pin': f'{1000 + number}'}, {}) for number in range(attempts)]
+        requests: list[tuple[str, str, dict[str, Any], dict[str, Any]]] = [('POST', '/api/auth/', {**data, 'pin': f'{1000 + number}'}, {}) for number in range(attempts)]
         results = self.parallel(requests)
         self.assertTrue(all(code == 403 for code, _ in results))
         admin.refresh_from_db()
@@ -122,7 +126,7 @@ class ConcurrencyTests(TransactionTestCase):
         code, _ = self.parallel([('POST', '/api/auth/', {**data, 'pin': '482100'}, {})])[0]
         self.assertEqual(code, 403)
 
-    def test_parallel_name_logins_are_all_counted(self):
+    def test_parallel_name_logins_are_all_counted(self) -> None:
         cache.clear()
         self.user.set_pin('246800')
         self.user.save()
@@ -135,7 +139,7 @@ class ConcurrencyTests(TransactionTestCase):
         self.assertEqual(self.user.name_login_failures, attempts)
         self.assertIsNotNone(self.user.name_login_locked_until)  # pause posee au 5e essai faux
 
-    def test_parallel_name_logins_respect_address_limit(self):
+    def test_parallel_name_logins_respect_address_limit(self) -> None:
         cache.clear()
         attempts = views.NAME_LOGIN_ADDRESS_LIMIT + 4
         requests = [('POST', '/api/auth/name/', {'nom': 'Inconnu', 'prenom': 'Personne', 'pin': '123400'},
@@ -145,7 +149,7 @@ class ConcurrencyTests(TransactionTestCase):
 
 
 class LoggingTests(TestCase):
-    def test_server_errors_reach_stderr(self):
+    def test_server_errors_reach_stderr(self) -> None:
         """En production (DEBUG=0), les erreurs 500 doivent aller dans le journal, pas seulement par mail."""
         import logging
         logger = logging.getLogger('django.request')
@@ -156,7 +160,7 @@ class LoggingTests(TestCase):
 
 
 class ServeLogTests(TestCase):
-    def test_secrets_redacted_from_access_log(self):
+    def test_secrets_redacted_from_access_log(self) -> None:
         from inventory.management.commands.serve import redact_secrets
         self.assertEqual(redact_secrets('GET /ws/scanner/phone?s=XpBL&k=QveV HTTP/1.1'),
                          'GET /ws/scanner/phone?s=***&k=*** HTTP/1.1')
@@ -172,7 +176,7 @@ class ServeLogTests(TestCase):
 class QueryCountTests(ApiTestCase):
     """Listes de lots et d'utilisateurs : un nombre de requetes SQL qui ne grandit pas avec le nombre de lots."""
 
-    def add_lots(self, count):
+    def add_lots(self, count: int) -> None:
         for index in range(count):
             parent = Lots(lot_type=self.lot_type, name=f'Global {index}', name_short='G', created_by='test')
             parent.save()
@@ -181,11 +185,11 @@ class QueryCountTests(ApiTestCase):
             items = self.create(self.compresses, self.today + timedelta(days=100), 2)
             services.perform_verif(child, [item.iid for item in items], 'M:P001')
 
-    def setUp(self):
+    def setUp(self) -> None:
         super().setUp()
         models.ServerSettings.get()  # cree une fois pour toutes, hors des comptes
 
-    def count(self, method, path, data=None, local=True):
+    def count(self, method: str, path: str, data: dict[str, dict[str, str]] | None = None, local: bool = True) -> int:
         from django.db import connection
         from django.test.utils import CaptureQueriesContext
         with CaptureQueriesContext(connection) as queries:
@@ -194,7 +198,7 @@ class QueryCountTests(ApiTestCase):
 
         return len(queries)
 
-    def test_lot_lists_do_not_grow_with_lots(self):
+    def test_lot_lists_do_not_grow_with_lots(self) -> None:
         manager = Secouristes(matricule='G001', nom='Gest', prenom='Ion', role='gestion')
         manager.renew_key()
         manager.save()
@@ -209,7 +213,7 @@ class QueryCountTests(ApiTestCase):
                  self.count('POST', '/api/tasks/summary/', badge, local=False)]
         self.assertEqual(before, after)
 
-    def test_users_list_reads_settings_once(self):
+    def test_users_list_reads_settings_once(self) -> None:
         for index in range(5):
             Secouristes(matricule=f'U{index}', nom='Nom', prenom='Prenom').save()
         before = self.count('GET', '/api/users/')
@@ -221,7 +225,7 @@ class QueryCountTests(ApiTestCase):
 class ProductionDefaultsTests(TestCase):
     """Hors RPM, le back ne demarre pas en DEBUG ni avec la cle secrete publique du depot."""
 
-    def settings_error(self, **env):
+    def settings_error(self, **env: str) -> tuple[int, str]:
         import os
         import subprocess
         import sys
@@ -235,7 +239,7 @@ class ProductionDefaultsTests(TestCase):
             cwd=Path(__file__).resolve().parents[2], env=environment, capture_output=True, text=True)
         return result.returncode, result.stdout + result.stderr
 
-    def test_secret_key_required_without_debug(self):
+    def test_secret_key_required_without_debug(self) -> None:
         code, output = self.settings_error()
         self.assertNotEqual(code, 0)
         self.assertIn('QRPROTEC_SECRET_KEY manquante', output)
@@ -246,7 +250,7 @@ class ProductionDefaultsTests(TestCase):
         self.assertEqual(code, 0, output)
         self.assertIn("False ['localhost', '127.0.0.1', '[::1]']", output)  # DEBUG coupe, aucune IP en plus
 
-    def test_debug_is_explicit(self):
+    def test_debug_is_explicit(self) -> None:
         code, output = self.settings_error(QRPROTEC_DEBUG='1')
         self.assertEqual(code, 0, output)
         self.assertIn("True ['localhost', '127.0.0.1', '[::1]']", output)
@@ -255,7 +259,7 @@ class ProductionDefaultsTests(TestCase):
 class PurgeHistoryTests(ApiTestCase):
     """Retention de l'historique : au-dela de 3 ans tout part, sauf ce dont l'etat actuel depend."""
 
-    def test_purge_keeps_current_state(self):
+    def test_purge_keeps_current_state(self) -> None:
         from inventory.management.commands.purge_history import purge
         from inventory.models import ItemMovement, Operation, Verifs
         items = self.create(self.compresses, self.today + timedelta(days=100), 2)
@@ -281,7 +285,7 @@ class PurgeHistoryTests(ApiTestCase):
         # rien d'ancien : rien a supprimer, et une retention plus longue garde tout
         self.assertFalse(any(purge(5).values()))
 
-    def test_purge_gone_items_without_references(self):
+    def test_purge_gone_items_without_references(self) -> None:
         from inventory.management.commands.purge_history import purge
         from inventory.models import Items, ItemsPacks, ItemStatus, ProblemReport, VerifItem
         gone, recent, reported = self.create(self.compresses, self.today + timedelta(days=100), 3)
@@ -297,7 +301,7 @@ class PurgeHistoryTests(ApiTestCase):
         again = self.create(self.compresses, self.today + timedelta(days=100), 1)[0]
         self.assertNotIn(again.iid, (gone.iid, recent.iid, reported.iid))
 
-    def test_weekly_and_disabled(self):
+    def test_weekly_and_disabled(self) -> None:
         out = StringIO()
         call_command('purge_history', '--years', '0', stdout=out)
         self.assertIn('desactivee', out.getvalue())

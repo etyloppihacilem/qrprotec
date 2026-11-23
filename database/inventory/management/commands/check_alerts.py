@@ -17,6 +17,10 @@
 - items sortis du stock sans lot et non revus dans le delai : comptes comme utilises.
 """
 
+from __future__ import annotations
+
+from typing import Any
+
 from django.core.management.base import BaseCommand
 from django.db.models import Count
 from django.utils import timezone
@@ -29,7 +33,7 @@ class Command(BaseCommand):
     help = ('Envoie les notifications web de stock bas, le résumé des lots contenant des périmés et les alertes '
             "d'expiration des étiquettes clés de lot et des badges, et les commandes à passer.")
 
-    def handle(self, *args, **options):
+    def handle(self, *args: Any, **options: Any) -> None:
         used = services.expire_out_items()
         self.stdout.write(f'Sorties non revenues comptées utilisées : {", ".join(used) or "aucune"}')
         low = notifications.check_stock_levels()

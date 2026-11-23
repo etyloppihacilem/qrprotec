@@ -1,3 +1,7 @@
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Any
+
 # ###################################646f75627420796f7572206f776e206578697374656e6365###################################
 #
 #              """          idendity.py
@@ -13,6 +17,10 @@
 import unicodedata
 from contextlib import contextmanager
 from contextvars import ContextVar
+
+if TYPE_CHECKING:
+    from inventory.models import Secouristes
+    from collections.abc import Iterator
 
 SOURCE_VERIFIED = 'M'
 SOURCE_DECLARED = 'D'
@@ -42,7 +50,7 @@ GUEST = 'Invité'
 GUEST_SUFFIX = ' (invité)'
 
 
-def guest_identity(name='') -> str:
+def guest_identity(name: str | None = '') -> str:
     """Identite stockee d'un invite d'une vérif à plusieurs : son prenom s'il l'a donne, sinon « Invité »."""
     cleaned = ' '.join(str(name or '').split())[:30 - len(GUEST_SUFFIX)]
     if not cleaned or cleaned.lower() in ('invité', 'invite'):
@@ -73,7 +81,8 @@ def parse_identity(value: str) -> dict:
     }
 
 
-def identity_from_request(data, front_user=None, allow_declared=False):
+def identity_from_request(data: dict[str, Any], front_user: Secouristes | None = None, allow_declared: bool = False
+                         ) -> str | None:
     """Determine l'identite a associer a une operation, None si personne n'est identifie.
 
     - Poste (API locale ou distante) : l'utilisateur connecte, reconnu par son jeton de session ; le
@@ -98,9 +107,9 @@ def identity_from_request(data, front_user=None, allow_declared=False):
 # (Michel / Julien D. / Julien S. ; Julien De. et Julien Du. si un Julien Deraine s'ajoute a Julien Dubois).
 # Actif pendant une requete de l'API publique (voir ApiRoleMiddleware) : None hors de ce contexte, sinon le
 # dictionnaire matricule -> nom court, calcule a la premiere utilisation.
-_public_names = ContextVar('qrprotec_public_names', default=None)
+_public_names: ContextVar[dict[str, str] | None] = ContextVar('qrprotec_public_names', default=None)
 # Secouristes deja lus pendant la requete (names_cache) : une liste de 200 items ne relit pas 400 fois les memes
-_secouristes = ContextVar('qrprotec_secouristes', default=None)
+_secouristes: ContextVar[dict[str, Any] | None] = ContextVar('qrprotec_secouristes', default=None)
 
 
 def _fold(text: str) -> str:
@@ -108,10 +117,10 @@ def _fold(text: str) -> str:
     return ''.join(c for c in unicodedata.normalize('NFKD', text) if not unicodedata.combining(c)).casefold().strip()
 
 
-def short_names(people) -> dict:
+def short_names(people: list[tuple[int, str, str]]) -> dict:
     """{cle: nom court} pour des (cle, prenom, nom) : prenom, suivi du plus court debut de nom qui le distingue
     des homonymes de meme prenom (« Julien D. »), ou du nom entier s'il n'y en a pas (« Julien Dubois »)."""
-    groups = {}
+    groups: dict[str, list[tuple[str, str, str]]] = {}
     for key, prenom, nom in people:
         groups.setdefault(_fold(prenom), []).append((key, prenom.strip(), nom.strip()))
     names = {}
@@ -143,7 +152,7 @@ def public_names() -> dict:
 
 
 @contextmanager
-def anonymized():
+def anonymized() -> Iterator[None]:
     """Les noms renvoyes par identity_name sont anonymises dans ce bloc."""
     token = _public_names.set({})
     try:
@@ -153,7 +162,7 @@ def anonymized():
 
 
 @contextmanager
-def names_cache():
+def names_cache() -> Iterator[None]:
     """Dans ce bloc (une requete de l'API locale ou distante), chaque secouriste n'est lu qu'une fois pour afficher
     les noms complets de l'historique (vu par, ajoute par...)."""
     token = _secouristes.set({})
@@ -167,7 +176,7 @@ def is_anonymized() -> bool:
     return _public_names.get() is not None
 
 
-def _names() -> dict:
+def _names() -> dict | None:
     cache = _public_names.get()
     if not cache:
         cache.update(public_names() or {'': ''})  # jamais vide une fois calcule

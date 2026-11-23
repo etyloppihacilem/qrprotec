@@ -15,8 +15,11 @@ remplacent. Son code est garde en commentaire ci-dessous, sans garantie qu'il fo
 reglages (NotificationSettings) et les destinataires (SmsRecipient) restent en base mais ne servent plus.
 """
 
+from __future__ import annotations
+
 from collections import defaultdict
 from datetime import timedelta
+from typing import TYPE_CHECKING, Any
 
 from django.db.models import Count, Q
 from django.utils import timezone
@@ -27,6 +30,9 @@ from .models import (
     ItemStatus, ItemType, Items, KeyExpiry, Lots, NotificationSettings, Secouristes, ServerProblem, lot_keys_expire,
     revision_blocked_q,
 )
+
+if TYPE_CHECKING:
+    from datetime import date
 
 # ----------------------------------------------------------------------------------------------------------------------
 # API SMS de Free Mobile : PLUS MAINTENUE, gardee en commentaire pour memoire.
@@ -116,7 +122,7 @@ from .models import (
 # ----------------------------------------------------------------------------------------------------------------------
 
 
-def check_stock_levels(type_ids=None):
+def check_stock_levels(type_ids: list[str] | set[str] | None = None) -> list[str]:
     """Alerte quand le stock (hors lots, non perime) d'un type passe sous son minimum ou arrive a 0.
 
     Notifications web (stock bas, stock vide) : une seule alerte par passage sous le seuil. ItemType.low_notified est remis a zero quand le stock remonte au minimum, empty_notified
@@ -168,7 +174,7 @@ def check_stock_levels(type_ids=None):
     return low_text
 
 
-def notify_pin_blocked(user, url):
+def notify_pin_blocked(user: Secouristes, url: str) -> bool:
     """PIN bloque (50 essais faux ou code oublie) : notification web des admins, avec le lien de deblocage.
 
     Une seule notification par blocage, quel que soit le nombre de tentatives ou de demandes (pas de spam
@@ -189,17 +195,17 @@ def notify_pin_blocked(user, url):
     return True
 
 
-def notify_admins(event, title, message, **web):
+def notify_admins(event: str, title: str, message: str, **web: Any) -> int:
     """Evenement envoye aux notifications web des admins qui l'ont choisi (web : url, tag, tab de la notification
     web)."""
     return webpush.notify_event(event, f'QRProtec : {title}', message, **web)
 
 
-def _day(value):
+def _day(value: date) -> str:
     return value.strftime('%d/%m/%Y')
 
 
-def check_key_expirations(today=None):
+def check_key_expirations(today: date | None = None) -> dict[str, list[str]]:
     """Etiquettes privees de lot et badges qui expirent bientot (delai des Reglages, ou
     QRPROTEC_KEY_EXPIRY_WARNING_DAYS) ou ont expire.
 
@@ -223,7 +229,8 @@ def check_key_expirations(today=None):
     )
     report = {}
     for event, singular, plural, expired_word, queryset, field, label in sources:
-        soon, expired = [], []
+        soon: list[str] = []
+        expired: list[str] = []
         for row in queryset:
             expires = getattr(row, field)
             stage = KeyExpiry.of(expires, today, warning_days)
@@ -243,7 +250,7 @@ def check_key_expirations(today=None):
     return report
 
 
-def check_orders(today=None):
+def check_orders(today: date | None = None) -> list[str]:
     """Commandes a passer d'apres les previsions de stock : types dont la date limite de commande
     (passage sous le minimum moins le delai de commande, ORDER_LEAD_DAYS) est atteinte.
 
@@ -288,7 +295,7 @@ SERVER_PROBLEM_SOURCES = {
 SERVER_PROBLEM_REMINDER = timedelta(hours=12)
 
 
-def server_problem(source, message='', where='', journal=''):
+def server_problem(source: str, message: str = '', where: str = '', journal: str = '') -> bool:
     """Enregistre un probleme du serveur et previent les admins qui ont choisi « Problème de serveur », au plus une
     fois par SERVER_PROBLEM_REMINDER et par source. source : cle de SERVER_PROBLEM_SOURCES, ou « backup:<poste> » pour
     un poste distant ; where : machine concernee, journal : ou lire le detail. Retourne True si la notification part."""
@@ -315,7 +322,7 @@ def server_problem(source, message='', where='', journal=''):
     return True
 
 
-def resolve_server_problem(source):
+def resolve_server_problem(source: str) -> bool:
     """La source refonctionne (sauvegarde ou envoi reussi) : le prochain echec sera annonce tout de suite."""
     return ServerProblem.objects.filter(source=source).delete()[0] > 0
 

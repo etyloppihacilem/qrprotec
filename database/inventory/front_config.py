@@ -31,6 +31,8 @@ un JSON :
      "api_ca_pem": "-----BEGIN CERTIFICATE-----...", "created": "2026-11-07T13:00:00+01:00"}
 """
 
+from __future__ import annotations
+
 import base64
 import hashlib
 import json
@@ -41,9 +43,13 @@ import ssl
 from datetime import timedelta
 from pathlib import Path
 from urllib.parse import urlsplit
+from typing import TYPE_CHECKING
 
 from cryptography.exceptions import InvalidTag
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+
+if TYPE_CHECKING:
+    from datetime import datetime
 
 MAGIC = 'front-config'
 VERSION = 1
@@ -62,14 +68,14 @@ class FrontConfigError(ValueError):
     pass
 
 
-def _derive(password, salt, iterations):
+def _derive(password: str, salt: bytes, iterations: int) -> bytes:
     return hashlib.pbkdf2_hmac('sha256', password.encode('utf-8'), salt, iterations, dklen=32)
 
 
 AAD = b'qrprotec-front-config-v1'
 
 
-def encrypt(payload, password, iterations=ITERATIONS):
+def encrypt(payload: dict[str, str], password: str, iterations: int = ITERATIONS) -> str:
     """Texte du fichier chiffre (str) pour le dict `payload`."""
     if len(password) < MIN_PASSWORD_LENGTH:
         raise FrontConfigError(f"Mot de passe trop court ({MIN_PASSWORD_LENGTH} caracteres au moins)")
@@ -85,7 +91,7 @@ def encrypt(payload, password, iterations=ITERATIONS):
     return json.dumps({**header, 'data': base64.b64encode(data).decode('ascii')}, indent=1) + '\n'
 
 
-def decrypt(text, password):
+def decrypt(text: str, password: str) -> dict[str, str]:
     """dict du fichier `text` (meme verifications que le front)."""
     try:
         document = json.loads(text)
@@ -113,13 +119,13 @@ def decrypt(text, password):
     return json.loads(plain.decode('utf-8'))
 
 
-def generate_password():
+def generate_password() -> str:
     """Mot de passe lisible a dicter ou recopier : 3 groupes de 4 caracteres sans ambiguite (ni 0/o, ni 1/l/i)."""
     alphabet = 'abcdefghjkmnpqrstuvwxyz23456789'
     return '-'.join(''.join(secrets.choice(alphabet) for _ in range(4)) for _ in range(3))
 
 
-def server_ca_pem(base_url, tls_mode, ca_file=''):
+def server_ca_pem(base_url: str, tls_mode: str, ca_file: str = '') -> str:
     """Certificat de l'autorite a mettre dans le fichier, ou ''.
 
     `ca_file` (QRPROTEC_FRONT_CA_FILE) s'il est lisible. Sinon, avec l'autorite interne de Caddy
@@ -160,10 +166,10 @@ def server_ca_pem(base_url, tls_mode, ca_file=''):
     return pem if '-----BEGIN CERTIFICATE-----' in pem else ''
 
 
-def new_download_token():
+def new_download_token() -> str:
     # court, pour une adresse a recopier : 72 bits, valable 5 minutes
     return secrets.token_urlsafe(9)
 
 
-def download_expiry(now):
+def download_expiry(now: datetime) -> datetime:
     return now + timedelta(minutes=DOWNLOAD_MINUTES)

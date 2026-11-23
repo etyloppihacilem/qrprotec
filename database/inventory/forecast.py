@@ -24,10 +24,13 @@ Les temps sont en jours depuis aujourd'hui (flottants). Un item est utilisable t
 lendemain de sa date de peremption.
 """
 
+from __future__ import annotations
+
 import calendar
 import math
 from collections import defaultdict
 from datetime import date, timedelta
+from typing import TYPE_CHECKING, Any
 
 from django.db.models import Min
 from django.utils import timezone
@@ -36,13 +39,16 @@ from .models import (
     ItemMovement, ItemStatus, Items, ItemType, Lots, MovementKind, Verifs, qrprotec_setting,
 )
 
+if TYPE_CHECKING:
+    from datetime import datetime
+
 DAYS_PER_MONTH = 30.44
 INFINITY = math.inf
 MAX_DEMANDS = 20000  # garde-fou : nombre d'utilisations simulees par lieu
 TRANSFER_MARGIN_DAYS = 14  # un echange doit permettre d'utiliser l'item au moins 2 semaines avant sa date
 
 
-def add_months(day, months):
+def add_months(day: date, months: int) -> date:
     """Meme jour, `months` mois plus tard (dernier jour du mois si ce jour n'existe pas)."""
     month = day.month - 1 + months
     year = day.year + month // 12
@@ -50,12 +56,12 @@ def add_months(day, months):
     return date(year, month, min(day.day, calendar.monthrange(year, month)[1]))
 
 
-def first_of_month(day, months=0):
+def first_of_month(day: date, months: int = 0) -> date:
     month = day.month - 1 + months
     return date(day.year + month // 12, month % 12 + 1, 1)
 
 
-def demand_times(rate, horizon):
+def demand_times(rate: float, horizon: int) -> list[float]:
     """Instants des utilisations pour un debit constant (items par jour) jusqu'a l'horizon."""
     if rate <= 0:
         return []
@@ -63,7 +69,7 @@ def demand_times(rate, horizon):
     return [(k + 1) / rate for k in range(count)]
 
 
-def simulate(limits, demands, horizon):
+def simulate(limits: list[float], demands: list[float], horizon: int) -> Any:
     """Premier perime, premier utilise. `limits` et `demands` sont tries.
 
     Retourne (sorts, ruptures) : pour chaque item, ('used', t), ('lost', limite) ou ('kept', None), et la liste des
@@ -86,7 +92,7 @@ def simulate(limits, demands, horizon):
     return fates, shortages
 
 
-def used_if_arrives(limits, demands, limit, arrival):
+def used_if_arrives(limits: list[float], demands: list[float], limit: float, arrival: int) -> bool:
     """Un item de limite `limit` arrive a l'instant `arrival` dans un lieu (items `limits` tries, deja presents) :
     est-il utilise avant sa peremption ?"""
     position = 0
@@ -101,7 +107,7 @@ def used_if_arrives(limits, demands, limit, arrival):
     return False
 
 
-def latest_arrival(limits, demands, limit):
+def latest_arrival(limits: list[float], demands: list[float], limit: float) -> int | None:
     """Dernier jour (depuis aujourd'hui) ou l'item peut encore arriver et etre utilise a temps, ou None."""
     if not used_if_arrives(limits, demands, limit, 0):
         return None
@@ -115,12 +121,12 @@ def latest_arrival(limits, demands, limit):
     return low
 
 
-def lost_count(limits, demands, horizon):
+def lost_count(limits: list[float], demands: list[float], horizon: int) -> int:
     fates, _ = simulate(sorted(limits), demands, horizon)
     return sum(1 for fate, when in fates if fate == 'lost' and when > 0)
 
 
-def present_at(fate, limit, when):
+def present_at(fate: tuple[str, float | None], limit: float, when: int | float) -> bool:
     """L'item est-il encore la (non utilise, non perime) a l'instant `when` ?"""
     kind, at = fate
     if limit <= when:
@@ -131,11 +137,11 @@ def present_at(fate, limit, when):
 class Places:
     """Lieux de la simulation : 'stock' (hors lot et rangements) ou l'id d'un lot actif qui n'est pas un rangement."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         self.lots = {lot.id: lot for lot in Lots.objects.select_related('lot_type')}
-        self._sealed = {}
+        self._sealed: dict[str, bool] = {}
 
-    def of(self, lot_id):
+    def of(self, lot_id: str | None) -> str | None:
         """Lieu d'un item range dans `lot_id`, ou None si ce lot n'est plus actif."""
         if lot_id is None:
             return 'stock'
@@ -144,7 +150,7 @@ class Places:
             return None
         return 'stock' if lot.lot_type.storage else lot_id
 
-    def chain(self, lot_id):
+    def chain(self, lot_id: str) -> list[Lots]:
         chain = []
         seen = set()
         lot = self.lots.get(lot_id)
@@ -154,7 +160,7 @@ class Places:
             lot = self.lots.get(lot.parent_id)
         return chain
 
-    def sealed(self, place):
+    def sealed(self, place: str) -> bool:
         """Le lieu est-il (ou est-il range dans) un lot scelle ?"""
         if place == 'stock':
             return False
@@ -162,7 +168,7 @@ class Places:
             self._sealed[place] = any(lot.is_sealed for lot in self.chain(place))
         return self._sealed[place]
 
-    def describe(self, place):
+    def describe(self, place: str) -> dict[str, Any]:
         if place == 'stock':
             return {'id': None, 'name': 'Stock', 'path': 'Stock', 'sealed': False}
         chain = self.chain(place)
@@ -170,12 +176,12 @@ class Places:
                 'sealed': self.sealed(place)}
 
 
-def consumption(places, since, now):
+def consumption(places: Places, since: datetime, now: datetime) -> tuple[dict[tuple[str, str], float], float]:
     """({(lieu, type): items par jour}, jours d'historique) d'apres les utilisations non annulees du journal."""
     first = Verifs.objects.aggregate(first=Min('datetime'))['first']
     start = max(since, first) if first else now
     days = max(30.0, (now - start).total_seconds() / 86400)
-    counts = defaultdict(int)
+    counts: defaultdict[tuple[str, str], int] = defaultdict(int)
     used = ItemMovement.objects.filter(kind=MovementKind.USED, cancelled__isnull=True, at__gte=since)
     for row in used.values('from_lot_id', 'item_type_id'):
         place = places.of(row['from_lot_id'])
@@ -184,7 +190,8 @@ def consumption(places, since, now):
     return {key: count / days for key, count in counts.items()}, days
 
 
-def forecast(months=6, lead_days=None, history_months=None, weekly=False):
+def forecast(months: int = 6, lead_days: int | None = None, history_months: float | None = None, weekly: bool = False
+            ) -> dict[str, Any]:
     """Previsions par type d'item et echanges suggeres, sur `months` mois. weekly : les types a commander ont aussi
     leur projection semaine par semaine (`weekly`, detail d'une recommandation de commande, voir order_explain)."""
     if lead_days is None:
@@ -199,8 +206,8 @@ def forecast(months=6, lead_days=None, history_months=None, weekly=False):
     rates, history_days = consumption(places, now - timedelta(days=history_months * DAYS_PER_MONTH), now)
 
     # items presents, par type et par lieu
-    units = defaultdict(lambda: defaultdict(list))  # type -> lieu -> [(limite, item)]
-    unconfirmed = defaultdict(int)
+    units: defaultdict[str, defaultdict[str, list[tuple[float, Items]]]] = defaultdict(lambda: defaultdict(list))  # type -> lieu -> [(limite, item)]
+    unconfirmed: defaultdict[str, int] = defaultdict(int)
     for item in Items.objects.select_related('pack').filter(status=ItemStatus.ACTIVE):
         place = places.of(item.location_id)
         if place is None:
@@ -220,7 +227,7 @@ def forecast(months=6, lead_days=None, history_months=None, weekly=False):
     item_types = list(ItemType.objects.filter(archived=False).order_by('name'))
     _add_unit_groups(item_types, units, rates, unconfirmed)
     for item_type in item_types:
-        by_place = units.get(item_type.type, {})
+        by_place: dict[str, list[tuple[float, Items]]] = units.get(item_type.type, {})
         for held in by_place.values():
             held.sort(key=lambda unit: (unit[0], unit[1].iid))
         row = _type_forecast(item_type, by_place, rates, places, today, horizon, month_starts, points, lead_days,
@@ -242,7 +249,8 @@ def forecast(months=6, lead_days=None, history_months=None, weekly=False):
     }
 
 
-def _add_unit_groups(item_types, units, rates, unconfirmed):
+def _add_unit_groups(item_types: list[ItemType], units: defaultdict[str, defaultdict[str, list[tuple[float, Items]]]],
+                     rates: dict[tuple[str, str], float], unconfirmed: defaultdict[str, int]) -> None:
     """Type a unites (« Sérum phy », mL) : ses sous-types prevus ensemble, en unites. Chaque item d'un sous-type
     compte pour ses unites (un flacon de 50 mL : 50 unites de meme peremption), sa consommation aussi."""
     groups = {item_type.type for item_type in item_types if item_type.is_unit_group}
@@ -258,7 +266,7 @@ def _add_unit_groups(item_types, units, rates, unconfirmed):
         unconfirmed[item_type.group_id] += unconfirmed[item_type.type] * fills
 
 
-def _unit_order(row, item_type, item_types):
+def _unit_order(row: dict[str, Any], item_type: ItemType, item_types: list[ItemType]) -> None:
     """Commande d'un type a unites : en items de son sous-type par defaut (sinon celui qui en remplit le plus),
     arrondie a sa taille de paquet. La quantite en unites reste dans `units`."""
     row['unit'] = item_type.unit
@@ -275,12 +283,12 @@ def _unit_order(row, item_type, item_types):
                   'subtype': subtype.type, 'subtype_name': subtype.name})
 
 
-def _lot_rates(rates, type_id, places):
+def _lot_rates(rates: dict[tuple[str, str], float], type_id: str, places: Places) -> dict[str, float]:
     return {place: rate for (place, rate_type), rate in rates.items() if rate_type == type_id and place != 'stock'}
 
 
-def _type_forecast(item_type, by_place, rates, places, today, horizon, month_starts, points, lead_days, unconfirmed,
-                   weekly=False):
+def _type_forecast(item_type: ItemType, by_place: defaultdict[str, list[tuple[float, Items]]], rates: dict[tuple[str, str], float], places: Places, today: date, horizon: int, month_starts: list[date], points: list[date], lead_days: int, unconfirmed: int,
+                   weekly: bool = False) -> dict[str, Any]:
     type_id = item_type.type
     lot_rates = _lot_rates(rates, type_id, places)
     stock_rate = rates.get(('stock', type_id), 0.0) + sum(lot_rates.values())
@@ -306,10 +314,10 @@ def _type_forecast(item_type, by_place, rates, places, today, horizon, month_sta
     lots_now = sum(1 for limit, _, _ in lot_units if limit > 0)
     expired_now = sum(1 for limit in stock_limits if limit <= 0) + sum(1 for limit, _, _ in lot_units if limit <= 0)
 
-    def in_window(value, start, stop):
+    def in_window(value: float, start: float, stop: float) -> bool:
         return start < value <= stop
 
-    def point(day):
+    def point(day: date) -> dict[str, Any]:
         when = (day - today).days
         stock = sum(1 for limit, fate in zip(stock_limits, stock_fates) if present_at(fate, limit, when))
         missing = sum(1 for at in shortages if at <= when)
@@ -378,7 +386,7 @@ def _type_forecast(item_type, by_place, rates, places, today, horizon, month_sta
         {**places.describe(place), 'per_month': round(rate * DAYS_PER_MONTH, 2)}
         for place, rate in sorted(lot_rates.items(), key=lambda pair: -pair[1])
     ]
-    batches = defaultdict(lambda: {'count': 0, 'used': 0, 'lost': 0})
+    batches: defaultdict[tuple[date | None, str], dict[str, int]] = defaultdict(lambda: {'count': 0, 'used': 0, 'lost': 0})
     for place, held in by_place.items():
         fates = stock_fates if place == 'stock' else None
         if fates is None:
@@ -419,7 +427,8 @@ def _type_forecast(item_type, by_place, rates, places, today, horizon, month_sta
     }
 
 
-def _transfers(item_type, by_place, rates, places, today, horizon):
+def _transfers(item_type: ItemType, by_place: defaultdict[str, list[tuple[float, Items]]],
+               rates: dict[tuple[str, str], float], places: Places, today: date, horizon: int) -> list[dict[str, Any]]:
     """Echanges qui evitent des pertes : un item qui perimera dans son lieu part la ou il sera utilise a temps, et
     l'item le plus frais de ce lieu prend sa place (les deux lieux gardent le meme contenu)."""
     type_id = item_type.type
@@ -431,10 +440,10 @@ def _transfers(item_type, by_place, rates, places, today, horizon):
     held = {place: list(units) for place, units in by_place.items()}
     destinations = [place for place in demand if demand[place] and not places.sealed(place)]
 
-    def losses(place, units):
+    def losses(place: str, units: list[tuple[float, Items]]) -> int:
         return lost_count([limit for limit, _ in units], demand.get(place, []), horizon)
 
-    def at_risk():
+    def at_risk() -> list[tuple[float, str, Items]]:
         risky = []
         for place, units in held.items():
             limits = [limit for limit, _ in units]
@@ -494,14 +503,14 @@ def _transfers(item_type, by_place, rates, places, today, horizon):
     return suggestions
 
 
-def _place_words(place):
+def _place_words(place: dict[str, Any]) -> tuple[str, str]:
     """(« dans le stock », « du stock ») ou (« dans « Sac de soin » », « de « Sac de soin » »)."""
     if place['id'] is None:
         return 'dans le stock', 'du stock'
     return f"dans « {place['name']} »", f"de « {place['name']} »"
 
 
-def _transfer_wording(source, move):
+def _transfer_wording(source: dict[str, Any], move: dict[str, Any]) -> dict[str, Any]:
     """Un echange en clair, dans l'ordre des gestes, avec sa raison : l'item qui perimerait sans servir dans son lieu
     part la ou il sera utilise avant (le stock sert toujours les dates les plus proches d'abord), et le plus frais de
     ce lieu prend sa place pour que le lot reste complet."""
@@ -510,7 +519,7 @@ def _transfer_wording(source, move):
     in_source, from_source = _place_words(source)
     in_target, from_target = _place_words(move['target'])
 
-    def day(value):
+    def day(value: date | None) -> str:
         return value.strftime('%d/%m/%Y') if value else 'sans date'
 
     many = count > 1
@@ -527,9 +536,9 @@ def _transfer_wording(source, move):
     }
 
 
-def _group_transfers(suggestions):
+def _group_transfers(suggestions: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Echanges regroupes par lieu a ouvrir, puis par (type, lieu d'arrivee, dates)."""
-    groups = {}
+    groups: dict[str, dict[str, Any]] = {}
     for suggestion in suggestions:
         places = suggestion['places']
         group = groups.setdefault(suggestion['source'], {'source': places.describe(suggestion['source']),

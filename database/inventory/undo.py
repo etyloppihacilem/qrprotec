@@ -19,17 +19,30 @@ propres ecritures, ce qui retablit l'operation annulee (et efface sa marque « a
 transparentes pour la regle des valeurs plus recentes : elles ne font que remettre des valeurs passees.
 """
 
+from __future__ import annotations
+
 import json
 import re
 import threading
 from collections import defaultdict
 from contextlib import contextmanager
+from typing import TYPE_CHECKING, Any
+from collections.abc import Callable
 
 from django.apps import apps
 from django.db import connection, transaction
 from django.utils import timezone
 
 from . import journal
+
+if TYPE_CHECKING:
+    from django.db.backends.sqlite3.base import DatabaseWrapper, SQLiteCursorWrapper
+    from django.db.backends.utils import CursorDebugWrapper, CursorWrapper
+    from django.http.response import FileResponse, HttpResponse, HttpResponseBase, HttpResponseNotFound, HttpResponseNotModified
+    from inventory.models import Operation
+    from rest_framework.response import Response
+    from collections.abc import Iterable, Iterator
+    from django.http import HttpRequest
 
 LOG = 'qrp_undo_log'
 FLAG = 'qrp_undo_on'
@@ -59,7 +72,7 @@ _state = threading.local()
 
 
 class Table:
-    def __init__(self, model):
+    def __init__(self, model: Any) -> None:
         self.model = model
         self.name = model._meta.db_table
         self.columns = [field.column for field in model._meta.concrete_fields]
@@ -75,7 +88,7 @@ class Table:
 _tables = None
 
 
-def tables():
+def tables() -> dict[str, Table]:
     """{nom de table: Table} des modeles de l'inventaire suivis (tables des ManyToMany comprises)."""
     global _tables
     if _tables is None:
@@ -88,22 +101,22 @@ def tables():
     return _tables
 
 
-def operation_table():
+def operation_table() -> str:
     from .models import Operation
     return Operation._meta.db_table
 
 
 # ----------------------------------------------------------------------------------------------- enregistrement
 
-def _quote(name):
+def _quote(name: str) -> str:
     return '"' + name.replace('"', '""') + '"'
 
 
-def _row_json(prefix, columns):
+def _row_json(prefix: str, columns: list[str]) -> str:
     return 'json_array(' + ', '.join(f'{prefix}.{_quote(column)}' for column in columns) + ')'
 
 
-def _installed():
+def _installed() -> set[str]:
     """Tables dont les declencheurs existent sur la connexion en cours (les objets temporaires meurent avec elle)."""
     raw = connection.connection
     state = getattr(connection, '_qrp_undo', None)
@@ -113,14 +126,14 @@ def _installed():
     return state[1]
 
 
-def _exists(cursor, kind, name):
+def _exists(cursor: CursorDebugWrapper | CursorWrapper, kind: str, name: str | None) -> bool:
     """L'objet temporaire existe encore (name None : la table du journal des ecritures)."""
     cursor.execute('SELECT 1 FROM sqlite_temp_master WHERE type = %s AND name = %s',
                    ['table', LOG] if name is None else [kind, name])
     return cursor.fetchone() is not None
 
 
-def _ready():
+def _ready() -> bool:
     """Capture deja installee sur cette connexion, et toujours la (une transaction annulee l'emporte avec elle)."""
     if connection.connection is None or not _installed():
         return False
@@ -131,7 +144,7 @@ def _ready():
     return False
 
 
-def _install(cursor, name):
+def _install(cursor: CursorDebugWrapper | CursorWrapper, name: str) -> None:
     """Declencheurs d'une table, crees a sa premiere ecriture sur la connexion : une requete qui ne fait que lire (le
     web lit aussi en POST) ne paie rien, une ecriture seulement les tables qu'elle touche."""
     installed = _installed()
@@ -158,7 +171,7 @@ def _install(cursor, name):
     installed.add(name)
 
 
-def _watch_writes(execute, sql, params, many, context):
+def _watch_writes(execute: Callable[..., Any], sql: str, params: Any, many: bool, context: dict[str, Any]) -> SQLiteCursorWrapper:
     """Avant chaque ecriture d'une table suivie : ses declencheurs, et pour un UPDATE les colonnes qu'il ecrit (meme
     sans changer de valeur), notees dans une ligne « S » avant ses lignes « U »."""
     if getattr(_state, 'depth', 0) and not getattr(_state, 'inside', False):
@@ -181,7 +194,7 @@ def _watch_writes(execute, sql, params, many, context):
 
 
 @contextmanager
-def capture():
+def capture() -> Iterator[None]:
     """Enregistre les ecritures du bloc ; a la fin, celles d'un bloc qui a ecrit dans le journal sont gardees."""
     if connection.vendor != 'sqlite':
         yield
@@ -212,7 +225,7 @@ def capture():
                     cursor.execute(f'DELETE FROM {LOG}')
 
 
-def _finish():
+def _finish() -> None:
     with connection.cursor() as cursor:
         cursor.execute(f'DELETE FROM {FLAG}')  # les ecritures qui suivent ne sont plus enregistrees
         cursor.execute(f'SELECT seq, tbl, act, old, new FROM {LOG} ORDER BY seq')
@@ -268,10 +281,10 @@ def _finish():
 class CaptureMiddleware:
     """Enregistre les ecritures de chaque requete qui peut ecrire, pour pouvoir annuler ses operations."""
 
-    def __init__(self, get_response):
+    def __init__(self, get_response: Callable[[HttpRequest], HttpResponseBase]) -> None:
         self.get_response = get_response
 
-    def __call__(self, request):
+    def __call__(self, request: HttpRequest) -> Any:
         if request.method in SAFE_METHODS:
             return self.get_response(request)
         with capture():
@@ -280,7 +293,7 @@ class CaptureMiddleware:
 
 # ------------------------------------------------------------------------------------------------- annulation
 
-def _batch_operations(batches):
+def _batch_operations(batches: Iterable[int]) -> defaultdict[int | None, list[Operation]]:
     from .models import Operation
     by_batch = defaultdict(list)
     for operation in Operation.objects.filter(batch__in=batches).order_by('at', 'id'):
@@ -288,7 +301,7 @@ def _batch_operations(batches):
     return by_batch
 
 
-def _active_ordinary(batches):
+def _active_ordinary(batches: set[int]) -> set[int]:
     """Lots d'operations encore valables (ni annules, ni annulations) parmi `batches`."""
     from .models import OperationKind
     return {batch for batch, operations in _batch_operations(batches).items()
@@ -296,7 +309,7 @@ def _active_ordinary(batches):
                                   for op in operations)}
 
 
-def _dependents(batch, excluded):
+def _dependents(batch: int, excluded: set[int]) -> set[int]:
     """Lots posterieurs encore valables qui dependent d'une ligne ajoutee par `batch` : ils l'ont modifiee ou
     supprimee, ou ils ont ajoute ou modifie une ligne qui y fait reference."""
     from .models import OperationChange
@@ -334,7 +347,7 @@ def _dependents(batch, excluded):
     return _active_ordinary(candidates - {batch}) | guest
 
 
-def _guest_dependents(batch, excluded):
+def _guest_dependents(batch: int, excluded: set[int]) -> set[int]:
     """Activation (ou reactivation) d'une carte d'invite dans `batch` : toutes les operations faites ensuite par cet
     invite, jusqu'a la prochaine activation de la carte, en dependent. Annuler l'activation les annule avec elle."""
     from .models import Operation, OperationKind
@@ -354,7 +367,7 @@ def _guest_dependents(batch, excluded):
     return _active_ordinary(found - {batch}) if found else set()
 
 
-def plan(operation):
+def plan(operation: Operation) -> list[int]:
     """Lots d'operations a annuler pour annuler `operation` (le sien et ceux qui en dependent), du plus recent au
     plus ancien. ValueError si elle ne peut pas l'etre."""
     from .models import OperationChange, OperationKind
@@ -374,7 +387,7 @@ def plan(operation):
     return sorted(closure, reverse=True)
 
 
-def preview(operation):
+def preview(operation: Operation) -> tuple[list[Operation], list[Operation]]:
     """Operations annulees ensemble (la sienne d'abord) : {"operations": [...]} pour la confirmation."""
     batches = plan(operation)
     by_batch = _batch_operations(batches)
@@ -383,7 +396,7 @@ def preview(operation):
     return own, others
 
 
-def _later_writes(table, row, batch, excluded, cache):
+def _later_writes(table: str, row: str, batch: int, excluded: set[int], cache: dict[int, bool]) -> set[str] | None:
     """Colonnes ecrites depuis `batch` par des operations encore valables (hors annulations et lots exclus). None :
     ligne supprimee puis remise, tout est considere ecrit."""
     from .models import OperationChange
@@ -403,7 +416,7 @@ def _later_writes(table, row, batch, excluded, cache):
     return columns
 
 
-def _undo_batch(batch, excluded, cache):
+def _undo_batch(batch: int, excluded: set[int], cache: dict[int, bool]) -> tuple[int, int]:
     """Defait les ecritures d'un lot d'operations. Renvoie (lignes defaites, colonnes laissees a une valeur plus
     recente)."""
     from .models import OperationChange
@@ -454,18 +467,18 @@ def _undo_batch(batch, excluded, cache):
     return done, kept
 
 
-def _pk_value(table, row):
+def _pk_value(table: Table, row: str) -> str | int:
     field = table.model._meta.pk
     return int(row) if field.get_internal_type() in ('AutoField', 'BigAutoField', 'IntegerField',
                                                      'PositiveIntegerField') else row
 
 
-def _when(operation):
+def _when(operation: Operation) -> str:
     local = timezone.localtime(operation.at)
     return local.strftime('%d/%m/%Y à %H:%M')
 
 
-def describe(operation):
+def describe(operation: Operation) -> str:
     """« vérif de Sac de soin du 12/11/2026 à 14:05 » (ligne visee par une annulation)."""
     from .models import OperationKind
     if operation.kind == OperationKind.CANCEL:
@@ -475,7 +488,7 @@ def describe(operation):
     return label + (f' ({operation.lot_name})' if operation.lot_name else '') + f' du {_when(operation)}'
 
 
-def cancel(operation, identity, reason):
+def cancel(operation: Operation, identity: str, reason: str) -> Operation:
     """Annule `operation` et celles qui en dependent, au nom de `identity`, avec un motif. Renvoie la ligne
     d'annulation du journal. A appeler pendant une requete (capture) : l'annulation peut etre annulee a son tour."""
     from .models import Operation, OperationKind
@@ -486,7 +499,7 @@ def cancel(operation, identity, reason):
         operation = Operation.objects.select_for_update().get(pk=operation.pk)
         batches = plan(operation)
         cancelled = [op for ops in _batch_operations(batches).values() for op in ops]
-        cache = {}
+        cache: dict[int, bool] = {}
         done = kept = 0
         for batch in batches:
             batch_done, batch_kept = _undo_batch(batch, set(batches), cache)

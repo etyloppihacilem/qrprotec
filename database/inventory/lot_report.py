@@ -21,8 +21,11 @@ Le rapport suit les sous-lots en cascade (lot, puis ses sous-lots en profondeur 
 « Certifié par le TECH <antenne> » avec un espace pour la signature.
 """
 
+from __future__ import annotations
+
 from collections import defaultdict
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING, Any
 
 from django.utils import timezone
 
@@ -30,6 +33,11 @@ from .idendity import ANONYMOUS_OPENING, parse_identity
 from .lot_sheet import CONTENT_WIDTH, GREY_BAND, GREY_TEXT, MARGIN, PAGE_HEIGHT, PAGE_WIDTH, Page, build_pdf, fit, wrap
 from .models import ABSENCE_KINDS, ItemMovement, Items, Operation, OperationKind, Verifs, name_key
 from .services import lot_requirements
+
+if TYPE_CHECKING:
+    from datetime import date, datetime
+    from inventory.models import Lots
+    from inventory.services import Requirement
 
 WEEKDAYS = ['lundi', 'mardi', 'mercredi', 'jeudi', 'vendredi', 'samedi', 'dimanche']
 NO_LOCATION = 'Sans emplacement'
@@ -41,17 +49,17 @@ ROW = 13                 # hauteur d'une ligne du tableau des items
 SIGN_HEIGHT = 120        # case de certification
 
 
-def long_datetime(value):
+def long_datetime(value: datetime) -> str:
     """« jeudi 11/12/2026 à 15:45 » (heure locale)."""
     value = timezone.localtime(value)
     return f"{WEEKDAYS[value.weekday()]} {value.strftime('%d/%m/%Y')} à {value.strftime('%H:%M')}"
 
 
-def short_date(value):
+def short_date(value: date) -> str:
     return value.strftime('%d/%m/%Y') if value else ''
 
 
-def guest_label(info):
+def guest_label(info: dict[str, Any]) -> str:
     """Invite (carte d'invite) : « Léa Martin, invitée de l'antenne Lyon 3, carte INVK7Q2X »."""
     if not info['verified']:
         return ''
@@ -64,7 +72,7 @@ def guest_label(info):
     return f'{name}, invité{antenna}, carte {card.matricule}'
 
 
-def who(identity):
+def who(identity: str) -> str:
     """Nom complet et matricule (« Jeanne Dupont, M001 ») : le rapport est un document certifie, imprime et signe, et
     fait exception a la regle des prenoms seuls du front web (choix d'Hippolyte). Nom declare : « (nom déclaré) »."""
     if not identity:
@@ -101,15 +109,15 @@ class LotState:
     lacking: list = field(default_factory=list)         # [(Requirement, manquants)]
 
     @property
-    def counted(self):
+    def counted(self) -> bool:
         return bool(self.requirements)
 
     @property
-    def complete(self):
+    def complete(self) -> bool:
         return not self.lacking
 
 
-def item_locations(lots, at):
+def item_locations(lots: list[Lots], at: datetime) -> dict[str, tuple[Items, str]]:
     """{iid: (item, lot id a la date at)} des items qui etaient dans l'un des lots a cette date."""
     ids = {lot.id for lot in lots}
     touched = set(ItemMovement.objects.filter(at__gt=at, from_lot_id__in=ids).values_list('item_id', flat=True))
@@ -119,7 +127,7 @@ def item_locations(lots, at):
                   .filter(location_id__in=ids) | Items.objects.select_related('pack__item_type')
                   .filter(added__lte=at, iid__in=touched))
     candidates = {item.iid: item for item in candidates}
-    first_after = {}
+    first_after: dict[int, str | None] = {}
     for move in (ItemMovement.objects.filter(item_id__in=list(candidates), at__gt=at)
                  .order_by('at', 'id').only('item_id', 'from_lot_id')):
         first_after.setdefault(move.item_id, move.from_lot_id)
@@ -131,20 +139,20 @@ def item_locations(lots, at):
     return result
 
 
-def open_absences(iids, at):
+def open_absences(iids: dict[str, tuple[Items, str]], at: datetime) -> set[str]:
     """Items notes absents a une verif avant at et pas encore retrouves a cette date."""
     return set(ItemMovement.objects.filter(item_id__in=list(iids), kind__in=ABSENCE_KINDS, at__lte=at)
                .exclude(cancelled__lte=at).values_list('item_id', flat=True))
 
 
-def last_verifs(lots, at):
+def last_verifs(lots: list[Lots], at: datetime) -> dict[str | None, Verifs]:
     result = {}
     for verif in Verifs.objects.filter(lot_id__in=[lot.id for lot in lots], datetime__lte=at).order_by('datetime', 'id'):
         result[verif.lot_id] = verif
     return result
 
 
-def seals(lots, at):
+def seals(lots: list[Lots], at: datetime) -> dict[Any, Any]:
     """{lot id: operation de scellage} des lots scelles a la date at."""
     last = {}
     for operation in (Operation.objects.filter(lot_id__in=[lot.id for lot in lots], at__lte=at,
@@ -154,7 +162,7 @@ def seals(lots, at):
     return {lot_id: operation for lot_id, operation in last.items() if operation.kind == OperationKind.SEAL}
 
 
-def state_at(root, at):
+def state_at(root: Lots, at: datetime) -> list[LotState]:
     """[LotState] du lot et de ses sous-lots (en cascade) a la date at."""
     lots = [lot for lot in root.descendants() if lot.created <= at or lot.id == root.id]
     kept = {root.id}
@@ -173,7 +181,7 @@ def state_at(root, at):
             item, expired=item.is_expired(day),
             disabled=item.disabled and item.disabled_at is not None and item.disabled_at <= at))
     for state in states.values():
-        good = defaultdict(int)
+        good: defaultdict[str, int] = defaultdict(int)
         for row in state.items:
             if not (row.expired or row.disabled):
                 good[row.item.pack.item_type_id] += 1
@@ -197,14 +205,14 @@ COLUMNS = [  # (titre, largeur relative a la place restante)
 ]
 
 
-def missing_remark(requirement, count):
+def missing_remark(requirement: Requirement, count: int) -> str:
     """Colonne « État » d'une ligne de type manquant : « manquant », « 2 manquants », « manquant : 50 mL »."""
     if requirement.unit:
         return f'manquant : {count} {requirement.unit}'
     return 'manquant' if count == 1 else f'{count} manquants'
 
 
-def item_remark(row):
+def item_remark(row: ItemState) -> str:
     if row.disabled:
         return 'désactivé'
     if row.expired:
@@ -213,20 +221,20 @@ def item_remark(row):
 
 
 class ReportWriter:
-    def __init__(self, root, at, editor, antenna, edited=None):
+    def __init__(self, root: Lots, at: datetime, editor: str, antenna: str, edited: datetime | None = None) -> None:
         self.root = root
         self.at = at
         self.editor = editor
         self.antenna = ' '.join(str(antenna or '').split())
         self.edited = timezone.localtime(edited or timezone.now())
         self.states = state_at(root, at)
-        self.pages = []
-        self.page = None
+        self.pages: list[Page] = []
+        self.page: Page | None = None
         self.y = 0
 
     # -- mise en page --------------------------------------------------------------------------------------------------
 
-    def new_page(self):
+    def new_page(self) -> None:
         self.page = Page()
         self.pages.append(self.page)
         self.page.text(MARGIN, MARGIN + 8, "RAPPORT D'ÉTAT DE LOT", size=8, bold=True, grey=GREY_TEXT)
@@ -234,20 +242,21 @@ class ReportWriter:
                        align='right')
         self.y = MARGIN + 24
 
-    def need(self, height):
+    def need(self, height: int) -> bool:
         if self.page is None or self.y + height > BODY_BOTTOM:
             self.new_page()
             return True
         return False
 
-    def text(self, x, text, size=10, bold=False, grey=0.0, width=None, step=None):
+    def text(self, x: int, text: str, size: int | float = 10, bold: bool = False, grey: float = 0.0,
+             width: float | None = None, step: int | None = None) -> None:
         width = width or (PAGE_WIDTH - MARGIN - x)
         self.page.text(x, self.y + size, fit(text, width, size, bold), size=size, bold=bold, grey=grey)
         self.y += step if step is not None else size + 4
 
     # -- contenu ----------------------------------------------------------------------------------------------------
 
-    def title(self):
+    def title(self) -> None:
         self.new_page()
         root = self.root
         self.text(MARGIN, root.name, size=20, bold=True, step=26)
@@ -276,7 +285,7 @@ class ReportWriter:
         self.text(MARGIN, "Contenu attendu et sous-lots tels qu'ils sont définis aujourd'hui ; items reconstitués "
                           'depuis le journal des mouvements.', size=8, grey=GREY_TEXT, step=16)
 
-    def lot_section(self, state):
+    def lot_section(self, state: LotState) -> None:
         lot = state.lot
         x = MARGIN + state.depth * INDENT
         width = PAGE_WIDTH - MARGIN - x
@@ -323,7 +332,7 @@ class ReportWriter:
                          f'{who(seal.by)}, intact à cette date', size=9.5, step=13)
         self.items_table(state, x, width)
 
-    def items_table(self, state, x, width):
+    def items_table(self, state: LotState, x: int, width: float) -> None:
         if not state.items and not state.lacking:
             if state.counted:
                 self.need(14)
@@ -345,7 +354,7 @@ class ReportWriter:
                  for requirement, count in state.lacking]
         rows.sort(key=lambda row: row[1])
 
-        def header():
+        def header() -> None:
             self.y += 4
             column_x = x
             for (title, _), column_width in zip(COLUMNS, widths):
@@ -376,7 +385,7 @@ class ReportWriter:
             self.y += ROW
             self.page.line(x, self.y - 2, x + width, self.y - 2, line_width=0.25, grey=0.8)
 
-    def certification(self):
+    def certification(self) -> None:
         self.need(SIGN_HEIGHT + 20)
         self.y += 16
         top = self.y
@@ -393,7 +402,7 @@ class ReportWriter:
         self.page.rect(half, top + 50, PAGE_WIDTH - MARGIN - 10 - half, SIGN_HEIGHT - 60, line_width=0.4, dash=(2, 2))
         self.y = top + SIGN_HEIGHT
 
-    def write(self):
+    def write(self) -> bytes:
         self.title()
         for state in self.states:
             self.lot_section(state)
@@ -408,5 +417,5 @@ class ReportWriter:
         return build_pdf(self.pages, title=f"Rapport d'état - {self.root.name}")
 
 
-def lot_report_pdf(root, at, editor, antenna, edited=None):
+def lot_report_pdf(root: Lots, at: datetime, editor: str, antenna: str, edited: datetime | None = None) -> bytes:
     return ReportWriter(root, at, editor, antenna, edited).write()

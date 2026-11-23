@@ -11,21 +11,28 @@ Aucune ecriture ne peut donc etre oubliee. En plus, une entree ne vit que MAX_AG
 Base en memoire (tests) ou autre moteur : pas de cache.
 """
 
+from __future__ import annotations
+
 import sqlite3
 import threading
 import time
+from typing import TYPE_CHECKING, Any
+from collections.abc import Callable
 
 from django.conf import settings
 from django.db import connection
+
+if TYPE_CHECKING:
+    from datetime import date
 
 MAX_AGE = 30.0  # secondes
 
 _lock = threading.Lock()
 _watcher = None  # (chemin, connexion)
-_entries = {}  # cle -> (data_version, instant, valeur)
+_entries: dict[str, tuple[Any, float, Any]] = {}  # cle -> (data_version, instant, valeur)
 
 
-def _database_path():
+def _database_path() -> str | None:
     database = settings.DATABASES['default']
     if database['ENGINE'] != 'django.db.backends.sqlite3' or connection.settings_dict['NAME'] != database['NAME']:
         return None  # base de test (renommee par le lanceur de tests)
@@ -35,7 +42,7 @@ def _database_path():
     return name
 
 
-def data_version():
+def data_version() -> int | None:
     """Numero qui change a chaque ecriture validee dans la base, None si on ne peut pas le savoir."""
     global _watcher
     path = _database_path()
@@ -53,7 +60,7 @@ def data_version():
             return None
 
 
-def cached(key, compute):
+def cached(key: tuple[Any, ...], compute: Callable[[], Any]) -> Any:
     """Valeur de compute() pour cette cle, recalculee seulement si la base a change (ou apres MAX_AGE secondes).
     La valeur rendue est partagee : l'appelant ne doit pas la modifier."""
     version = data_version()
@@ -71,6 +78,6 @@ def cached(key, compute):
     return value
 
 
-def clear():
+def clear() -> None:
     with _lock:
         _entries.clear()

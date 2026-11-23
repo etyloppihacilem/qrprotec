@@ -1,7 +1,18 @@
 """Tests du back : douchette telephone et suivi en direct (WebSocket)."""
 
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Any
+from collections.abc import Callable
+
 from .base import *  # noqa: F401,F403
 from .base import setUpModule, tearDownModule  # noqa: F401 (PIN facultatif pendant ces tests)
+
+if TYPE_CHECKING:
+    import threading
+
+    from inventory.live import LiveSession
+    from inventory.models import Items
 
 
 class RemoteScannerTests(TransactionTestCase):
@@ -10,7 +21,7 @@ class RemoteScannerTests(TransactionTestCase):
     # transaction d'un TestCase (BEGIN IMMEDIATE, voir DATABASES), leurs ecritures seraient refusees.
 
     @classmethod
-    def setUpClass(cls):
+    def setUpClass(cls) -> None:
         super().setUpClass()
         import threading
         from django.core.servers.basehttp import WSGIServer, get_internal_wsgi_application
@@ -30,13 +41,13 @@ class RemoteScannerTests(TransactionTestCase):
         time.sleep(0.3)
 
     @staticmethod
-    def _free_port():
+    def _free_port() -> int:
         import socket
         with socket.socket() as sock:
             sock.bind(('127.0.0.1', 0))
             return sock.getsockname()[1]
 
-    def http(self, role, method, path, body=None):
+    def http(self, role: str, method: str, path: str, body: dict[str, int] | None = None) -> tuple[int, Any]:
         import http.client
         connection = http.client.HTTPConnection('127.0.0.1', self.ports[role], timeout=5)
         connection.request(method, path, json.dumps(body) if body is not None else None,
@@ -46,17 +57,17 @@ class RemoteScannerTests(TransactionTestCase):
         is_json = response.getheader('Content-Type', '').startswith('application/json')
         return response.status, (json.loads(data) if is_json and data else None)
 
-    def ws(self, role, path):
+    def ws(self, role: str, path: str) -> RawWebSocket:
         return RawWebSocket('127.0.0.1', self.ports[role], path)
 
-    def create_session(self, minutes=5):
+    def create_session(self, minutes: int = 5) -> tuple[dict[str, Any], str, str]:
         code, body = self.http('local', 'POST', '/api/remote-scanner/', {'timeout_minutes': minutes})
         self.assertEqual(code, 201)
         from urllib.parse import parse_qs, urlsplit
         query = parse_qs(urlsplit(body['url']).query)
         return body, query['s'][0], query['k'][0]
 
-    def test_relay_between_phone_and_front(self):
+    def test_relay_between_phone_and_front(self) -> None:
         body, session_id, key = self.create_session()
         self.assertTrue(body['url'].startswith('https://example.com/scanner?'))
         front = self.ws('local', f'/ws/scanner/front?s={session_id}')
@@ -76,7 +87,7 @@ class RemoteScannerTests(TransactionTestCase):
         code, _ = self.http('public', 'GET', f'/api/remote-scanner/check/?s={session_id}&k={key}')
         self.assertEqual(code, 404)
 
-    def test_access_rules(self):
+    def test_access_rules(self) -> None:
         body, session_id, key = self.create_session()
         # mauvaise cle, route du poste sur l'API publique, creation sur l'API publique
         self.assertEqual(self.ws('public', f'/ws/scanner/phone?s={session_id}&k=faux').status, 404)
@@ -89,7 +100,7 @@ class RemoteScannerTests(TransactionTestCase):
         code, health = self.http('public', 'GET', '/api/health/')
         self.assertTrue(health['remote_scanner'])
 
-    def test_session_expires_after_disconnection(self):
+    def test_session_expires_after_disconnection(self) -> None:
         import time
         body, session_id, key = self.create_session(minutes=1)
         front = self.ws('local', f'/ws/scanner/front?s={session_id}')
@@ -109,36 +120,36 @@ class RemoteScannerTests(TransactionTestCase):
 class FakeSocket:
     """WebSocket factice pour LiveHub : messages a recevoir (file), messages envoyes (liste)."""
 
-    def __init__(self, *incoming):
+    def __init__(self, *incoming: Any) -> None:
         import queue
-        self.incoming = queue.Queue()
+        self.incoming: queue.Queue[str | None] = queue.Queue()
         for message in incoming:
             self.push(message)
-        self.sent = []
+        self.sent: list[dict[str, Any]] = []
         self.closed = False
 
-    def push(self, message):
+    def push(self, message: Any) -> None:
         self.incoming.put(json.dumps(message) if message is not None else None)
 
-    def receive(self):
+    def receive(self) -> str:
         from ..remote_scanner import WebSocketClosed
         message = self.incoming.get(timeout=5)
         if message is None:
             raise WebSocketClosed('fin')
         return message
 
-    def send_json(self, message):
+    def send_json(self, message: dict[str, Any]) -> bool:
         self.sent.append(message)
         return True
 
-    def close(self, code=1000):
+    def close(self, code: int = 1000) -> None:
         self.closed = True
 
 
 class LiveHubTests(ApiTestCase):
     """Suivi des vérifs en direct : publication par la page de scan, diffusion aux pages de suivi."""
 
-    def setUp(self):
+    def setUp(self) -> None:
         super().setUp()
         from unittest import mock
         from .. import live
@@ -165,13 +176,13 @@ class LiveHubTests(ApiTestCase):
         self.addCleanup(titles.stop)
         self.badge = {'matricule': 'M001', 'key': self.user.new_key}
 
-    def run_socket(self, target, socket):
+    def run_socket(self, target: Callable[[Any], None], socket: FakeSocket) -> threading.Thread:
         import threading
         thread = threading.Thread(target=target, args=(socket,), daemon=True)
         thread.start()
         return thread
 
-    def wait(self, condition):
+    def wait(self, condition: Callable[[], Any]) -> None:
         import time
         for _ in range(200):
             if condition():
@@ -179,14 +190,14 @@ class LiveHubTests(ApiTestCase):
             time.sleep(0.01)
         self.fail('condition jamais remplie')
 
-    def test_watcher_needs_a_badge(self):
+    def test_watcher_needs_a_badge(self) -> None:
         socket = FakeSocket({'type': 'hello', 'user': {'matricule': 'M001', 'key': 'faux'}})
         self.hub.run_watcher(socket)
         self.assertEqual(socket.sent[0]['type'], 'error')
         self.assertTrue(socket.sent[0]['login_required'])
         self.assertFalse(self.hub.watchers)
 
-    def test_scans_are_relayed_live_then_done(self):
+    def test_scans_are_relayed_live_then_done(self) -> None:
         watcher = FakeSocket({'type': 'hello', 'user': self.badge})
         watching = self.run_socket(self.hub.run_watcher, watcher)
         self.wait(lambda: watcher.sent)
@@ -222,7 +233,7 @@ class LiveHubTests(ApiTestCase):
         watching.join(5)
         self.assertFalse(self.hub.watchers)
 
-    def test_done_card_names(self):
+    def test_done_card_names(self) -> None:
         """Carte terminee du suivi : noms de services.VerifTitles (vraie base, lue ici dans le thread du test)."""
         from unittest import mock
         verif = Verifs.objects.create(lot=self.lot, by='test', complete=True, present_count=2)
@@ -234,7 +245,7 @@ class LiveHubTests(ApiTestCase):
         self.assertEqual(session.done['lots'], 1)
         close.assert_called_once()
 
-    def test_full_verif_roles(self):
+    def test_full_verif_roles(self) -> None:
         """« Rendre la vérif complète » : badge des roles gestion et admin seulement."""
         badge = {'matricule': 'M001', 'key': self.user.new_key}
         for role, allowed in (('normal', False), ('chef', False), ('gestion', True), ('admin', True)):
@@ -245,7 +256,7 @@ class LiveHubTests(ApiTestCase):
         self.user.save()
         self.assertFalse(self.live.is_gestion(badge))
 
-    def test_full_verif_shared_by_admin(self):
+    def test_full_verif_shared_by_admin(self) -> None:
         """« Rendre la vérif complète » : la gestion ou un admin l'active depuis la page de suivi, tous les participants
         le voient, un secouriste ne peut pas."""
         from unittest import mock
@@ -273,7 +284,7 @@ class LiveHubTests(ApiTestCase):
         scanner.push(None)
         scanning.join(5)
 
-    def test_reload_resumes_the_session(self):
+    def test_reload_resumes_the_session(self) -> None:
         first = FakeSocket({'type': 'hello', 'name': 'Paul Martin'})
         thread = self.run_socket(self.hub.run_scanner, first)
         self.wait(lambda: first.sent)
@@ -297,7 +308,8 @@ class LiveHubTests(ApiTestCase):
             socket.push(None)
             running.join(5)
 
-    def join_team(self, keyed=True):
+    def join_team(self, keyed: bool = True
+                 ) -> tuple[FakeSocket, FakeSocket, dict[str, str], dict[str, str], list[Items]]:
         """Jeanne commence la verif du lot, Paul (badge) la rejoint depuis la page de suivi. keyed : Jeanne a scanne
         l'etiquette cle du lot (sinon son etiquette publique)."""
         from ..models import Secouristes
@@ -341,7 +353,7 @@ class LiveHubTests(ApiTestCase):
                               and m['entries'][-1]['iid'] == items[1].iid for m in first.sent))
         return first, second, hello, joined, items
 
-    def test_team_check_is_sent_by_the_last_participant(self):
+    def test_team_check_is_sent_by_the_last_participant(self) -> None:
         from unittest import mock
         first, second, hello, joined, items = self.join_team()
         public = self.hub.visible()[0]
@@ -374,7 +386,7 @@ class LiveHubTests(ApiTestCase):
         for socket in (first, second):
             socket.push(None)
 
-    def test_team_label_counts_for_the_last_participant(self):
+    def test_team_label_counts_for_the_last_participant(self) -> None:
         """Sans etiquette cle : l'etiquette publique scannee par Jeanne vaut pour la verif envoyee par Paul."""
         from unittest import mock
         first, second, hello, joined, items = self.join_team(keyed=False)
@@ -389,7 +401,7 @@ class LiveHubTests(ApiTestCase):
         for socket in (first, second):
             socket.push(None)
 
-    def test_validated_participant_sends_once_the_others_left(self):
+    def test_validated_participant_sends_once_the_others_left(self) -> None:
         first, second, hello, joined, items = self.join_team()
         first.push({'type': 'validate', 'partial': True})
         self.wait(lambda: any(m['type'] == 'validate' for m in first.sent))
@@ -406,13 +418,13 @@ class LiveHubTests(ApiTestCase):
         self.assertEqual(sum(m['type'] == 'submit' for m in first.sent), 1)
         first.push(None)
 
-    def test_checks_of_the_same_global_lot_are_merged(self):
+    def test_checks_of_the_same_global_lot_are_merged(self) -> None:
         sub_a = Lots(lot_type=self.lot_type, name='Armoire 1', name_short='A1', created_by='test', parent=self.lot)
         sub_a.save()
         sub_b = Lots(lot_type=self.lot_type, name='Armoire 2', name_short='A2', created_by='test', parent=self.lot)
         sub_b.save()
 
-        def start(hello, lot, key):
+        def start(hello: dict[str, Any], lot: Lots, key: str | None) -> FakeSocket:
             socket = FakeSocket(hello)
             self.run_socket(self.hub.run_scanner, socket)
             self.wait(lambda: socket.sent)
@@ -444,12 +456,13 @@ class LiveHubTests(ApiTestCase):
         for socket in (first, second, third):
             socket.push(None)
 
-    def start_guest_team(self, verified=True):
+    def start_guest_team(self, verified: bool = True
+                        ) -> tuple[tuple[FakeSocket, FakeSocket], dict[str, Any], list[Items]]:
         """Jeanne (badge, sinon un premier invite) commence la vérif du lot ; un invite sans compte la rejoint en
         commencant la vérif du meme lot (fusion). Renvoie (sockets, hello de l'invite, items)."""
         items = self.create(self.compresses, self.today + timedelta(days=200), 2)
 
-        def start(hello, item):
+        def start(hello: dict[str, Any], item: Items) -> FakeSocket:
             socket = FakeSocket(hello)
             self.run_socket(self.hub.run_scanner, socket)
             self.wait(lambda: socket.sent)
@@ -464,7 +477,7 @@ class LiveHubTests(ApiTestCase):
         self.wait(lambda: any(m['type'] == 'hello' and m.get('merged') for m in second.sent))
         return (first, second), next(m for m in second.sent if m.get('merged')), items
 
-    def test_guest_sends_the_team_check_in_the_name_of_a_connected_rescuer(self):
+    def test_guest_sends_the_team_check_in_the_name_of_a_connected_rescuer(self) -> None:
         from unittest import mock
         sockets, hello, items = self.start_guest_team()
         session = self.hub.sessions[hello['id']]
@@ -481,7 +494,7 @@ class LiveHubTests(ApiTestCase):
         for socket in sockets:
             socket.push(None)
 
-    def test_team_check_needs_a_connected_rescuer(self):
+    def test_team_check_needs_a_connected_rescuer(self) -> None:
         from unittest import mock
         sockets, hello, items = self.start_guest_team(verified=False)
         live = {'id': hello['id'], 'pid': hello['pid'], 'token': hello['token']}
@@ -500,17 +513,17 @@ class LiveHubTests(ApiTestCase):
         for socket in sockets:
             socket.push(None)
 
-    def test_guest_identity(self):
+    def test_guest_identity(self) -> None:
         from ..idendity import guest_identity, declared_short_name
         self.assertEqual(guest_identity(''), 'D:Invité')
         self.assertEqual(guest_identity('  invité '), 'D:Invité')
         self.assertEqual(guest_identity('Jean  Martin'), 'D:Jean Martin (invité)')
         self.assertEqual(declared_short_name('Jean Martin (invité)'), 'Jean M. (invité)')
 
-    def test_same_person_on_two_pages_is_shown_once(self):
+    def test_same_person_on_two_pages_is_shown_once(self) -> None:
         """Meme utilisateur sur deux pages (etiquette cle ouverte avec l'appareil photo dans un nouvel onglet) : les
         vérifs du meme lot global sont fusionnees, mais il n'apparait qu'une fois ; sa validation vaut pour les deux."""
-        def start(level):
+        def start(level: Lots) -> FakeSocket:
             socket = FakeSocket({'type': 'hello', 'user': self.badge})
             self.run_socket(self.hub.run_scanner, socket)
             self.wait(lambda: socket.sent)
@@ -538,7 +551,7 @@ class LiveHubTests(ApiTestCase):
         for socket in (first, second):
             socket.push(None)
 
-    def test_cascade_step_keeps_the_team_check(self):
+    def test_cascade_step_keeps_the_team_check(self) -> None:
         """Vérif en cascade a deux : Jeanne valide son armoire, la vérif commune continue pour Paul."""
         from unittest import mock
         sub_a = Lots(lot_type=self.lot_type, name='Armoire 1', name_short='A1', created_by='test', parent=self.lot)
@@ -548,7 +561,7 @@ class LiveHubTests(ApiTestCase):
         mine = self.create(self.compresses, self.today + timedelta(days=200), 2)
         theirs = self.create(self.compresses, self.today + timedelta(days=200), 1)
 
-        def start(hello, level, entries, keys):
+        def start(hello: dict[str, Any], level: Lots, entries: list[Any], keys: list[Any]) -> FakeSocket:
             socket = FakeSocket(hello)
             self.run_socket(self.hub.run_scanner, socket)
             self.wait(lambda: socket.sent)
@@ -600,7 +613,7 @@ class LiveHubTests(ApiTestCase):
         self.hub.reap(session.finished + self.live.DONE_KEEP + 1)
         self.assertNotIn(session.id, self.hub.sessions)
 
-    def test_cascade_closes_when_the_global_lot_is_validated(self):
+    def test_cascade_closes_when_the_global_lot_is_validated(self) -> None:
         """Vérif en cascade : valider le lot global termine la vérif en direct, meme si un participant deconnecte y
         est encore (page fermee, ancienne vérif fusionnee) ; elle n'apparait plus en cours dans le suivi."""
         from unittest import mock
@@ -646,7 +659,7 @@ class LiveHubTests(ApiTestCase):
         scanner.push(None)
         self.assertEqual(self.hub.visible()[0]['done']['lots'], 2)
 
-    def test_cascade_leave_without_validated_lot_drops_the_check(self):
+    def test_cascade_leave_without_validated_lot_drops_the_check(self) -> None:
         """Dernier participant connecte qui quitte une vérif en cascade sans rien valider : elle disparait du suivi."""
         scanner = FakeSocket({'type': 'hello', 'user': self.badge})
         self.run_socket(self.hub.run_scanner, scanner)
@@ -657,7 +670,7 @@ class LiveHubTests(ApiTestCase):
         scanner.push({'type': 'leave'})
         self.wait(lambda: not self.hub.sessions)
 
-    def lonely_check(self, validate, remaining):
+    def lonely_check(self, validate: bool, remaining: int) -> tuple[LiveSession, list[str]]:
         """Verif d'un seul participant qui ferme sa page ; renvoie la session apres le delai d'abandon."""
         items = self.create(self.compresses, self.today + timedelta(days=200), 2)
         scanner = FakeSocket({'type': 'hello', 'user': self.badge})
@@ -675,12 +688,12 @@ class LiveHubTests(ApiTestCase):
         self.assertEqual(self.hub.reap(session.lost + 60), [])  # rechargement de la page possible
         return session, self.hub.reap(session.lost + self.live.LOST_KEEP + 1)
 
-    def test_abandoned_check_is_dropped(self):
+    def test_abandoned_check_is_dropped(self) -> None:
         session, expired = self.lonely_check(validate=False, remaining=3)
         self.assertEqual(expired, [session.id])
         self.assertFalse(Verifs.objects.exists())
 
-    def test_validated_check_without_participants_is_saved(self):
+    def test_validated_check_without_participants_is_saved(self) -> None:
         session, expired = self.lonely_check(validate=True, remaining=3)
         self.assertEqual(expired, [])
         verif = Verifs.objects.get(lot=self.lot)
@@ -690,12 +703,12 @@ class LiveHubTests(ApiTestCase):
         self.assertEqual(self.hub.reap(session.finished + 60), [])
         self.assertEqual(self.hub.reap(session.finished + self.live.DONE_KEEP + 1), [session.id])
 
-    def test_complete_check_without_participants_is_saved(self):
+    def test_complete_check_without_participants_is_saved(self) -> None:
         session, expired = self.lonely_check(validate=False, remaining=0)
         self.assertEqual(expired, [])
         self.assertTrue(Verifs.objects.get(lot=self.lot).complete)
 
-    def test_state_is_bounded(self):
+    def test_state_is_bounded(self) -> None:
         state = self.live.clean_state({'lot': {'id': 'x' * 50, 'name': 'n' * 500}, 'count': -3, 'remaining': 'a',
                                        'scanned': [{'name': 'i'}] * 1000, 'lots': ['a'] * 100})
         self.assertEqual(len(state['lot']['id']), 16)
@@ -705,7 +718,7 @@ class LiveHubTests(ApiTestCase):
         self.assertEqual(len(state['lots']), 20)
         self.assertIsNone(self.live.clean_state({'lot': None}))
 
-    def test_cascade_progress_is_public(self):
+    def test_cascade_progress_is_public(self) -> None:
         """Vérif en cascade : count/remaining sont l'avancement de tout le lot, la page de suivi le sait (Avancement)."""
         session, participant = self.live.LiveSession(), self.live.Participant()
         participant.state = self.live.clean_state({'lot': {'id': 'a', 'name': 'B+'}, 'cascade': True, 'count': 26, 'remaining': 4})
@@ -718,7 +731,7 @@ class LiveHubTests(ApiTestCase):
 class RawWebSocket:
     """Client WebSocket minimal pour les tests (trames texte masquees)."""
 
-    def __init__(self, host, port, path):
+    def __init__(self, host: str, port: int, path: str) -> None:
         import base64
         import os
         import socket
@@ -735,7 +748,7 @@ class RawWebSocket:
         self.status = int(head.split(b' ')[1]) if head else 0
         self.last = None
 
-    def send(self, message):
+    def send(self, message: dict[str, Any]) -> None:
         import os
         payload = json.dumps(message).encode()
         mask = os.urandom(4)
@@ -743,7 +756,7 @@ class RawWebSocket:
             bytes([0x81, 0x80 | 126]) + len(payload).to_bytes(2, 'big')
         self.sock.sendall(header + mask + bytes(b ^ mask[i % 4] for i, b in enumerate(payload)))
 
-    def _exact(self, size):
+    def _exact(self, size: int) -> bytes:
         data = b''
         while len(data) < size:
             chunk = self.sock.recv(size - len(data))
@@ -752,7 +765,7 @@ class RawWebSocket:
             data += chunk
         return data
 
-    def receive(self):
+    def receive(self) -> dict[str, Any] | None:
         while True:
             first, second = self._exact(2)
             length = second & 0x7F
@@ -765,6 +778,6 @@ class RawWebSocket:
             if first & 0x0F == 0x8:
                 raise ConnectionError('fermee par le serveur')
 
-    def close(self):
+    def close(self) -> None:
         self.sock.sendall(bytes([0x88, 0x80]) + b'\0\0\0\0')
         self.sock.close()

@@ -20,8 +20,11 @@ de page a lui. En haut de la premiere page de chaque lot : le QR code de son eti
 Le PDF est ecrit a la main (polices standard Helvetica, encodage WinAnsi) pour ne pas ajouter de dependance.
 """
 
+from __future__ import annotations
+
 import unicodedata
 import zlib
+from typing import TYPE_CHECKING, Any
 
 from django.utils import timezone
 
@@ -29,6 +32,10 @@ from .models import name_key
 from .qr import qr_matrix
 from .serializers import public_url
 from .services import lot_requirements
+
+if TYPE_CHECKING:
+    from inventory.models import Lots
+    from inventory.services import Requirement
 
 PAGE_WIDTH = 595.28   # A4 en points
 PAGE_HEIGHT = 841.89
@@ -77,7 +84,7 @@ _SPECIAL_WIDTHS = {'«': 556, '»': 556, '’': 222, '‘': 222, '–': 556, '�
                    'œ': 944, 'Œ': 1000, '·': 278, '›': 333, ' ': 278}
 
 
-def _char_width(character, bold):
+def _char_width(character: str, bold: bool) -> int:
     table = _HELVETICA_BOLD if bold else _HELVETICA
     code = ord(character)
     if 32 <= code <= 126:
@@ -90,11 +97,11 @@ def _char_width(character, bold):
     return 556
 
 
-def text_width(text, size, bold=False):
+def text_width(text: str, size: int | float, bold: bool = False) -> float:
     return sum(_char_width(character, bold) for character in text) * size / 1000
 
 
-def fit(text, width, size, bold=False):
+def fit(text: str, width: int | float, size: int | float, bold: bool = False) -> str:
     """Coupe le texte avec « … » pour qu'il tienne dans la largeur."""
     text = ' '.join(str(text).split())
     if text_width(text, size, bold) <= width:
@@ -104,7 +111,7 @@ def fit(text, width, size, bold=False):
     return text.rstrip() + '…'
 
 
-def wrap(text, width, size, bold=False, max_lines=3):
+def wrap(text: str, width: float, size: int | float, bold: bool = False, max_lines: int = 3) -> list[str]:
     lines = []
     for paragraph in str(text).splitlines():
         line = ''
@@ -126,7 +133,7 @@ def wrap(text, width, size, bold=False, max_lines=3):
 # ----------------------------------------------------------------------------------------------------------------------
 # Ecriture du PDF
 
-def _pdf_string(text):
+def _pdf_string(text: str) -> bytes:
     encoded = bytearray()
     for character in str(text):
         try:
@@ -137,17 +144,18 @@ def _pdf_string(text):
     return b'(' + bytes(encoded).replace(b'\\', b'\\\\').replace(b'(', b'\\(').replace(b')', b'\\)') + b')'
 
 
-def _num(value):
+def _num(value: int | float) -> str:
     return f'{value:.2f}'.rstrip('0').rstrip('.')
 
 
 class Page:
     """Operations de dessin d'une page, en coordonnees « depuis le haut » (y croit vers le bas)."""
 
-    def __init__(self):
-        self.ops = []
+    def __init__(self) -> None:
+        self.ops: list[bytes] = []
 
-    def text(self, x, y, text, size=10, bold=False, grey=0.0, align='left'):
+    def text(self, x: int | float, y: int | float, text: str, size: int | float = 10, bold: bool = False,
+             grey: float = 0.0, align: str = 'left') -> None:
         if align == 'right':
             x -= text_width(text, size, bold)
         elif align == 'center':
@@ -157,7 +165,8 @@ class Page:
             _num(grey).encode(), font, _num(size).encode(), _num(x).encode(), _num(PAGE_HEIGHT - y).encode(),
             _pdf_string(text)))
 
-    def rect(self, x, y, width, height, fill=None, stroke=True, line_width=0.6, dash=None):
+    def rect(self, x: int | float, y: int | float, width: float, height: int | float, fill: float | None = None,
+             stroke: bool = True, line_width: int | float = 0.6, dash: tuple[int, int] | None = None) -> None:
         """Rectangle de coin superieur gauche (x, y). fill : niveau de gris, ou None. dash : (trait, espace)."""
         ops = [b'%s w' % _num(line_width).encode()]
         if dash:
@@ -171,7 +180,7 @@ class Page:
             ops.append(b'[] 0 d')
         self.ops.append(b'0 G ' + b' '.join(ops))
 
-    def qr(self, x, y, size, text):
+    def qr(self, x: float, y: int, size: float, text: str) -> None:
         """QR code de text, carre de cote size depuis (x, y), modules noirs fusionnes par ligne."""
         modules = qr_matrix(text)
         unit = size / len(modules)
@@ -190,19 +199,20 @@ class Page:
         ops.append(b'f')
         self.ops.append(b' '.join(ops))
 
-    def line(self, x1, y1, x2, y2, line_width=0.6, grey=0.0):
+    def line(self, x1: int | float, y1: int | float, x2: float, y2: int | float, line_width: float = 0.6,
+             grey: float = 0.0) -> None:
         self.ops.append(b'%s G %s w %s %s m %s %s l S' % (
             _num(grey).encode(), _num(line_width).encode(), _num(x1).encode(), _num(PAGE_HEIGHT - y1).encode(),
             _num(x2).encode(), _num(PAGE_HEIGHT - y2).encode()))
 
-    def stream(self):
+    def stream(self) -> bytes:
         return zlib.compress(b'\n'.join(self.ops))
 
 
-def build_pdf(pages, title=''):
-    objects = []  # contenu des objets 1..n
+def build_pdf(pages: list[Page], title: str = '') -> bytes:
+    objects: list[bytes | None] = []  # contenu des objets 1..n
 
-    def add(content):
+    def add(content: bytes | None) -> int:
         objects.append(content)
         return len(objects)
 
@@ -240,11 +250,11 @@ def build_pdf(pages, title=''):
 # ----------------------------------------------------------------------------------------------------------------------
 # Contenu de la fiche
 
-def requirement_groups(lot):
+def requirement_groups(lot: Lots) -> list[tuple[str, list[Requirement]]]:
     """[(emplacement, [exigences])] dans l'ordre des emplacements du lot (les siens, sinon ceux de son type), « sans
     emplacement » en dernier, et les types d'items par nom dans chaque emplacement."""
-    groups = {}
-    labels = {}
+    groups: dict[str, list[Requirement]] = {}
+    labels: dict[str, str] = {}
     for requirement in lot_requirements(lot):
         key = name_key(requirement.location)
         labels.setdefault(key, ' '.join(requirement.location.split()))
@@ -253,23 +263,23 @@ def requirement_groups(lot):
 
 
 class SheetWriter:
-    def __init__(self, root):
+    def __init__(self, root: Lots) -> None:
         self.root = root
         self.lots = root.descendants()
         self.edited = timezone.localtime()
-        self.pages = []        # [(page, lot)]
-        self._groups = {}
+        self.pages: list[tuple[Page, Lots]] = []        # [(page, lot)]
+        self._groups: dict[str, list[tuple[str, list[Requirement]]]] = {}
 
-    def groups(self, lot):
+    def groups(self, lot: Lots) -> list[tuple[str, list[Requirement]]]:
         if lot.id not in self._groups:
             self._groups[lot.id] = requirement_groups(lot)
         return self._groups[lot.id]
 
     # -- en-tete ------------------------------------------------------------------------------------------------------
 
-    def header(self, lot, continued, page=None):
+    def header(self, lot: Lots, continued: bool, page: Page | None = None) -> int | float:
         """Dessine l'en-tete (si page) et renvoie la hauteur occupee depuis le haut de la page."""
-        def text(*args, **kwargs):
+        def text(*args: Any, **kwargs: Any) -> None:
             if page is not None:
                 page.text(*args, **kwargs)
 
@@ -311,7 +321,7 @@ class SheetWriter:
         return y + 10
 
     @staticmethod
-    def corner(page, lot):
+    def corner(page: Page, lot: Lots) -> None:
         right = PAGE_WIDTH - MARGIN
         page.qr(right - QR_SIZE, MARGIN, QR_SIZE, public_url('verif', lot=lot.id))
         page.text(right - QR_SIZE / 2, MARGIN + QR_SIZE + 9, 'Étiquette publique', size=7, grey=GREY_TEXT,
@@ -325,10 +335,10 @@ class SheetWriter:
     # -- liste ----------------------------------------------------------------------------------------------------
 
     @staticmethod
-    def entries(groups, scale):
+    def entries(groups: list[tuple[str, list[Requirement]]], scale: tuple[int, int, int]) -> list[tuple[str, Any, int]]:
         """[(type, contenu, hauteur)] : bandeau d'emplacement puis ses items, le nom sur deux lignes au plus."""
         size, line_height, band = scale
-        result = []
+        result: list[tuple[str, Any, int]] = []
         for location, rows in groups:
             result.append(('location', location, band + 3))
             for requirement in rows:
@@ -347,17 +357,19 @@ class SheetWriter:
                 result.append(('item', (requirement, lines), line_height + (len(lines) - 1) * (size + 1)))
         return result
 
-    def layout(self, lot, entries, scale, bottom=BODY_BOTTOM):
+    def layout(self, lot: Lots, entries: list[tuple[str, str | tuple[Requirement, list[str]], int]],
+               scale: tuple[int, int, int], bottom: int | float = BODY_BOTTOM
+              ) -> list[list[tuple[int, float | int, tuple[str, str | tuple[Requirement, list[str]], int]]]]:
         """Place les entrees colonne par colonne : [[(colonne, y, entree)] par page]. Un emplacement ne commence pas
         en bas de colonne sans son premier item ; coupe, il est repete en tete de la colonne suivante (« suite »)."""
         band = scale[2] + 3
-        pages = []
+        pages: list[list[Any]] = []
         top = self.header(lot, False)
         column, y = 0, top
         location = None
         pages.append([])
 
-        def next_column():
+        def next_column() -> None:
             nonlocal column, y, top
             column += 1
             if column == 2:
@@ -383,7 +395,7 @@ class SheetWriter:
             y += height
         return pages
 
-    def lot_pages(self, lot):
+    def lot_pages(self, lot: Lots) -> None:
         groups = self.groups(lot)
         for scale in SCALES:
             entries = self.entries(groups, scale)
@@ -413,12 +425,13 @@ class SheetWriter:
                 page.line(x, self.header(lot, number > 0), x, bottom, line_width=0.4, grey=0.7)
 
     @staticmethod
-    def balanced(placed, bottom):
+    def balanced(placed: list[tuple[int, float, tuple[str, str | tuple[Requirement, list[str]], int]]], bottom: int
+                ) -> bool:
         """Repartition acceptable : tout tient au-dessus de bottom, chaque colonne a au moins un item, et un emplacement
         coupe garde au moins deux items de chaque cote."""
         if any(y + height > bottom for _, y, (_, _, height) in placed):
             return False
-        counts = {}  # (colonne, emplacement) -> nombre d'items
+        counts: dict[tuple[int, str], int] = {}  # (colonne, emplacement) -> nombre d'items
         location = None
         for column, _, (kind, content, _) in placed:
             if kind == 'location':
@@ -433,7 +446,8 @@ class SheetWriter:
         return all(count >= 2 for (_, location), count in counts.items() if locations.count(location) > 1)
 
     @staticmethod
-    def draw(page, x, y, entry, scale):
+    def draw(page: Page, x: float, y: int | float, entry: tuple[str, tuple[Requirement, list[str]] | str, int],
+             scale: tuple[int, int, int]) -> None:
         size, line_height, _ = scale
         kind, content, height = entry
         if kind == 'location':
@@ -454,7 +468,7 @@ class SheetWriter:
             baseline += size + 1
         page.line(name_x, y + height, x + COLUMN_WIDTH, y + height, line_width=0.3, grey=0.8)
 
-    def write(self):
+    def write(self) -> bytes:
         for lot in self.lots:
             # un lot de regroupement (sans item attendu) n'a pas de page, sauf s'il est seul
             if self.groups(lot) or self.lots == [lot]:
@@ -471,11 +485,11 @@ class SheetWriter:
         return build_pdf([page for page, _ in self.pages], title=f"Fiche d'inventaire - {self.root.name}")
 
 
-def name_width(size):
+def name_width(size: int) -> float:
     """Largeur du nom d'un item : la colonne moins la case et la quantite."""
     return COLUMN_WIDTH - (3 + size * 0.95 + 6 + text_width('000', size, True) + text_width(' ×', size) + 6)
 
 
-def lot_sheet_pdf(lot):
+def lot_sheet_pdf(lot: Lots) -> bytes:
     """PDF de la fiche du lot et de ses sous-lots actifs (une page par lot qui contient des items, plus si besoin)."""
     return SheetWriter(lot).write()

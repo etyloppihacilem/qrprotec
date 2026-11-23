@@ -1,9 +1,16 @@
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
 from django.contrib import admin
 
 from .models import (
     FrontKey, ItemRevision, Items, ItemsPacks, ItemType, LotRequirements, Lots, LotType, ProblemReport, SealedPacks, Secouristes,
     VerifItem, Verifs,
 )
+
+if TYPE_CHECKING:
+    from django.http import HttpRequest
 
 
 @admin.register(ItemType)
@@ -63,5 +70,5 @@ class FrontKeyAdmin(admin.ModelAdmin):
     list_display = ('name', 'revoked', 'created', 'last_used', 'last_address')
     readonly_fields = ('name', 'key_hash', 'created', 'last_used', 'last_address')
 
-    def has_add_permission(self, request):
+    def has_add_permission(self, request: HttpRequest) -> bool:
         return False  # la cle n'est affichee qu'a la creation : `qrprotec-manage frontkey add NOM`

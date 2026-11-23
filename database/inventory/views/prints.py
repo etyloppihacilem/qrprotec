@@ -10,6 +10,11 @@
 
 """Etiquettes d'items demandees depuis le web (admins) et imprimees au poste (voir label_prints.py)."""
 
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Any
+from collections.abc import Callable
+
 from .common import *  # noqa: F401,F403
 from .public import *  # noqa: F401,F403
 from .local import *  # noqa: F401,F403
@@ -17,11 +22,14 @@ from .notif_settings import *  # noqa: F401,F403
 from .douchette import *  # noqa: F401,F403
 from .lists import *  # noqa: F401,F403
 
+if TYPE_CHECKING:
+    from rest_framework.request import Request
+
 
 # Etiquettes d'items demandees depuis le web (admins) et imprimees au poste (voir label_prints.py)
 # ----------------------------------------------------------------------------------------------------------------------
 
-def _label_print_call(function, *args):
+def _label_print_call(function: Callable[..., Any], *args: Any) -> Any:
     try:
         return function(*args)
     except label_prints.PrintError as exc:
@@ -30,7 +38,7 @@ def _label_print_call(function, *args):
 
 @api_view(['POST'])
 @handle_errors
-def label_prints_create(request):
+def label_prints_create(request: Request) -> Response:
     """Web, roles gestion et admin : {"user", "type", "count", "peremption"} → demande envoyee aux postes (fenetre
     « Impressions en attente »). Les items ne sont crees qu'a l'impression."""
     user = connected_user(request, GESTION)
@@ -43,7 +51,7 @@ def label_prints_create(request):
 
 @api_view(['POST'])
 @handle_errors
-def label_prints_list(request):
+def label_prints_list(request: Request) -> Response:
     """Web, roles gestion et admin : types d'items proposes et demandes d'impression (en attente, puis des 7 derniers
     jours)."""
     user = connected_user(request, GESTION)
@@ -55,7 +63,7 @@ def label_prints_list(request):
 
 @api_view(['POST'])
 @handle_errors
-def label_print_queues(request):
+def label_print_queues(request: Request) -> Response:
     """Gestion et admins, du web ou d'un autre ordinateur : files d'impression en attente au poste (une par personne
     qui demande), avec leurs demandes."""
     connected_user(request, GESTION)
@@ -64,7 +72,7 @@ def label_print_queues(request):
 
 @api_view(['POST'])
 @handle_errors
-def label_print_queue_action(request, action):
+def label_print_queue_action(request: Request, action: str) -> Response:
     """Gestion et admins, du web ou d'un autre ordinateur : {"queue"} → « launch » (le poste imprime la file a son prochain
     passage, toutes les 20 s) ou « cancel » (toute la file annulee)."""
     user = connected_user(request, GESTION)
@@ -79,14 +87,14 @@ def label_print_queue_action(request, action):
 
 @api_view(['POST'])
 @handle_errors
-def label_print_cancel(request, print_id):
+def label_print_cancel(request: Request, print_id: int) -> Response:
     """Web, roles gestion et admin : annule une demande pas encore imprimee."""
     user = connected_user(request, GESTION)
     row = _label_print_call(label_prints.cancel, print_id, f'{SOURCE_VERIFIED}:{user.matricule}')
     return Response(label_prints.print_dict(row))
 
 
-def require_poste(request):
+def require_poste(request: Request) -> None:
     """Routes des postes qui ne demandent personne de connecte : la machine suffit (API locale ou cle de front)."""
     if not is_front(request):
         raise ApiError("Réservé aux postes", status.HTTP_403_FORBIDDEN)
@@ -94,7 +102,7 @@ def require_poste(request):
 
 @api_view(['GET'])
 @handle_errors
-def label_prints_poste(request):
+def label_prints_poste(request: Request) -> Response:
     """Poste, meme sans personne de connecte : impressions en attente et imprimees dans les dernieres 24 h."""
     require_poste(request)
     return Response(label_prints.poste_list())
@@ -102,7 +110,7 @@ def label_prints_poste(request):
 
 @api_view(['POST'])
 @handle_errors
-def label_prints_send(request):
+def label_prints_send(request: Request) -> Response:
     """Front d'un autre ordinateur (API distante, cle de front) : « Imprimer » envoie au poste les etiquettes deja
     rendues {"title", "labels": [{description, width, height, ppm, bits}]}. Le poste principal (API locale, ou cle marquee
     poste) les imprime depuis sa fenetre « Impressions en attente »."""
@@ -115,7 +123,7 @@ def label_prints_send(request):
 
 @api_view(['POST'])
 @handle_errors
-def server_problem_report(request):
+def server_problem_report(request: Request) -> Response:
     """Poste d'une autre machine (kiosk relie a un back distant) : sa sauvegarde ou son envoi sur la machine distante
     a echoue {"source": "backup" | "sync", "message"}. Notification « Problème de serveur » des admins, avec le nom
     de la cle du poste (le detail est dans le journal du poste)."""
@@ -135,7 +143,7 @@ def server_problem_report(request):
 
 @api_view(['GET'])
 @handle_errors
-def label_print_detail(request, print_id):
+def label_print_detail(request: Request, print_id: int) -> Response:
     """Poste : demande complete (items crees ou images), pour « Réimprimer »."""
     require_poste(request)
     return Response(_label_print_call(label_prints.detail, print_id))
@@ -143,7 +151,7 @@ def label_print_detail(request, print_id):
 
 @api_view(['POST'])
 @handle_errors
-def label_print_print(request, print_id):
+def label_print_print(request: Request, print_id: int) -> Response:
     """Poste, meme sans personne de connecte : « Lancer l'impression ». Cree les items (reception au nom de l'admin
     qui les a demandes) et repond la demande avec ses items, dont le poste imprime les etiquettes."""
     require_poste(request)
