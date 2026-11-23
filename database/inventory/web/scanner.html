@@ -12,9 +12,9 @@
   <link rel="apple-touch-icon" href="web/apple-touch-icon.png">
   <link rel="stylesheet" href="web/app.css">
   <style>
-    #camera { height: 58dvh; }
-    #panel { height: 42dvh; }
-    #toast { bottom: calc(42dvh + 12px); }
+    #camera { height: calc(var(--app-h) * .58); }
+    #panel { height: calc(var(--app-h) * .42); }
+    #toast { bottom: calc(var(--app-h) * .42 + 12px); }
     #link { display: flex; align-items: center; gap: 10px; padding: 10px 12px; font-weight: 600; color: #fff; background: var(--muted); }
     #link.ok { background: var(--green); }
     #link.warn { background: var(--orange); }
@@ -91,6 +91,7 @@
   <div id="flash"></div>
   <div id="toast"></div>
 
+  <script src="web/viewport.js"></script>
   <script src="web/vendor/jsQR.js" defer></script>
   <script src="web/camera-scan.js" defer></script>
   <script src="web/code128.js" defer></script>
