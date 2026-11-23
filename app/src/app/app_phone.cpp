@@ -64,7 +64,7 @@ void App::start_remote_session() {
     remote.url            = result.data["url"].str();
     remote.timeout        = result.data["timeout"].integer(300);
     remote.phone_deadline = ImGui::GetTime() + remote.timeout;
-    remote_link.start(settings.api_endpoint(), remote.id);
+    remote_link.start(settings.api_endpoint(), remote_scanner_path(remote.id), "téléphone-douchette");
   });
 }
 

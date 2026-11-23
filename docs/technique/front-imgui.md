@@ -18,7 +18,7 @@ Les dossiers suivent les dépendances : `core` ne dépend de rien, `ui` dépend 
 | Dossier | Bibliothèque CMake | Contenu |
 |---|---|---|
 | `src/core/` | `QRProtecCore` | `json` (JSON minimal tolérant), `codes` (dates, **analyse des QR codes** `parse_scan`, saisie libre des dates), `template` / `template_io` (modèles d'étiquettes `.qr`), `placeholders` (variables par usage), `search` (recherche sans accents), `paths` (dossier des modèles), `fonts`. |
-| `src/net/` | `QRProtecCore` | `connection` (TCP, chiffré par OpenSSL si l'URL est en `https://`, certificat et nom d'hôte vérifiés), `http` (client HTTP/1.1), `api_client` (client asynchrone de l'API), `websocket` + `remote_scanner_link` (téléphone-douchette). |
+| `src/net/` | `QRProtecCore` | `connection` (TCP, chiffré par OpenSSL si l'URL est en `https://`, certificat et nom d'hôte vérifiés), `http` (client HTTP/1.1), `api_client` (client asynchrone de l'API), `websocket` + `websocket_link` (téléphone-douchette, impressions en direct). |
 | `src/render/` | `QRProtecCore` | `raster` (rendu d'un modèle en image 1 bit, rotation vers l'étiquette physique, export PNG), `image_loader` (PNG/JPEG en niveaux de gris, cache). |
 | `src/printer/` | `QRProtecPrinter` | `serial` (port série POSIX), `niimbot_protocol` (paquets Niimbot), `label_languages` (commandes TSPL et ZPL), `raw_transport` (fichier `/dev/usb/lp0` ou TCP 9100), `printer` (`NiimbotB1Printer`, `RawLabelPrinter`, `AnyPrinter` qui choisit selon le réglage). |
 | `src/inateck/` | exécutable | `inateck_worker` (thread du SDK Bluetooth), `hid_classifier` (douchette en mode clavier), `sdk_json`, `scanner_settings` (modèles et libellés des paramètres du SDK : `get/set_setting_info` prennent le modèle, `INATECK_DEVICE_TYPE`, et la liste des paramètres vient de la douchette). |
@@ -56,7 +56,7 @@ rapporte ses résultats par une file lue à chaque image :
 | Requêtes HTTP | `ApiClient` | `get/post/...` mettent en file une requête et un callback ; `poll()` (thread UI) appelle les callbacks. Les fenêtres n'ont jamais à se soucier des threads. |
 | Impression | `PrintQueue` | `enqueue(jobs)` ; `status()` pour la barre de progression. En cas d'erreur (papier, couvercle), la file se met en pause et garde les étiquettes restantes. |
 | SDK douchette | `InateckWorker` | Commandes en file ; `take_scans()` et `snapshot()` lus par l'UI. |
-| Téléphone-douchette | `RemoteScannerLink` | Reconnexion automatique, ping toutes les 15 s ; `take_messages()`. |
+| Téléphone-douchette, impressions en direct | `WebSocketLink` | Reconnexion automatique, ping toutes les 15 s ; `take_messages()`. |
 
 ## L'objet `App`
 
@@ -297,6 +297,11 @@ PrintQueue (thread) ── AnyPrinter ─┬─ RawLabelPrinter ── TSPL (BIT
 - **Impressions demandées depuis le web** (`app/label_prints.cpp`) : le poste principal
   (`App::main_poste()` : API locale, ou clé marquée poste d'après `/api/health/`) interroge
   `GET /api/label-prints/pending/` toutes les 20 s, connecté ou non (route des postes, sans session).
+  Dès qu'il y voit une nouvelle demande, il ouvre le WebSocket `/ws/label-prints`
+  (`App::update_label_prints_live`, `WebSocketLink`) : chaque changement de la file (`changed`) la lui fait
+  relire aussitôt, et l'interrogation s'arrête tant qu'il est connecté. 15 min sans nouvelle impression
+  (`LabelPrints::live_until`) : le WebSocket se ferme et l'interrogation toutes les 20 s reprend. Un
+  serveur sans ce WebSocket (404) laisse l'interrogation seule. Bouton « Rafraîchir » dans la fenêtre.
   Une demande jamais vue ouvre la fenêtre « Impressions en attente », dessinée par `App` hors de la
   liste `windows` (pas de rôle, pas remise à zéro à l'inactivité). « Lancer l'impression » envoie
   `POST /api/label-prints/<id>/print/` pour chaque demande : le serveur crée les items et les renvoie,
@@ -376,7 +381,7 @@ Particularités connues du SDK Linux (constatées sur le matériel) :
 ## Téléphone-douchette
 
 `App::start_remote_session` crée une session (`POST /api/remote-scanner/`), affiche le QR
-`<base>/scanner?s=…&k=…`, et `RemoteScannerLink` se connecte au WebSocket
+`<base>/scanner?s=…&k=…`, et `WebSocketLink` se connecte au WebSocket
 `/ws/scanner/front?s=…` de l'API locale. Les codes reçus entrent dans `handle_scan` avec
 `ScanSource::Phone` ; une erreur est renvoyée au téléphone (flash rouge, vibration). Protocole :
 en tête de `database/inventory/remote_scanner.py`.

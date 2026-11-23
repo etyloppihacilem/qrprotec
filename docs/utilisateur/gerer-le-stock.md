@@ -93,6 +93,10 @@ signalée en bleu dans la barre de menu, et dans **À faire** (De temps en temps
 dernières 24 heures restent dans la fenêtre avec un bouton **Réimprimer**. Une demande pas imprimée
 en 24 heures disparaît.
 
+Le poste vérifie les nouvelles demandes toutes les 20 secondes ; le bouton **Rafraîchir** de la fenêtre
+le fait tout de suite. Après une demande, les suivantes arrivent **aussitôt** (« En direct ») pendant
+15 minutes : pratique quand on envoie plusieurs séries d'étiquettes depuis un portable.
+
 Sur un **autre ordinateur** relié au serveur avec une clé de front (sans imprimante), **Imprimer**
 devient **Envoyer au poste** : les étiquettes partent dans la même fenêtre du poste, qui les imprime
 telles quelles. Si une imprimante est branchée sur cet ordinateur, cochez **Imprimante branchée sur

@@ -19,6 +19,7 @@ Django 6.1, Django REST Framework 3.18 (versions figées par `poetry.lock` à la
 | `inventory/webpush.py` | Notifications web (chiffrement RFC 8291, VAPID RFC 8292) | Sans `cryptography`, désactivé proprement. |
 | `inventory/remote_scanner.py` | Relais WebSocket téléphone → poste | Protocole décrit en tête de fichier. |
 | `inventory/live.py` | Suivi des vérifs en direct (WebSocket) | Protocole décrit en tête de fichier. |
+| `inventory/print_live.py` | Impressions en attente en direct au poste (WebSocket `/ws/label-prints`) | Protocole décrit en tête de fichier. |
 | `inventory/web_views.py`, `web/` | Front web | Liste blanche des fichiers servis. |
 | `inventory/management/commands/` | `serve`, `createadmin`, `check_alerts` | |
 | `inventory/tests/` | Tests, un fichier `test_*.py` par sujet (aides communes dans `base.py`) | `python manage.py test inventory` |
@@ -260,6 +261,15 @@ téléphone vers le poste et les retours d'erreur du poste vers le téléphone.
 - Les sessions sont en mémoire dans `hub` ; un thread « faucheur » ferme celles dont un côté est
   déconnecté depuis plus que le délai choisi (1 min à 24 h, 5 min par défaut).
 - Le protocole des messages est documenté en tête de `remote_scanner.py`.
+
+## Impressions en attente en direct
+
+`print_live.py` réutilise la même implémentation WebSocket. Le poste principal (API locale, ou clé
+marquée poste) ouvre `/ws/label-prints` dès qu'il voit une nouvelle demande dans
+`/api/label-prints/pending/` (qu'il interroge sinon toutes les 20 s). Chaque changement de la file
+(`label_prints.create`, `create_labels`, `cancel`, `launch_queue`, `cancel_queue`, `print_now`) appelle
+`hub.changed()`, qui signale `{"type": "changed"}` une fois la transaction validée : le poste relit la file
+aussitôt, par l'API habituelle. Le poste ferme le WebSocket après 15 min sans nouvelle impression.
 
 ## Suivi des vérifs en direct
 

@@ -1,6 +1,6 @@
 /* ##################################646f75627420796f7572206f776e206578697374656e6365###################################
 
-               """          remote_scanner_link.cpp
+               """          websocket_link.cpp
         -\-    _|__
          |\___/  . \        Created on 30 Sep. 2026 at 14:00
          \     /(((/        by hmelica
@@ -8,7 +8,7 @@
 
 ##################################################################################################################### */
 
-#include "remote_scanner_link.hpp"
+#include "websocket_link.hpp"
 #include "../printer/logging.hpp"
 
 #include <cctype>
@@ -35,11 +35,15 @@ std::string url_component(const std::string &value) {
 
 } // namespace
 
-RemoteScannerLink::~RemoteScannerLink() {
+std::string remote_scanner_path(const std::string &session_id) {
+  return "/ws/scanner/front?s=" + url_component(session_id);
+}
+
+WebSocketLink::~WebSocketLink() {
   stop();
 }
 
-void RemoteScannerLink::start(const ApiEndpoint &endpoint, const std::string &session_id) {
+void WebSocketLink::start(const ApiEndpoint &endpoint, const std::string &path, const std::string &context) {
   stop();
   {
     std::lock_guard< std::mutex > lock(mutex_);
@@ -50,10 +54,10 @@ void RemoteScannerLink::start(const ApiEndpoint &endpoint, const std::string &se
   stop_         = false;
   session_gone_ = false;
   running_      = true;
-  thread_       = std::thread(&RemoteScannerLink::run, this, endpoint, session_id);
+  thread_       = std::thread(&WebSocketLink::run, this, endpoint, path, context);
 }
 
-void RemoteScannerLink::stop() {
+void WebSocketLink::stop() {
   stop_ = true;
   wake_.notify_all();
   if (thread_.joinable())
@@ -62,7 +66,7 @@ void RemoteScannerLink::stop() {
   connected_ = false;
 }
 
-void RemoteScannerLink::send(const std::string &text) {
+void WebSocketLink::send(const std::string &text) {
   {
     std::lock_guard< std::mutex > lock(mutex_);
     outbox_.push_back(text);
@@ -70,19 +74,19 @@ void RemoteScannerLink::send(const std::string &text) {
   wake_.notify_all();
 }
 
-std::vector< std::string > RemoteScannerLink::take_messages() {
+std::vector< std::string > WebSocketLink::take_messages() {
   std::lock_guard< std::mutex > lock(mutex_);
   std::vector< std::string >    messages(inbox_.begin(), inbox_.end());
   inbox_.clear();
   return messages;
 }
 
-std::string RemoteScannerLink::last_error() const {
+std::string WebSocketLink::last_error() const {
   std::lock_guard< std::mutex > lock(mutex_);
   return error_;
 }
 
-void RemoteScannerLink::run(ApiEndpoint endpoint, std::string session_id) {
+void WebSocketLink::run(ApiEndpoint endpoint, std::string path, std::string context) {
   using clock = std::chrono::steady_clock;
   HttpUrl     url;
   std::string error;
@@ -93,7 +97,6 @@ void RemoteScannerLink::run(ApiEndpoint endpoint, std::string session_id) {
     return;
   }
   const HttpHeaders headers  = endpoint.headers();
-  const std::string path = "/ws/scanner/front?s=" + url_component(session_id);
   int               delay_ms = 1000;
   while (!stop_) {
     WebSocketClient socket;
@@ -103,8 +106,8 @@ void RemoteScannerLink::run(ApiEndpoint endpoint, std::string session_id) {
         std::lock_guard< std::mutex > lock(mutex_);
         error_ = error;
       }
-      error_log(error, "téléphone-douchette");
-      if (status == 404) { // session fermee (expiree) cote serveur : inutile d'insister
+      error_log(error, context);
+      if (status == 404) { // session fermee (expiree) cote serveur, ou ancien serveur : inutile d'insister
         session_gone_ = true;
         break;
       }
@@ -146,7 +149,7 @@ void RemoteScannerLink::run(ApiEndpoint endpoint, std::string session_id) {
     }
     std::lock_guard< std::mutex > lock(mutex_);
     error_ = "Connexion au serveur perdue";
-    error_log(error_, "téléphone-douchette");
+    error_log(error_, context);
   }
   connected_ = false;
   running_   = false;

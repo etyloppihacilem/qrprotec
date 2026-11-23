@@ -15,7 +15,7 @@
 #include "../core/verif_cache.hpp"
 #include "../core/verif_plan.hpp"
 #include "../net/api_client.hpp"
-#include "../net/remote_scanner_link.hpp"
+#include "../net/websocket_link.hpp"
 #include "feedback.hpp"
 #ifdef QRPROTEC_HOTSPOT
 #include "hotspot.hpp"
@@ -308,6 +308,12 @@ struct LabelPrints {
     std::string     queue;         // file choisie (vide : pas encore choisie, plusieurs files)
     bool            queue_by_user = false; // choisie a la main ou par badge : gardee tant qu'elle existe
     double          empty_since = -1.0;    // plus rien en attente depuis (fermeture au bout de 15 min)
+    // en direct (poste principal) : WebSocket /ws/label-prints ouvert jusqu'a live_until (15 min apres la derniere
+    // impression), l'interrogation toutes les 20 s s'arrete tant qu'il est connecte
+    double          live_until       = 0.0;
+    bool            live_unsupported = false; // serveur sans ce WebSocket (ancienne version) : interrogation seule
+    bool            again            = false; // changement signale pendant une lecture : relire a la fin
+    std::string     checked;                  // heure de la derniere lecture reussie (« 21:14 »)
     // badge scanne fenetre ouverte : on montre ses impressions, la connexion attend « Se connecter »
     std::string     badge_matricule;
     std::string     badge_key;
@@ -536,6 +542,10 @@ class App {
     // Etiquettes d'items demandees depuis le web par un admin : fenetre « Impressions en attente », ouverte d'elle-meme
     // a chaque nouvelle demande, meme sans personne de connecte (voir label_prints.cpp)
     void refresh_label_prints();
+    // relit la file maintenant (bouton Rafraichir, signal du WebSocket), ou des la fin de la lecture en cours
+    void request_label_prints_refresh();
+    // WebSocket des impressions en direct : ouvert, lu et ferme selon live_until (voir label_prints.cpp)
+    void update_label_prints_live();
     // Fenetres de gestion ouvertes sur un onglet : stock, orders, transfers (Stock) ; types, items, equipment, packs
     // (Items) ; reception, past_receptions (Reception). La fenetre concernee le prend au prochain affichage.
     std::string stock_tab_to_show_;
@@ -698,7 +708,7 @@ class App {
     std::string                  last_report_lot;
     LabelPreviewState            preview;
     RemoteSession                remote;
-    RemoteScannerLink            remote_link;
+    WebSocketLink                remote_link;
     std::string                  last_duplicate_;      // dernier doublon ignore (mention discrete)
     double                       last_duplicate_time_ = -100.0;
 
@@ -870,6 +880,7 @@ class App {
     ReportsAlert            reports_alert_;
     SealOpening             seal_opening_;
     LabelPrints             label_prints_;
+    WebSocketLink           label_prints_link_; // impressions en direct (poste principal, /ws/label-prints)
     double                  next_reports_poll_ = 0.0;
     bool                    login_declared_    = true; // nom declare accepte pour l'action en attente
     std::string             login_reason_;

@@ -23,7 +23,10 @@ La fenetre du poste s'ouvre d'elle-meme, meme sans personne de connecte. Une dem
 Files d'impression : une par personne qui demande (LabelPrint.queue), pour que chacun retrouve son ruban quand plusieurs
 portables envoient en meme temps. Au poste, on choisit la file (ou on scanne son badge) et on n'imprime qu'elle. Les
 admins voient les files de n'importe ou (web, autre ordinateur), les annulent ou les lancent a distance : le poste
-imprime une file lancee a son prochain passage (toutes les 20 s).
+imprime une file lancee a son prochain passage.
+
+Le poste interroge la file toutes les 20 s ; apres une premiere demande, il recoit les suivantes en direct pendant
+15 min par WebSocket (voir print_live.py) : chaque changement de la file le lui signale (live.changed()).
 """
 
 from __future__ import annotations
@@ -39,6 +42,7 @@ from django.utils import timezone
 
 from . import journal
 from . import notifications
+from .print_live import hub as live
 from . import serializers as ser
 from .idendity import SOURCE_VERIFIED, identity_name
 from .models import ItemsPacks, Items, ItemType, LabelPrint, LabelPrintKind, OperationKind
@@ -157,8 +161,10 @@ def create(by: str, type_code: str, count: int, peremption: date | None) -> Labe
         raise PrintError(f"Entre 1 et {MAX_COUNT} étiquettes par demande")
     if item_type.perissable and peremption is None:
         raise PrintError(f"« {item_type.name} » est périssable : indiquez la date de péremption")
-    return LabelPrint.objects.create(by=by[:64], item_type=item_type, count=count,
-                                     peremption=peremption if item_type.perissable else None)
+    row = LabelPrint.objects.create(by=by[:64], item_type=item_type, count=count,
+                                    peremption=peremption if item_type.perissable else None)
+    live.changed()
+    return row
 
 
 def _check_label(label: dict[str, Any]) -> dict[str, Any]:
@@ -226,8 +232,10 @@ def create_labels(by: str, front: str, title: str, labels: list[dict[str, Any]])
     if len(labels) > MAX_COUNT:
         raise PrintError(f'Au plus {MAX_COUNT} étiquettes par envoi')
     checked = [_check_label(label) for label in labels]
-    return LabelPrint.objects.create(by=by[:64], kind=LabelPrintKind.LABELS, count=len(checked),
-                                     title=str(title or '')[:128], front=str(front or '')[:64], labels=checked)
+    row = LabelPrint.objects.create(by=by[:64], kind=LabelPrintKind.LABELS, count=len(checked),
+                                    title=str(title or '')[:128], front=str(front or '')[:64], labels=checked)
+    live.changed()
+    return row
 
 
 def web_list() -> dict[str, Any]:
@@ -253,6 +261,7 @@ def cancel(print_id: int, by: str) -> LabelPrint:
             row.cancelled = timezone.now()
             row.cancelled_by = by[:64]
             row.save(update_fields=['cancelled', 'cancelled_by'])
+            live.changed()
     return row
 
 
@@ -295,6 +304,7 @@ def launch_queue(queue: str, by: str) -> int:
         now = timezone.now()
         LabelPrint.objects.filter(id__in=[row.id for row in rows]).update(launch_requested=now,
                                                                           launch_requested_by=by[:64])
+        live.changed()
     return len(rows)
 
 
@@ -304,6 +314,7 @@ def cancel_queue(queue: str, by: str) -> int:
         rows = _queue_rows(queue)
         LabelPrint.objects.filter(id__in=[row.id for row in rows]).update(cancelled=timezone.now(),
                                                                           cancelled_by=by[:64])
+        live.changed()
     return len(rows)
 
 
@@ -343,6 +354,7 @@ def print_now(print_id: int, front_name: str = '') -> dict[str, Any]:
                            items=journal.item_ids(created), label_print=row.id)
             notifications.check_stock_levels([row.item_type_id])
         row.save(update_fields=['printed', 'printed_on', 'items'])
+        live.changed()
     return print_dict(row, full=True)
 
 

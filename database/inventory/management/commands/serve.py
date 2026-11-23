@@ -24,8 +24,9 @@ doit porter une cle de front (`manage.py frontkey add NOM`, en-tete X-QRProtec-K
 boucle locale et doit etre exposee par le reverse proxy HTTPS (voir packaging/files/qrprotec.caddyfile).
 
 Cette commande gere aussi les WebSockets du telephone-douchette (/ws/scanner/..., voir
-inventory/remote_scanner.py) et du suivi des verifs en direct (/ws/live/..., voir inventory/live.py) : le
-reverse proxy doit transmettre les en-tetes Upgrade/Connection.
+inventory/remote_scanner.py), du suivi des verifs en direct (/ws/live/..., voir inventory/live.py) et des impressions
+en attente du poste (/ws/label-prints, voir inventory/print_live.py) : le reverse proxy doit transmettre les en-tetes
+Upgrade/Connection.
 """
 
 from __future__ import annotations
@@ -50,6 +51,7 @@ from django.core.servers.basehttp import WSGIRequestHandler, WSGIServer, get_int
 from inventory.middleware import (RoleWSGIHandler, authenticate_front, local_access_error, maintenance_refusal,
                                   remote_client_address)
 from inventory.live import hub as live_hub
+from inventory.print_live import hub as print_hub
 from inventory.remote_scanner import RECEIVE_TIMEOUT, WebSocket, accept_key, hub
 
 if TYPE_CHECKING:
@@ -142,8 +144,9 @@ def tls_server_class(cert: Path, key: Path) -> type[WSGIServer]:
 
 
 class QRProtecRequestHandler(WSGIRequestHandler):
-    """Requetes HTTP ordinaires, plus les WebSockets du telephone-douchette (/ws/scanner/phone et /front) et du
-    suivi des verifs en direct (/ws/live/scanner et /watch, authentifies par leur premier message)."""
+    """Requetes HTTP ordinaires, plus les WebSockets du telephone-douchette (/ws/scanner/phone et /front), du
+    suivi des verifs en direct (/ws/live/scanner et /watch, authentifies par leur premier message) et des impressions
+    en attente du poste principal (/ws/label-prints)."""
 
     timeout = CONNECTION_TIMEOUT  # StreamRequestHandler.setup : delai sur chaque lecture et ecriture du socket
 
@@ -196,23 +199,16 @@ class QRProtecRequestHandler(WSGIRequestHandler):
             if session is None:
                 return self.refuse(404, 'Session inconnue ou fermee : scannez un nouveau QR code')
         elif path == '/ws/scanner/front':
-            if role == 'local':
-                problem = local_access_error(self.client_address[0], self.headers.get('X-QRProtec-Token', ''))
-                if problem:
-                    return self.refuse(403, problem)
-            elif role == 'remote':
-                address = remote_client_address(self.client_address[0], self.headers.get('X-Forwarded-For', ''))
-                front, problem = authenticate_front(self.headers.get('X-QRProtec-Key', ''), address)
-                if problem:
-                    return self.refuse(401, problem)
-                refusal = maintenance_refusal(front.name)
-                if refusal:
-                    return self.refuse(503, refusal)
-            else:
-                return self.refuse(404, 'Inconnu')
+            refusal = self.front_refusal(role)
+            if refusal:
+                return self.refuse(*refusal)
             session = hub.get(params.get('s', ''))
             if session is None:
                 return self.refuse(404, 'Session inconnue ou fermee')
+        elif path == '/ws/label-prints':
+            refusal = self.front_refusal(role, main_poste=True)
+            if refusal:
+                return self.refuse(*refusal)
         else:
             return self.refuse(404, 'Inconnu')
         self.send_response(101, 'Switching Protocols')
@@ -230,10 +226,31 @@ class QRProtecRequestHandler(WSGIRequestHandler):
                 live_hub.run_watcher(websocket)
             elif path == '/ws/scanner/phone':
                 hub.run_phone(session, websocket, self.headers.get('User-Agent', ''))
+            elif path == '/ws/label-prints':
+                print_hub.run(websocket)
             else:
                 hub.run_front(session, websocket)
         finally:
             websocket.close()
+
+    def front_refusal(self, role: str, main_poste: bool = False) -> tuple[int, str] | None:
+        """WebSocket d'un front : API locale (jeton du poste), ou API distante avec une cle de front valide. main_poste :
+        seulement le poste principal (API locale, ou cle marquee poste). None si accepte, sinon (code HTTP, message)."""
+        if role == 'local':
+            problem = local_access_error(self.client_address[0], self.headers.get('X-QRProtec-Token', ''))
+            return (403, problem) if problem else None
+        if role != 'remote':
+            return 404, 'Inconnu'
+        address = remote_client_address(self.client_address[0], self.headers.get('X-Forwarded-For', ''))
+        front, problem = authenticate_front(self.headers.get('X-QRProtec-Key', ''), address)
+        if problem or front is None:
+            return 401, problem or 'Clé de front invalide'
+        refusal = maintenance_refusal(front.name)
+        if refusal:
+            return 503, refusal
+        if main_poste and not front.poste:
+            return 403, 'Réservé au poste principal'
+        return None
 
 
 class BoundedThreadingMixIn(socketserver.ThreadingMixIn):
