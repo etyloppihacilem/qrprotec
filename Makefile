@@ -17,7 +17,8 @@ IMAGE ?= qrprotec-rpmbuild:f$(FEDORA_VERSION)
 RPMBUILD_ARGS ?=
 SHELL_SCRIPTS := bootstrap.sh packaging/*.sh packaging/files/qrprotec-manage \
                  packaging/files/qrprotec-setup packaging/files/qrprotec-backup packaging/files/qrprotec-storage \
-                 packaging/files/qrprotec-kiosk-session packaging/files/qrprotec-front
+                 packaging/files/qrprotec-kiosk-session packaging/files/qrprotec-front \
+                 packaging/files/qrprotec-hotspot
 
 .PHONY: rpm rpm-local image sources lint clean version icon doc flatpak flatpak-umount
 

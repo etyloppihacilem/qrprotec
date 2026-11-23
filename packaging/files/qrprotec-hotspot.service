@@ -1,0 +1,18 @@
+[Unit]
+Description=QRProtec : wifi de secours de la borne (point d'acces + nom du site)
+Documentation=file:///usr/share/doc/qrprotec/README.md
+After=NetworkManager.service
+Requires=NetworkManager.service
+
+[Service]
+# Demarre et arrete depuis le poste (TECH > Wifi de secours), autorise par 50-qrprotec-hotspot.rules ;
+# a la main : sudo systemctl start|stop qrprotec-hotspot. Pas relance au redemarrage de la borne.
+Type=oneshot
+RemainAfterExit=yes
+# QRPROTEC_DOMAIN (nom du site)
+EnvironmentFile=-/etc/qrprotec/qrprotec.conf
+# Nom et mot de passe du wifi, carte, adresse
+EnvironmentFile=-/etc/qrprotec/hotspot.conf
+ExecStart=/usr/libexec/qrprotec/qrprotec-hotspot start
+ExecStop=/usr/libexec/qrprotec/qrprotec-hotspot stop
+TimeoutStartSec=90

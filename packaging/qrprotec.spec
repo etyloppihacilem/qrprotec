@@ -196,6 +196,12 @@ Recommends:     wlopm
 Recommends:     wlr-randr
 # Mise en veille des moniteurs externes par DDC/CI (ceux qui restent allumes sans signal)
 Recommends:     ddcutil
+# Wifi de secours (qrprotec-hotspot) : point d'acces NetworkManager, DNS par son dnsmasq, droit du kiosk par polkit.
+# En Requires : il faut qu'ils soient deja la le jour ou le wifi du local tombe (plus d'internet pour les installer).
+Requires:       NetworkManager-wifi
+Requires:       dnsmasq
+Requires:       polkit
+Requires:       iproute
 
 %description kiosk
 Runs the QRProtec front full screen in the Cage Wayland kiosk compositor on
@@ -304,6 +310,11 @@ install -Dpm 0755 packaging/files/qrprotec-kiosk-session \
     %{buildroot}%{_libexecdir}/%{name}/qrprotec-kiosk-session
 sed -i 's|@BINDIR@|%{_bindir}|g' %{buildroot}%{_libexecdir}/%{name}/qrprotec-kiosk-session
 install -Dpm 0644 packaging/files/kiosk.conf %{buildroot}%{_sysconfdir}/%{name}/kiosk.conf
+install -Dpm 0755 packaging/files/qrprotec-hotspot %{buildroot}%{_libexecdir}/%{name}/qrprotec-hotspot
+install -Dpm 0644 packaging/files/qrprotec-hotspot.service %{buildroot}%{_unitdir}/qrprotec-hotspot.service
+install -Dpm 0600 packaging/files/hotspot.conf %{buildroot}%{_sysconfdir}/%{name}/hotspot.conf
+install -Dpm 0644 packaging/files/50-qrprotec-hotspot.rules \
+    %{buildroot}%{_datadir}/polkit-1/rules.d/50-qrprotec-hotspot.rules
 install -Dpm 0600 packaging/files/front-api.conf %{buildroot}%{_sysconfdir}/%{name}/front-api.conf
 install -Dpm 0644 packaging/files/qrprotec-kiosk.service %{buildroot}%{_unitdir}/qrprotec-kiosk.service
 install -Dpm 0644 packaging/files/80-qrprotec-kiosk.preset %{buildroot}%{_presetdir}/80-%{name}-kiosk.preset
@@ -455,7 +466,7 @@ fi
 rm -f %{rpmstate}/kiosk-existing
 
 %preun kiosk
-%systemd_preun qrprotec-kiosk.service
+%systemd_preun qrprotec-kiosk.service qrprotec-hotspot.service
 
 %postun kiosk
 %systemd_postun_with_restart qrprotec-kiosk.service
@@ -540,8 +551,12 @@ fi
 %doc README.md
 %dir %{_libexecdir}/%{name}
 %{_libexecdir}/%{name}/qrprotec-kiosk-session
+%{_libexecdir}/%{name}/qrprotec-hotspot
 %dir %{_sysconfdir}/%{name}
 %config(noreplace) %{_sysconfdir}/%{name}/kiosk.conf
+%config(noreplace) %attr(0600,root,root) %{_sysconfdir}/%{name}/hotspot.conf
+%{_unitdir}/qrprotec-hotspot.service
+%{_datadir}/polkit-1/rules.d/50-qrprotec-hotspot.rules
 %config(noreplace) %attr(0600,root,root) %{_sysconfdir}/%{name}/front-api.conf
 %{_unitdir}/qrprotec-kiosk.service
 %{_presetdir}/80-%{name}-kiosk.preset

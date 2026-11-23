@@ -138,6 +138,7 @@ add_library(QRProtecCore STATIC
     src/core/codes.cpp
     src/core/fonts.cpp
     src/core/glob_utils.cpp
+    src/core/hotspot_state.cpp
     src/core/json.cpp
     src/core/paths.cpp
     src/core/placeholders.cpp
@@ -216,6 +217,7 @@ add_executable(${PROJECT_NAME}
     src/app/app.cpp
     src/app/app_cascade.cpp
     src/app/app_data.cpp
+    src/app/app_hotspot.cpp
     src/app/app_offline.cpp
     src/app/app_phone.cpp
     src/app/app_reports.cpp
@@ -224,6 +226,7 @@ add_executable(${PROJECT_NAME}
     src/app/app_setup.cpp
     src/app/app_verifs.cpp
     src/app/app_windows.cpp
+    src/app/hotspot.cpp
     src/app/hub.cpp
     src/app/feedback.cpp
     src/app/label_prints.cpp

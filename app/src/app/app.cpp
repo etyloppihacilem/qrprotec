@@ -563,6 +563,8 @@ void App::begin_frame() {
   for (const ScanEvent &event : inateck.take_scans())
     handle_scan(event.code, event.source);
   check_inactivity();
+  if (Hotspot::supported())
+    hotspot.poll(ImGui::GetTime());
   if (!setup_known_ && ImGui::GetTime() >= next_setup_check_)
     check_setup();
   if (privileged() && ImGui::GetTime() >= next_reports_poll_)
@@ -661,6 +663,7 @@ void App::draw() {
   draw_problem_modal();
   draw_revision_modal();
   draw_maintenance_date_modal();
+  draw_hotspot_modal();
   draw_reports_alert();
   draw_seal_opening_modal();
   draw_label_preview(*this);
@@ -758,6 +761,12 @@ void App::draw_menu_bar() {
     if (!privileged() && bar_menu(bar, "Douchette")) {
       douchette_items();
       ImGui::EndMenu();
+    }
+    // wifi de secours en marche : voyant pour tout le monde, il ouvre les QR codes a montrer aux telephones
+    if (const HotspotState wifi = hotspot.state(); wifi.active) {
+      if (bar_item(bar, "● Wifi de secours", bar.blue))
+        open_hotspot();
+      ImGui::SetItemTooltip("La borne diffuse le wifi « %s » : cliquer pour les QR codes à scanner avec les téléphones.", wifi.ssid.c_str());
     }
     // voyant : lots qui demandent de l'attention (rouge s'il y en a d'incomplets ou perimes, orange sinon)
     if (const LotsAttention lots = lots_attention(); lots.total > 0) {
@@ -891,6 +900,12 @@ void App::draw_gestion_menus(bool dark_bar) {
       open_window("reports");
     if (tab_menu_item(*this, "Journal des opérations", "journal"))
       open_window("journal");
+    if (Hotspot::supported()) {
+      ImGui::Separator();
+      ImGui::TextDisabled("Panne du wifi du local");
+      if (ImGui::MenuItem("Wifi de secours...", nullptr, hotspot.state().active))
+        open_hotspot();
+    }
     ImGui::EndMenu();
   }
   if (bar_menu(bar, "Lots")) {
