@@ -385,8 +385,8 @@ def item_remark(row: ItemState) -> tuple[str, Shade]:
 
 
 def explanation(antenna: str) -> str:
-    return (f"QRProtec est l'outil de suivi du matériel de secours en service à l'antenne {antenna or DEFAULT_ANTENNA} "
-            "(il n'est pas déployé dans les autres antennes). Chaque item porte une étiquette à code unique, reliée "
+    return (f"QRProtec est l'outil de suivi du matériel de secours en service à l'antenne {antenna or DEFAULT_ANTENNA}."
+            " Chaque item porte une étiquette à code unique, reliée "
             "dans la base à son type et à sa date de péremption. Lors d'une vérif, le secouriste identifié scanne une "
             "à une les étiquettes des items qu'il a en main ; un item n'est compté présent que si son étiquette a été "
             "lue. Un item scanné a donc été vu et manipulé par un secouriste à l'heure indiquée dans la colonne "
