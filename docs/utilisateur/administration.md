@@ -132,7 +132,10 @@ PDF A4 à ouvrir ou télécharger :
   fin et durée quand le front les a envoyés, qui, complète ou non), le scellé s'il était posé, la date de
   la dernière modification du contenu attendu et qui l'a faite, puis le **contenu détaillé** item par item
   (type, iid, péremption, **dernier scan** à la seconde avant cette date, état : présent, **en plus** des
-  attendus, périmé, désactivé, ou une ligne « manquant ») ; sous un item à tâches, les **tâches cochées** ;
+  attendus, périmé, désactivé, révision ou désinfection en retard, ou une ligne « manquant ») ; sous un item à
+  tâches, les **tâches cochées** ; sous le matériel révisé ou désinfecté, la **dernière révision / désinfection**
+  à cette date (avec ses tâches) et la **prochaine échéance**, en rouge si elle était dépassée ; de même pour la
+  désinfection d'un lot (cellule du VPS) ;
 - en bas, la case **« Certifié par le TECH <antenne> »** avec nom, date et un espace pour la signature.
 
 Les couleurs sont celles du front web, toujours doublées d'un mot : le rapport reste lisible imprimé en

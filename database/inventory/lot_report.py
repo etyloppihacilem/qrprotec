@@ -30,7 +30,7 @@ finit par une case « Certifié par le TECH <antenne> » avec un espace pour la 
 from __future__ import annotations
 
 from collections import defaultdict
-from datetime import timedelta
+from datetime import date as date_type, timedelta
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
@@ -40,8 +40,8 @@ from django.utils import timezone
 from .idendity import ANONYMOUS_OPENING, parse_identity
 from .lot_sheet import (CONTENT_WIDTH, GREY_BAND, GREY_TEXT, MARGIN, PAGE_HEIGHT, PAGE_WIDTH, Page, Shade, build_pdf,
                         fit, rgb, wrap)
-from .models import (ABSENCE_KINDS, ItemMovement, ItemRevision, Items, MovementKind, Operation, OperationKind,
-                     SeenWhile, VerifItem, VerifResult, Verifs, name_key)
+from .models import (ABSENCE_KINDS, MAINTENANCE, ItemMovement, ItemRevision, Items, MovementKind, Operation,
+                     OperationKind, SeenWhile, VerifItem, VerifResult, Verifs, add_months, name_key)
 from .services import lot_requirements
 
 if TYPE_CHECKING:
@@ -152,6 +152,33 @@ def cited(identity: str) -> str:
 # Etat a la date T
 
 @dataclass
+class Maintenance:
+    """Revision ou desinfection d'un item ou d'un lot a la date du rapport."""
+    kind: str                        # 'revision' ou 'disinfection' (MAINTENANCE)
+    done: date | None = None         # derniere faite avant la date
+    tasks: list[str] = field(default_factory=list)  # taches cochees a cette derniere (faite dans le logiciel)
+    due: date | None = None          # prochaine echeance prevue a la date
+    late: bool = False               # echeance passee a la date
+    usable: bool = True              # en retard, l'item reste utilisable (ItemType.revision_usable...)
+
+    @property
+    def noun(self) -> str:
+        return MAINTENANCE[self.kind]['noun']
+
+    def text(self) -> str:
+        """« Révision : dernière le 12/03/2026 (tâches cochées : a · b), prochaine le 12/03/2027 »."""
+        parts = []
+        if self.done is not None:
+            parts.append(f'dernière le {short_date(self.done)}'
+                         + (f" (tâches cochées : {' · '.join(self.tasks)})" if self.tasks else ''))
+        else:
+            parts.append('aucune enregistrée avant cette date')
+        if self.due is not None:
+            parts.append(f'prochaine le {short_date(self.due)}' + (' : EN RETARD à cette date' if self.late else ''))
+        return f"{MAINTENANCE[self.kind]['label']} : " + ', '.join(parts)
+
+
+@dataclass
 class ItemState:
     item: Items
     expired: bool = False    # perime a la date du rapport
@@ -159,11 +186,17 @@ class ItemState:
     extra: bool = False      # en plus des attendus (au-dela de la quantite attendue, ou type non attendu)
     last_scan: datetime | None = None             # dernier scan avant la date du rapport
     tasks: list[str] = field(default_factory=list)  # taches cochees a son dernier scan en vérif
-    revision: ItemRevision | None = None          # derniere revision ou desinfection avant la date, avec ses taches
+    # revision et desinfection a la date (materiel non consommable suivi) : derniere faite, prochaine echeance
+    maintenance: list[Maintenance] = field(default_factory=list)
+
+    @property
+    def blocked(self) -> Maintenance | None:
+        """Revision ou desinfection en retard qui rend l'item inutilisable (type sans « utilisable en retard »)."""
+        return next((row for row in self.maintenance if row.late and not row.usable), None)
 
     @property
     def good(self) -> bool:
-        return not (self.expired or self.disabled)
+        return not (self.expired or self.disabled or self.blocked)
 
 
 @dataclass
@@ -178,6 +211,7 @@ class LotState:
     # debut de la vérif en cascade dont la derniere vérif du lot est la fin (lot parent : debut de la 1re etape, celle
     # d'un de ses sous-lots), son debut a lui pour un lot sans sous-lot ; None : pas d'heure de debut enregistree
     verif_start: datetime | None = None
+    disinfection: Maintenance | None = None             # desinfection du lot lui-meme (cellule du VPS...)
     content_change: Operation | None = None             # derniere modification du contenu attendu avant T
     changed_since: bool = False                         # contenu attendu modifie apres T
 
@@ -251,13 +285,71 @@ def last_scans(items: list[Items], at: datetime) -> tuple[dict[str, datetime], d
     return scans, tasks
 
 
-def last_revisions(items: list[Items], at: datetime) -> dict[str, ItemRevision]:
-    """{iid: derniere revision ou desinfection faite (pas saisie a la main) avant at, avec des taches cochees}."""
-    result: dict[str, ItemRevision] = {}
-    for revision in (ItemRevision.objects.filter(item_id__in=[item.iid for item in items], at__lte=at, manual=False)
-                     .exclude(tasks=[]).order_by('at', 'id')):
-        result[revision.item_id] = revision
+MAINTENANCE_OPERATIONS = {OperationKind.REVISION: 'revision', OperationKind.DISINFECTION: 'disinfection'}
+
+
+def _due(value: Any) -> date | None:
+    try:
+        return date_type.fromisoformat(str(value)) if value else None
+    except ValueError:
+        return None
+
+
+def item_maintenance(items: list[Items], at: datetime) -> dict[str, list[Maintenance]]:
+    """{iid: [Maintenance]} des items suivis (revision, desinfection) a la date at.
+
+    Derniere faite : ItemRevision avant at (faite dans le logiciel, avec ses taches, ou date saisie a la main).
+    Prochaine echeance : celle du dernier enregistrement du journal avant at (revision faite, date saisie), a defaut
+    celle de la derniere revision, a defaut la reception + la periodicite du type (premiere echeance)."""
+    day = timezone.localdate(at)
+    tracked = {item.iid: item for item in items
+               if any(item.pack.item_type.has_maintenance(kind) for kind in MAINTENANCE)}
+    if not tracked:
+        return {}
+    done: dict[tuple[str, str], ItemRevision] = {}
+    for revision in ItemRevision.objects.filter(item_id__in=list(tracked), at__lte=at).order_by('at', 'id'):
+        done[(revision.item_id, revision.kind)] = revision
+    planned: dict[tuple[str, str], date] = {}
+    for operation in (Operation.objects.filter(kind__in=list(MAINTENANCE_OPERATIONS), at__lte=at,
+                                               cancelled_by__isnull=True, lot__isnull=True)
+                      .order_by('at', 'id').only('kind', 'details')):
+        due = _due(operation.details.get('next_due'))
+        if due is None:
+            continue
+        for iid in operation.details.get('items') or []:
+            if iid in tracked:
+                planned[(iid, MAINTENANCE_OPERATIONS[OperationKind(operation.kind)])] = due
+    result: dict[str, list[Maintenance]] = {}
+    for iid, item in tracked.items():
+        item_type = item.pack.item_type
+        for kind, fields in MAINTENANCE.items():
+            if not item_type.has_maintenance(kind):
+                continue
+            last = done.get((iid, kind))
+            due = planned.get((iid, kind)) or (last.next_due if last is not None else None)
+            if due is None and item.added <= at:
+                due = add_months(timezone.localdate(item.added), getattr(item_type, fields['months']))
+            result.setdefault(iid, []).append(Maintenance(
+                kind, done=timezone.localdate(last.at) if last is not None else None,
+                tasks=[str(task) for task in last.tasks or []] if last is not None and not last.manual else [],
+                due=due, late=due is not None and due < day, usable=bool(getattr(item_type, fields['usable']))))
     return result
+
+
+def lot_disinfection(lot: Lots, at: datetime) -> Maintenance | None:
+    """Desinfection du lot lui-meme a la date at (journal : desinfections faites et dates saisies), None si le lot
+    n'en a pas."""
+    operations = list(Operation.objects.filter(kind=OperationKind.DISINFECTION, lot_id=lot.id, at__lte=at,
+                                               cancelled_by__isnull=True).order_by('at', 'id'))
+    if not operations and not lot.disinfection_months:
+        return None
+    due = next((value for value in (_due(op.details.get('next_due')) for op in reversed(operations)) if value), None)
+    done_at = [op.at for op in operations if not op.details.get('manual')]
+    if lot.disinfected_at is not None and lot.disinfected_at <= at:
+        done_at.append(lot.disinfected_at)
+    day = timezone.localdate(at)
+    return Maintenance('disinfection', done=timezone.localdate(max(done_at)) if done_at else None, due=due,
+                       late=due is not None and due < day)
 
 
 def last_verifs(lots: list[Lots], at: datetime) -> dict[str | None, Verifs]:
@@ -363,11 +455,12 @@ def state_at(root: Lots, at: datetime) -> list[LotState]:
         change, since = content_change(lot, at)
         states[lot.id] = LotState(lot, lot.depth, lot_requirements(lot), last_verif=verifs.get(lot.id),
                                   sealed=sealed.get(lot.id), content_change=change, changed_since=since)
+        states[lot.id].disinfection = lot_disinfection(lot, at)
         verif = verifs.get(lot.id)
         states[lot.id].verif_start = cascade_start(verif, below[lot.id]) if verif is not None else None
     present = [item for iid, (item, _) in located.items() if iid not in absent]
     scans, tasks = last_scans(present, at)
-    revisions = last_revisions(present, at)
+    maintenance = item_maintenance(present, at)
     for item in present:
         # (un item note absent a une verif avant T, pas encore retrouve, n'etait pas dans le lot : ecarte plus haut)
         item_tasks = tasks.get(item.iid) or []
@@ -378,7 +471,7 @@ def state_at(root: Lots, at: datetime) -> list[LotState]:
         states[located[item.iid][1]].items.append(ItemState(
             item, expired=item.is_expired(day),
             disabled=item.disabled and item.disabled_at is not None and item.disabled_at <= at,
-            last_scan=scans.get(item.iid), tasks=item_tasks, revision=revisions.get(item.iid)))
+            last_scan=scans.get(item.iid), tasks=item_tasks, maintenance=maintenance.get(item.iid, [])))
     for state in states.values():
         good: defaultdict[str, int] = defaultdict(int)
         for row in state.items:
@@ -419,6 +512,8 @@ def item_remark(row: ItemState) -> tuple[str, Shade]:
         return 'désactivé', RED
     if row.expired:
         return 'périmé', RED
+    if row.blocked is not None:
+        return f'{row.blocked.noun} en retard', RED
     if row.extra:
         return 'présent, en plus', BLUE
     return 'présent', GREEN
@@ -630,6 +725,10 @@ class ReportWriter:
             number = seal.details.get('seal_number') or ''
             self.paragraph(x, f"Scellé{' n°' + number if number else ''} posé le {long_datetime(seal.at)} par "
                               f'{who(seal.by)}, intact à cette date', 9, 12, max_lines=2)
+        if state.disinfection is not None:
+            disinfection = state.disinfection
+            self.paragraph(x, disinfection.text().replace('Désinfection', 'Désinfection du lot', 1), 9, 12,
+                           grey=RED if disinfection.late else 0.0, max_lines=2)
         if state.counted:
             self.paragraph(x, self.content_line(state), 8, 11, grey=GREY_TEXT, max_lines=2)
         self.items_table(state, x, width)
@@ -697,23 +796,23 @@ class ReportWriter:
                                size=TABLE_SIZE, bold=bold, grey=color if state_column else 0.0)
                 column_x += column_width
             self.y += ROW
-            for line in task_lines:
-                self.page.text(x + 10, self.y + 6, line, size=TASK_SIZE, grey=GREY_TEXT)
+            for line, shade in task_lines:
+                self.page.text(x + 10, self.y + 6, line, size=TASK_SIZE, grey=shade)
                 self.y += TASK_ROW
             self.page.line(x, self.y - 2, x + width, self.y - 2, line_width=0.25, grey=0.8)
 
-    def task_lines(self, row: ItemState | None, width: float) -> list[str]:
-        """Taches cochees sous un item a taches : a son dernier scan en vérif, et a sa derniere revision."""
+    def task_lines(self, row: ItemState | None, width: float) -> list[tuple[str, Shade]]:
+        """Lignes sous un item : taches cochees a son dernier scan en vérif, puis sa revision et sa desinfection a la
+        date (derniere faite, taches cochees, prochaine echeance ; en rouge si en retard)."""
         if row is None:
             return []
-        lines: list[str] = []
+        lines: list[tuple[str, Shade]] = []
         if row.tasks:
-            lines += wrap('Tâches cochées au dernier scan : ' + ' · '.join(row.tasks), width, TASK_SIZE, max_lines=3)
-        revision = row.revision
-        if revision is not None:
-            kind = 'désinfection' if revision.kind == 'disinfection' else 'révision'
-            lines += wrap(f'Tâches cochées à la {kind} du {short_date(timezone.localdate(revision.at))} : '
-                          + ' · '.join(str(task) for task in revision.tasks), width, TASK_SIZE, max_lines=3)
+            lines += [(line, GREY_TEXT) for line in wrap('Tâches cochées au dernier scan : ' + ' · '.join(row.tasks),
+                                                         width, TASK_SIZE, max_lines=3)]
+        for maintenance in row.maintenance:
+            lines += [(line, RED if maintenance.late else GREY_TEXT)
+                      for line in wrap(maintenance.text(), width, TASK_SIZE, max_lines=3)]
         return lines
 
     def certification(self) -> None:
