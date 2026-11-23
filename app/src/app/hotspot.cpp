@@ -18,9 +18,7 @@
 #include <filesystem>
 #include <thread>
 
-#ifndef _WIN32
 #include <sys/wait.h>
-#endif
 
 namespace qrprotec {
 
@@ -39,7 +37,6 @@ std::string trim(std::string text) {
 } // namespace
 
 bool Hotspot::supported() {
-#if defined(__linux__)
   static const bool supported = []() {
     if (std::getenv("QRPROTEC_KIOSK") == nullptr)
       return false;
@@ -50,9 +47,6 @@ bool Hotspot::supported() {
     return std::filesystem::exists(kHelper, error);
   }();
   return supported;
-#else
-  return false;
-#endif
 }
 
 void Hotspot::poll(double now, bool force) {
@@ -93,7 +87,6 @@ void Hotspot::stop() {
 
 // systemctl attend la fin du script (jusqu'a 90 s pour le demarrage) : dans un fil a part, l'interface reste fluide
 void Hotspot::run(const std::string &verb) {
-#ifndef _WIN32
   if (busy_.exchange(true))
     return;
   {
@@ -126,9 +119,6 @@ void Hotspot::run(const std::string &verb) {
     }
     busy_ = false;
   }).detach();
-#else
-  (void)verb;
-#endif
 }
 
 } // namespace qrprotec

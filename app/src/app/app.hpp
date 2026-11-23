@@ -17,7 +17,9 @@
 #include "../net/api_client.hpp"
 #include "../net/remote_scanner_link.hpp"
 #include "feedback.hpp"
+#ifdef QRPROTEC_HOTSPOT
 #include "hotspot.hpp"
+#endif
 #include "../printer/label_languages.hpp"
 #include "print_queue.hpp"
 #include "scan_stack.hpp"
@@ -661,8 +663,10 @@ class App {
 
     AppSettings                  settings;
     Updater                      updater;        // macOS : mise a jour automatique depuis les releases GitHub
-    Hotspot                      hotspot;        // borne : wifi de secours (TECH > Wifi de secours)
+#ifdef QRPROTEC_HOTSPOT
+    Hotspot                      hotspot;        // borne (Linux) : wifi de secours (TECH > Wifi de secours)
     void                         open_hotspot() { hotspot_open_pending_ = true; }
+#endif
     bool                         quit_requested = false; // ferme l'application (main.cpp), ex. pour installer une mise a jour
     ApiClient                    api;
     ScanStack                    stack;
@@ -770,7 +774,9 @@ class App {
     void draw_revision_modal();
     void send_revision();
     void draw_maintenance_date_modal();
+#ifdef QRPROTEC_HOTSPOT
     void draw_hotspot_modal();
+#endif
     void send_maintenance_date();
     void after_maintenance(const std::string &iid);
     void draw_reports_alert();
@@ -858,7 +864,9 @@ class App {
     ProblemPrompt           problem_;
     RevisionPrompt          revision_;
     MaintenanceDatePrompt   maintenance_date_;
+#ifdef QRPROTEC_HOTSPOT
     bool                    hotspot_open_pending_ = false;
+#endif
     ReportsAlert            reports_alert_;
     SealOpening             seal_opening_;
     LabelPrints             label_prints_;

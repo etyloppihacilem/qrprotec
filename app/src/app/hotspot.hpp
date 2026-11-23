@@ -8,7 +8,7 @@
 
 ##################################################################################################################### */
 
-// Wifi de secours de la borne : quand le wifi du local tombe, la borne (serveur sur la meme machine) diffuse son
+// Linux seulement (kiosk Fedora : compile si QRPROTEC_HOTSPOT, voir CMakeLists.txt). Wifi de secours de la borne : quand le wifi du local tombe, la borne (serveur sur la meme machine) diffuse son
 // propre wifi et les telephones continuent d'utiliser QRProtec par ce wifi. Le poste demarre et arrete
 // qrprotec-hotspot.service avec systemctl (regle polkit du paquet kiosk) et lit son etat dans /run/qrprotec-hotspot.
 
