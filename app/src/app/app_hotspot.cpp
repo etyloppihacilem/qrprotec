@@ -8,7 +8,7 @@
 
 ##################################################################################################################### */
 
-// Fenetre « Wifi de secours » : la borne diffuse son propre wifi quand celui du local tombe. Demarrage et arret par le
+// Linux seulement (kiosk Fedora, CMakeLists.txt). Fenetre « Wifi de secours » : la borne diffuse son propre wifi quand celui du local tombe. Demarrage et arret par le
 // TECH (gestion, admins) ; une fois lance, tout le monde peut afficher les QR codes a scanner avec les telephones.
 
 #include "app.hpp"
@@ -27,11 +27,7 @@ std::string since_text(long long since) {
     return {};
   const std::time_t time = static_cast< std::time_t >(since);
   std::tm           local{};
-#ifdef _WIN32
-  localtime_s(&local, &time);
-#else
   localtime_r(&time, &local);
-#endif
   char text[32];
   std::strftime(text, sizeof text, "%d/%m à %H:%M", &local);
   return text;

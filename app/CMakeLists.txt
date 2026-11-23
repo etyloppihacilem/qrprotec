@@ -217,7 +217,6 @@ add_executable(${PROJECT_NAME}
     src/app/app.cpp
     src/app/app_cascade.cpp
     src/app/app_data.cpp
-    src/app/app_hotspot.cpp
     src/app/app_offline.cpp
     src/app/app_phone.cpp
     src/app/app_reports.cpp
@@ -226,7 +225,6 @@ add_executable(${PROJECT_NAME}
     src/app/app_setup.cpp
     src/app/app_verifs.cpp
     src/app/app_windows.cpp
-    src/app/hotspot.cpp
     src/app/hub.cpp
     src/app/feedback.cpp
     src/app/label_prints.cpp
@@ -262,6 +260,11 @@ add_executable(${PROJECT_NAME}
     src/ui/windows/users_window.cpp
     src/ui/windows/verif_window.cpp
 )
+# Wifi de secours de la borne : seulement sous Linux (kiosk Fedora, paquet qrprotec-kiosk)
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    target_sources(${PROJECT_NAME} PRIVATE src/app/hotspot.cpp src/app/app_hotspot.cpp)
+    target_compile_definitions(${PROJECT_NAME} PRIVATE QRPROTEC_HOTSPOT=1)
+endif()
 
 if(WIN32)
     # application fenetree (pas de console) qui garde main() ; icone et manifeste (UTF-8) dans les ressources
