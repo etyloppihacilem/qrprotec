@@ -10,6 +10,8 @@
 
 #include "scan_stack.hpp"
 
+#include "../core/verif_cache.hpp"
+
 #include <algorithm>
 #include <set>
 
@@ -22,6 +24,7 @@ ScanEntry &ScanStack::add(const ParsedScan &scan, ScanSource source) {
   entry.source  = source;
   entry.expired = is_expired(scan, Date::today());
   entry.title   = scan_kind_name(scan.kind);
+  entry.at      = utc_now_iso();
   if (scan.kind == ScanKind::Unknown) {
     entry.state  = EntryState::Error;
     entry.detail = "Code non reconnu";

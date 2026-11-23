@@ -122,16 +122,25 @@ bouton **📋 Rapport daté** (sous **📄 Fiche PDF**) ouvre une fenêtre où l
 (par défaut maintenant, jamais dans le futur) et le nom de l'antenne. **Éditer le rapport** produit un
 PDF A4 à ouvrir ou télécharger :
 
-- l'état du lot à cette date (complet ou non), qui a édité le rapport et quand ;
-- pour le lot puis chacun de ses **sous-lots en cascade** : la dernière vérif avant cette date (date,
-  qui, complète ou non), le scellé s'il était posé, ce qui manquait, et le **contenu détaillé** item par
-  item (type, iid, péremption, état : présent, périmé, désactivé, absent à la dernière vérif) ;
+- en tête, le nom du lot et son état à cette date (complet ou non, en vert ou en rouge), qui a édité le
+  rapport et quand ;
+- la liste des **secouristes cités**, une seule fois avec leur matricule (« Jeanne Dupont (M001), Karim
+  Benali (M014) et Léa Moreau (M027) ») ; la suite du rapport ne donne que leur nom ;
+- un court texte qui explique le scan, pour les contrôles du siège : un item n'est compté présent que si
+  son étiquette a été scannée, il est donc passé entre les mains d'un secouriste ;
+- pour le lot puis chacun de ses **sous-lots en cascade** : la dernière vérif avant cette date (début,
+  fin et durée quand le front les a envoyés, qui, complète ou non), le scellé s'il était posé, la date de
+  la dernière modification du contenu attendu et qui l'a faite, puis le **contenu détaillé** item par item
+  (type, iid, péremption, **dernier scan** à la seconde avant cette date, état : présent, **en plus** des
+  attendus, périmé, désactivé, ou une ligne « manquant ») ; sous un item à tâches, les **tâches cochées** ;
 - en bas, la case **« Certifié par le TECH <antenne> »** avec nom, date et un espace pour la signature.
 
-Le contenu est reconstitué depuis le journal des mouvements d'items ; le contenu attendu et
-l'arborescence des sous-lots sont ceux d'aujourd'hui. Contrairement au reste du front web, le rapport donne les **noms complets avec le
-matricule** des secouristes (document certifié). Le nom de l'antenne est retenu pour les
-rapports suivants, et chaque rapport édité est noté dans le **Journal des opérations**.
+Les couleurs sont celles du front web, toujours doublées d'un mot : le rapport reste lisible imprimé en
+noir et blanc. Le contenu est reconstitué depuis le journal des mouvements d'items ; le contenu attendu et
+l'arborescence des sous-lots sont ceux d'aujourd'hui (le rapport prévient s'ils ont été modifiés après la
+date choisie). Contrairement au reste du front web, le rapport donne les **noms complets** des secouristes
+(document certifié). Le nom de l'antenne est retenu pour les rapports suivants, et chaque rapport édité est
+noté dans le **Journal des opérations**.
 
 ## Scellés
 

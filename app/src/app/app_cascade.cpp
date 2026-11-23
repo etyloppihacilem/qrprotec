@@ -372,6 +372,7 @@ void App::submit_step(bool partial) {
       sent_seals.insert(sealed.id);
     }
     body["checked"]  = verif_checked_body(&scope);
+    verif_timing(body);
     body["partial"]  = partial;
     body["step"]     = true;
     verif.submitting = true;
@@ -396,6 +397,7 @@ void App::submit_step(bool partial) {
         return;
       }
       const std::string at       = now_hhmm();
+      verif.started_at           = utc_now_iso(); // l'etape suivante de la vérif en cascade commence
       bool              finished = !partial;
       int               verified = 0, incomplete = 0;
       for (const Json &row : result.data["lots"].items()) {
@@ -736,6 +738,7 @@ void App::submit_verif(bool partial) {
     }
     body["labels"]   = verif_labels();
     body["checked"]  = verif_checked_body();
+    verif_timing(body);
     body["partial"]  = partial;
     verif.submitting  = true;
     const std::string       title = verif_title();
@@ -779,9 +782,10 @@ void App::verif_target_lot() {
     return;
   }
   if (!verif.active || verif.lot_id != stack.target.id) {
-    verif        = {};
-    verif.active = true;
-    verif.lot_id = stack.target.id;
+    verif            = {};
+    verif.active     = true;
+    verif.started_at = utc_now_iso();
+    verif.lot_id     = stack.target.id;
     verif.lot["name"] = stack.target.name;
   }
   verif.key = stack.target.key;

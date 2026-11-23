@@ -32,7 +32,8 @@ from .. import lot_sheet
 from .. import services
 from ..models import (
     ABSENCE_KINDS, ConsumableMove, ConsumableRef, PrintCount, PrintCountBatch, Checklist, ChecklistStatus, FrontKey, ItemMovement, ItemStatus, Items, ItemsPacks, ItemType,
-    LotRequirements, Lots, LotType, MovementKind, Operation, OperationKind, Secouristes, STOCK_LOT_TYPE, Verifs, compact_iid, expand_iid,
+    LotRequirements, Lots, LotType, MovementKind, Operation, OperationKind, Secouristes, STOCK_LOT_TYPE, VerifItem, Verifs,
+    compact_iid, expand_iid,
 )
 
 LOCAL = {'qrprotec.role': 'local'}

@@ -264,6 +264,32 @@ class RecentVerifsTests(ApiTestCase):
         self.assertEqual(self.lot.last_verif, latest)
         self.assertEqual(Verifs.objects.filter(lot=self.lot).count(), 3)
 
+    def test_verif_start_scan_times_and_tasks(self) -> None:
+        items = self.create(self.compresses, self.today + timedelta(days=200), 2)
+        self.compresses.tasks = ['Vérifier le sachet', 'Ranger à plat']
+        self.compresses.save()
+        self.call('POST', f'/api/lots/{self.lot.id}/add/', {'items': [item.iid for item in items]})
+        # horloge de l'appareil en avance d'une heure : debut et scans recales comme done_at
+        device_now = timezone.now() + timedelta(hours=1)
+        code, _ = self.call('POST', '/api/verifs/', {
+            'lots': [{'id': self.lot.id}], 'items': [item.iid for item in items],
+            'started_at': (device_now - timedelta(minutes=10)).isoformat(),
+            'scanned_at': {items[0].iid: (device_now - timedelta(minutes=8, seconds=12)).isoformat(),
+                           items[1].iid: 'pas une date', 'inconnu': (device_now - timedelta(days=3)).isoformat()},
+            'done_at': device_now.isoformat(), 'sent_at': device_now.isoformat()})
+        self.assertEqual(code, 200)
+        verif = Verifs.objects.get(lot=self.lot)
+        self.assertAlmostEqual((verif.datetime - verif.started).total_seconds(), 600, delta=5)
+        first = VerifItem.objects.get(verif=verif, item_id=items[0].iid)
+        self.assertAlmostEqual((verif.datetime - first.scanned_at).total_seconds(), 492, delta=5)
+        self.assertEqual(first.tasks, ['Vérifier le sachet', 'Ranger à plat'])
+        self.assertIsNone(VerifItem.objects.get(verif=verif, item_id=items[1].iid).scanned_at)
+        items[0].refresh_from_db()
+        self.assertEqual(items[0].last_seen, first.scanned_at)
+        # front d'avant ces champs : rien d'enregistre
+        self.call('POST', '/api/verifs/', {'lots': [{'id': self.lot.id}], 'items': [items[0].iid]})
+        self.assertIsNone(Verifs.objects.filter(lot=self.lot).latest('id').started)
+
     def test_verif_sent_right_away_keeps_reception_time(self) -> None:
         items = self.create(self.compresses, self.today + timedelta(days=200), 1)
         self.call('POST', f'/api/lots/{self.lot.id}/add/', {'items': [items[0].iid]})
