@@ -1070,6 +1070,18 @@ body.lot-pick #scan-hint { font-size: 1.1rem; font-weight: 600; }
 .fun-slide .fun-total b { font-size: clamp(1.6rem, 6vw, 3rem); }
 .fun-show-nav { display: flex; gap: 8px; }
 .fun-show-nav button { flex: 1; }
+/* durées : tuiles du temps passé (texte plus long que les nombres), chrono d'un lot au choix */
+.fun-section { margin: 14px 0 0; color: var(--navy); }
+.fun-time .fun-total b { font-size: 1.25rem; }
+.fun-lot-select { width: 100%; margin: 10px 0 4px; }
+.fun-lot { width: 100%; }
+.fun-lot-records { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 8px; text-align: center; }
+.fun-lot-records .fun-record .value { font-size: 1.5rem; }
+.fun-slide .fun-lot-records .fun-record .value { font-size: clamp(1.6rem, 4.5vw, 2.8rem); }
+.fun-slide .fun-lot-records .fun-record .who { font-size: clamp(1.1rem, 3vw, 1.6rem); }
+.fun-slide .fun-lot .hint { font-size: clamp(.9rem, 2vw, 1.1rem); }
+.fun-slide .fun-lot .fun-podium { font-size: clamp(.95rem, 2.2vw, 1.2rem); }
+.fun-slide .fun-lot .fun-podium li { padding: 3px 10px; }
 
 /* « Pourquoi cette commande ? » (Gestion de la TECH, commande recommandee) : phrases et deux graphes */
 .tag.violet { background: #6b4fa3; color: #fff; }

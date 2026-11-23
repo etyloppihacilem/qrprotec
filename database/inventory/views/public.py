@@ -1199,10 +1199,17 @@ def verif_report(request: Request, verif_id: int) -> Response:
                                                                  key=lambda row: (row[0][0], str(row[0][1])))]
                for section in ('present', 'expired', 'replaced', 'missing')},
         })
+    starts = [verif.started for verif in verifs if verif.started is not None]
+    started = min(starts) if starts and len(starts) == len(verifs) else None
+    if started is not None and started > first.datetime:
+        started = None
     return Response({
         'id': first.id,
         'at': ser._date(first.datetime),
         'sent': ser.verif_sent(first),  # faite hors connexion : heure d'envoi, a cote de celle des scans
+        # debut de la vérif (Verifs.started) : duree a la seconde avec 'at' ; None : vérif d'avant ce champ. Etape
+        # d'une cascade : debut de l'etape, le front reunit les etapes (debut de la 1re, fin de la derniere)
+        'started': ser._date(started),
         'by': ser._who(first.by),
         'participants': [ser._who(value) for value in first.participants],
         'complete': all(verif.complete for verif in verifs),

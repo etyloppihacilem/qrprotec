@@ -387,9 +387,10 @@ class FunStatsTests(ApiTestCase):
     """Stats fun de l'AG (5 appuis sur « Prévisions » du web) : gestion et admin, noms courts, vérifs en sessions."""
 
     def verif(self, by: str, at: datetime, lot: Lots | None = None, participants: tuple[()] | list[str] = (),
-              present: int = 0, expired_items: list[Items] | tuple[()] = ()) -> Verifs:
-        verif = Verifs.objects.create(lot=lot or self.lot, by=by, datetime=at, received=at,
-                                      participants=list(participants), present_count=present, complete=True)
+              present: int = 0, expired_items: list[Items] | tuple[()] = (), started: datetime | None = None,
+              complete: bool = True) -> Verifs:
+        verif = Verifs.objects.create(lot=lot or self.lot, by=by, datetime=at, received=at, started=started,
+                                      participants=list(participants), present_count=present, complete=complete)
         for item in expired_items:
             models.VerifItem.objects.create(verif=verif, item=item, expired=True)
         return verif
@@ -438,3 +439,58 @@ class FunStatsTests(ApiTestCase):
         code, body = self.call('POST', '/api/stats/fun/', {'period': year}, session=views.session_token(self.user))
         self.assertEqual(code, 200)
         self.assertEqual(body['period'], str(year))
+
+    def test_fun_stats_durations(self) -> None:
+        paul = Secouristes(matricule='M002', nom='Martin', prenom='Paul')
+        paul.save()
+        sac_b = Lots(lot_type=self.lot_type, name='Sac B', name_short='B', created_by='test')
+        sac_b.save()
+        sub = Lots(lot_type=self.lot_type, name='Poche', name_short='P', created_by='test', parent=self.lot)
+        sub.save()
+        now = timezone.now().replace(hour=12, minute=0, second=0, microsecond=0)
+
+        def at(days: int, minutes: float = 0) -> datetime:
+            return now - timedelta(days=days) + timedelta(minutes=minutes)
+
+        # Sac A : Jeanne seule en 10 min puis 20 min, en cascade (Sac A puis sa poche, 6 min + 4 min) ; Paul en 5 min
+        self.verif('M:M001', at(10, 10), present=20, started=at(10))
+        self.verif('M:M001', at(9, 6), present=30, started=at(9))
+        self.verif('M:M001', at(9, 20), lot=sub, present=10, started=at(9, 6))
+        fast = self.verif('M:M002', at(8, 5), present=12, started=at(8))
+        for second in range(0, 50, 5):  # 10 scans en 45 s
+            models.VerifItem.objects.create(verif=fast, item=self.create(self.garrot, None, 1)[0],
+                                            scanned_at=at(8, 1) + timedelta(seconds=second))
+        # Sac B : a deux en 3 min 30 s ; incomplete ; sans duree (avant le chronometrage) ; oubliee (5 h)
+        self.verif('M:M001', at(7, 3.5), lot=sac_b, participants=['M:M002'], present=15, started=at(7))
+        self.verif('M:M001', at(6, 1), lot=sac_b, present=4, started=at(6), complete=False)
+        self.verif('M:M002', at(5, 1), lot=sac_b, present=4)
+        self.verif('M:M002', at(4, 300), lot=sac_b, present=4, started=at(4))
+        self.user.role = 'gestion'
+        self.user.save()
+        code, body = self.call('POST', '/api/stats/fun/', {}, session=views.session_token(self.user))
+        self.assertEqual(code, 200)
+        tiles = {tile['label']: tile['value'] for tile in body['time_totals']}
+        # 10 + 20 + 5 + 3,5 + 1 min = 39 min 30 s chronometrees (ni la vérif sans debut ni celle de 5 h)
+        self.assertEqual(tiles['passées en vérif'], '39 min')
+        self.assertEqual(tiles['vérifs chronométrées'], '5')
+        self.assertIn('43 min', tiles.values())  # a deux : 3 min 30 s chacun en plus
+        awards = {award['key']: award for award in body['awards']}
+        self.assertEqual([(row['name'], row['value']) for row in awards['time']['podium']],
+                         [('Jeanne', '34 min'), ('Paul', '8 min')])
+        self.assertEqual(awards['quickest']['record']['value'], '3 min 30 s')
+        self.assertIn('Sac B', awards['quickest']['record']['detail'])
+        self.assertEqual(awards['slowest']['record']['value'], '20 min 00 s')
+        self.assertIn('Sac A', awards['slowest']['record']['detail'])  # la cascade se nomme du lot du haut
+        self.assertEqual(awards['burst']['record']['value'], '10 scans en 1 min')
+        self.assertEqual(awards['burst']['record']['name'], 'Paul')
+        lots = {lot['name']: lot for lot in body['lots']}
+        self.assertEqual(body['lots'][0]['name'], 'Sac A')  # le plus verifie d'abord
+        self.assertEqual(lots['Sac A']['count'], 3)
+        self.assertEqual(lots['Sac A']['fastest']['value'], '5 min 00 s')
+        self.assertEqual(lots['Sac A']['fastest']['name'], 'Paul')
+        self.assertEqual(lots['Sac A']['slowest']['value'], '20 min 00 s')
+        self.assertEqual([(row['name'], row['value']) for row in lots['Sac A']['podium']],
+                         [('Paul', '5 min 00 s'), ('Jeanne', '10 min 00 s')])
+        self.assertEqual(lots['Sac B']['count'], 1)
+        self.assertEqual(lots['Sac B']['fastest']['name'], 'Jeanne & Paul')
+        self.assertNotIn('Martin', json.dumps(body))
