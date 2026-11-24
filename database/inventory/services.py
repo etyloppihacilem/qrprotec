@@ -22,7 +22,7 @@ from django.db import transaction
 from django.db.models import Count, F, Q
 from django.utils import timezone
 
-from . import journal, movements, notifications, webpush
+from . import journal, movements, notifications, packs, webpush
 from .idendity import ANONYMOUS_OPENING, SOURCE_DECLARED, parse_identity, short_identity_name
 from .models import (
     ItemMovement, ItemRevision, ItemStatus, Items, ItemsPacks, ItemType, LotContent, LotRequirements, Lots, LotType, LotTypeSlot, MovementKind,
@@ -1080,6 +1080,8 @@ def perform_verif(lot: Lots | list[Lots] | None, iids: list[str], identity: str,
         scanned = list(_items_queryset().select_for_update(of=('self',)).filter(iid__in=requested).order_by('iid'))
         scanned_ids = {item.iid for item in scanned}
         unknown = [iid for iid in requested if iid not in scanned_ids]
+        # etiquette de paquet ouvert dont un item est scanne seul : le paquet a ete ouvert (packs.py)
+        packs.break_open_labels(sorted(scanned_ids), now)
 
         # Lots scelles intacts (etiquette du scelle scannee) : eux et leurs sous-lots sont mis de cote
         intact: list[Lots] = []

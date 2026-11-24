@@ -258,15 +258,15 @@ def items_batch(request: Request) -> Response:
     peremption = parse_date(data.get('peremption'), 'peremption')
     count = parse_int(data.get('count', 1), 'count', 1, 10000)
     sealed = bool(data.get('sealed_pack'))
-    packs = parse_int(data.get('packs', 1), 'packs', 1, 500) if sealed else 1
-    if count * packs > 10000:
+    pack_count = parse_int(data.get('packs', 1), 'packs', 1, 500) if sealed else 1
+    if count * pack_count > 10000:
         raise ApiError('10 000 items au plus par réception')
     identity = operation_identity(request, data)
     location = storage_target(data.get('location'))
     now = timezone.now()
     with transaction.atomic():
         sealed_packs, created = [], []
-        for _ in range(packs):
+        for _ in range(pack_count):
             sealed_pack = None
             if sealed:
                 sealed_pack = SealedPacks.objects.create(
@@ -279,7 +279,7 @@ def items_batch(request: Request) -> Response:
             created += ItemsPacks.objects.add_items(
                 item_type, peremption, count, identity[:32], location=location, sealed_pack=sealed_pack, now=now
             )
-        summary = f'{count} × {item_type.name}' if packs == 1 else f'{packs} paquets de {count} × {item_type.name}'
+        summary = f'{count} × {item_type.name}' if pack_count == 1 else f'{pack_count} paquets de {count} × {item_type.name}'
         if item_type.perissable and peremption:
             summary += f", péremption {peremption.strftime('%d/%m/%Y')}"
         if len(sealed_packs) == 1:
@@ -289,7 +289,7 @@ def items_batch(request: Request) -> Response:
         if location is not None:
             summary += f', rangés dans {location.name}'
         journal.record(OperationKind.RECEPTION, identity, summary, lot=location, type=item_type.type,
-                       count=count * packs, peremption=peremption.isoformat() if peremption else None,
+                       count=count * pack_count, peremption=peremption.isoformat() if peremption else None,
                        sealed_pack=sealed_packs[0].id if sealed_packs else None,
                        **({'sealed_packs': [pack.id for pack in sealed_packs]} if len(sealed_packs) > 1 else {}),
                        items=journal.item_ids(created))
@@ -613,17 +613,7 @@ def sealed_pack_open(request: Request, pack_id: str) -> Response:
     identity = operation_identity(request)
     now = timezone.now()
     # un paquet deja ouvert garde sa date d'ouverture : l'appel sert alors a reimprimer les etiquettes
-    if sealed_pack.opened is None:
-        with transaction.atomic():
-            sealed_pack.opened = now
-            sealed_pack.opened_by = identity[:32]
-            sealed_pack.save(update_fields=['opened', 'opened_by'])
-            Items.objects.filter(sealed_pack=sealed_pack).update(
-                last_seen=now, last_seen_by=identity, last_seen_while=SeenWhile.OPEN
-            )
-            journal.record(OperationKind.PACK_OPEN, identity,
-                           f'{sealed_pack.count} × {sealed_pack.item_type.name} (paquet {sealed_pack.id})', at=now,
-                           pack=sealed_pack.id, type=sealed_pack.item_type_id, count=sealed_pack.count)
+    packs.mark_opened(sealed_pack, identity, now)
     today = timezone.localdate()
     data = ser.sealed_pack_dict(sealed_pack, with_items=False)
     data['items'] = [
@@ -631,6 +621,17 @@ def sealed_pack_open(request: Request, pack_id: str) -> Response:
         for item in sealed_pack.items.select_related('pack__item_type', 'location').order_by('iid')
     ]
     return Response(data)
+
+
+@api_view(['POST'])
+@handle_errors
+def sealed_pack_printed(request: Request, pack_id: str) -> Response:
+    """Poste : les etiquettes des items du paquet ouvert sont parties a l'imprimante (apres l'apercu). Le contenu
+    peut alors etre pre-etiquete (packs.py)."""
+    require_front(request, GESTION)
+    sealed_pack = get_object_or_404(SealedPacks.objects.select_related('item_type'), id=pack_id)
+    packs.mark_labels_printed(sealed_pack)
+    return Response(ser.sealed_pack_dict(sealed_pack))
 
 
 @api_view(['POST'])

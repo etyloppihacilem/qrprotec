@@ -20,6 +20,7 @@ from typing import TYPE_CHECKING, Any
 from django.utils import timezone
 
 from .idendity import SOURCE_VERIFIED, identity_name
+from . import packs
 from .journal import plural
 from .models import MAINTENANCE, PIN_OPTIONAL_ROLES, PUSH_TYPES, WEB_PREFS, ItemStatus, LotType, Role, STOCK_LOT_TYPE, STORAGE_KIND_DEFAULT, Verifs, compact_iid, custom_order_key, qrprotec_setting
 from .reports import item_reports, lot_reports, pack_reports, summary as report_summary
@@ -260,7 +261,13 @@ def item_last_location(item: Items) -> dict[str, Any] | None:
     }
 
 
-def sealed_pack_dict(sealed_pack: SealedPacks, with_items: bool = True) -> dict[str, Any]:
+def pack_open_url(sealed_pack: SealedPacks) -> str:
+    """Contenu du QR de l'etiquette de paquet ouvert (avec sa cle : seulement pour l'imprimer, au poste)."""
+    return public_url('pack', id=sealed_pack.id, o=sealed_pack.open_label_key)
+
+
+def sealed_pack_dict(sealed_pack: SealedPacks, with_items: bool = True, key: str | None = None) -> dict[str, Any]:
+    """Paquet ferme. key : cle de l'etiquette de paquet ouvert scannee (open_label.scanned), voir packs.py."""
     data = {
         'id': sealed_pack.id,
         'type': sealed_pack.item_type_id,
@@ -276,6 +283,12 @@ def sealed_pack_dict(sealed_pack: SealedPacks, with_items: bool = True) -> dict[
         'disabled': sealed_pack.items.filter(disabled=True).count(),
         'reported': sealed_pack.reports.exclude(status='resolved').count(),
         'reports': pack_reports(sealed_pack),
+        # etiquettes des items imprimees, etiquette de paquet ouvert (paquet pre-etiquete) et ce qui empeche d'en
+        # imprimer une ('' : possible)
+        'labels_printed': _date(sealed_pack.labels_printed),
+        'open_label': packs.open_label_dict(sealed_pack, key),
+        'prelabel_blocked': packs.can_prelabel(sealed_pack),
+        'prelabel_count': len(packs.candidates(sealed_pack)) if sealed_pack.opened else 0,
     }
     if with_items:
         data['items'] = [item.iid for item in sealed_pack.items.order_by('iid')]

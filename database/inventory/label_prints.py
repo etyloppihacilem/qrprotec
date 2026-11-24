@@ -14,6 +14,8 @@ models.LabelPrint).
 - Web (gestion et admins, Gestion de la TECH, bouton +) : nouvelles etiquettes d'items d'un type existant, nombre,
   peremption si le type est perissable. « Lancer l'impression » cree les items (reception au nom de qui les a
   demandes) puis imprime.
+- Web (gestion et admins, fiche d'un paquet ferme) : etiquettes des items du paquet qu'on ouvre (items deja crees a
+  la reception), ou son etiquette de paquet ouvert (paquet pre-etiquete, voir packs.py).
 - Front d'un autre ordinateur (API distante) : « Imprimer » envoie les etiquettes deja rendues (images 1 bit), que le
   poste imprime telles quelles. Le poste est le poste principal : front de l'API locale du
   serveur, ou kiosk d'une autre machine dont la cle est marquee poste (FrontKey.poste, back sans kiosk).
@@ -45,6 +47,7 @@ from . import notifications
 from .print_live import hub as live
 from . import serializers as ser
 from .idendity import SOURCE_VERIFIED, identity_name
+from . import packs
 from .models import ItemsPacks, Items, ItemType, LabelPrint, LabelPrintKind, OperationKind
 
 if TYPE_CHECKING:
@@ -78,6 +81,8 @@ def what(row: LabelPrint) -> str:
     """« 5 × Compresses, péremption 31/12/2027 », ou « 3 étiquettes : Lot B+ 1 (clé) » pour celles d'un front."""
     if row.kind == LabelPrintKind.LABELS:
         return journal.plural(row.count, 'étiquette') + (f' : {row.title}' if row.title else '')
+    if row.kind == LabelPrintKind.PACK and row.open_label:
+        return f'Étiquette de paquet ouvert : {row.item_type.name}'
     text = f'{row.count} × {row.item_type.name}'
     if row.peremption:
         text += f", péremption {row.peremption.strftime('%d/%m/%Y')}"
@@ -115,7 +120,7 @@ def queues(rows: list[LabelPrint], matricules: bool = False) -> list[dict[str, A
 
 def print_dict(row: LabelPrint, full: bool = False) -> dict[str, Any]:
     """full : avec les items crees (etiquettes d'items) ou les images (etiquettes d'un front), pour imprimer."""
-    items_kind = row.kind == LabelPrintKind.ITEMS
+    items_kind = row.kind in (LabelPrintKind.ITEMS, LabelPrintKind.PACK)
     data = {
         'id': row.id,
         'kind': row.kind,
@@ -138,8 +143,15 @@ def print_dict(row: LabelPrint, full: bool = False) -> dict[str, Any]:
         'queue_name': queue_name(row),
         'launch_requested': ser._date(row.launch_requested),
         'launch_requested_by': identity_name(row.launch_requested_by) if row.launch_requested_by else '',
+        'pack': row.sealed_pack_id or '',
+        'open_label': row.open_label,
     }
-    if full and items_kind:
+    if full and row.open_label and row.sealed_pack is not None:
+        # etiquette de paquet ouvert : imprimee avec la cle actuelle du paquet (une reimpression apres un nouveau
+        # pre-etiquetage prend la nouvelle)
+        data['pack_data'] = ser.sealed_pack_dict(row.sealed_pack, with_items=False)
+        data['pack_data']['open_url'] = ser.pack_open_url(row.sealed_pack)
+    elif full and items_kind:
         found = {item.iid: item for item in
                  Items.objects.select_related('pack__item_type', 'location__lot_type').filter(iid__in=row.items)}
         today = timezone.localdate()
@@ -241,7 +253,8 @@ def create_labels(by: str, front: str, title: str, labels: list[dict[str, Any]])
 def web_list() -> dict[str, Any]:
     """Types proposes (non archives) et etiquettes d'items demandees depuis le web : en attente, puis recentes."""
     since = timezone.now() - timedelta(days=WEB_RECENT_DAYS)
-    rows = LabelPrint.objects.select_related('item_type').filter(kind=LabelPrintKind.ITEMS).filter(
+    rows = LabelPrint.objects.select_related('item_type').filter(
+        kind__in=[LabelPrintKind.ITEMS, LabelPrintKind.PACK]).filter(
         Q(created__gte=since) | Q(printed__isnull=True, cancelled__isnull=True, created__gte=_expiry()))
     rows = sorted(rows, key=lambda row: (not row.pending, -row.created.timestamp()))
     types = [{'type': t.type, 'name': t.name, 'perissable': t.perissable, 'description': t.description}
@@ -353,6 +366,14 @@ def print_now(print_id: int, front_name: str = '') -> dict[str, Any]:
                            peremption=row.peremption.isoformat() if row.peremption else None,
                            items=journal.item_ids(created), label_print=row.id)
             notifications.check_stock_levels([row.item_type_id])
+        if row.kind == LabelPrintKind.PACK and row.sealed_pack is not None and not row.open_label:
+            # etiquettes des items du paquet ouvert depuis le web (crees a la reception)
+            row.items = list(Items.objects.filter(sealed_pack=row.sealed_pack, deleted__isnull=True)
+                             .order_by('iid').values_list('iid', flat=True))
+            packs.mark_labels_printed(row.sealed_pack, row.printed)
+        if row.kind == LabelPrintKind.PACK and row.sealed_pack is not None and row.open_label \
+                and not row.sealed_pack.open_label_key:
+            raise PrintError("Ce paquet n'est plus pré-étiqueté : refaites la demande depuis sa fiche", 409)
         row.save(update_fields=['printed', 'printed_on', 'items'])
         live.changed()
     return print_dict(row, full=True)

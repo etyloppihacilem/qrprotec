@@ -333,3 +333,113 @@ class RoleTests(ApiTestCase):
         self.assertEqual(body['role'], 'admin')
         code, body = self.call('PATCH', '/api/users/M001/', {'privileged': False})
         self.assertEqual(body['role'], 'normal')
+
+
+class PrelabeledPackTests(ApiTestCase):
+    """Fiche du paquet du web (ouverture, etiquettes envoyees au poste) et paquets pre-etiquetes (packs.py)."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        peremption = (self.today + timedelta(days=200)).isoformat()
+        code, body = self.call('POST', '/api/items/batch/', {'type': 'compre', 'peremption': peremption, 'count': 4,
+                                                             'sealed_pack': True, 'user': 'P001'})
+        self.assertEqual(code, 201)
+        self.pack_id = body['sealed_pack']['id']
+        self.iids = body['sealed_pack']['items']
+        self.gestion = {'matricule': 'M001', 'key': self.user.new_key}
+
+    def web(self, action: str, **data: Any) -> tuple[int, Any]:
+        return self.call('POST', f'/api/packs/{self.pack_id}/{action}/', {'user': self.gestion, **data}, local=False)
+
+    def print_pending(self) -> Any:
+        code, listing = self.call('GET', '/api/label-prints/pending/', session=False)
+        self.assertEqual(code, 200)
+        row = listing['pending'][-1]
+        code, printed = self.call('POST', f"/api/label-prints/{row['id']}/print/", {}, session=False)
+        self.assertEqual(code, 200)
+        return printed
+
+    def test_web_open_sends_item_labels_to_poste(self) -> None:
+        code, _ = self.web('send-labels')
+        self.assertEqual(code, 403)  # secouriste
+        self.user.role = 'gestion'
+        self.user.save()
+        code, body = self.web('send-labels')
+        self.assertEqual(code, 200)
+        self.assertIsNotNone(body['pack']['opened'])
+        self.assertIsNone(body['pack']['labels_printed'])
+        self.assertEqual(body['pack']['prelabel_blocked'],
+                         "Les étiquettes des items n'ont pas encore été imprimées au poste")
+        # deuxieme appui : la meme demande, pas une seconde
+        code, again = self.web('send-labels')
+        self.assertEqual(again['print']['id'], body['print']['id'])
+        printed = self.print_pending()
+        self.assertEqual(sorted(item['iid'] for item in printed['items']), sorted(self.iids))
+        self.assertEqual(Items.objects.count(), 4)  # items deja crees a la reception
+        code, pack = self.call('GET', f'/api/packs/{self.pack_id}/', local=False)
+        self.assertIsNotNone(pack['labels_printed'])
+        self.assertEqual(pack['prelabel_blocked'], '')
+        self.assertEqual(pack['prelabel_count'], 4)
+
+    def prelabel_from_poste(self) -> Any:
+        self.call('POST', f'/api/packs/{self.pack_id}/open/', {'user': 'P001'})
+        code, blocked = self.call('POST', f'/api/packs/{self.pack_id}/prelabel/', {'count': 4})
+        self.assertEqual(code, 409)  # etiquettes pas encore imprimees
+        self.call('POST', f'/api/packs/{self.pack_id}/printed/', {})
+        code, body = self.call('POST', f'/api/packs/{self.pack_id}/prelabel/', {'count': 3})
+        self.assertEqual(code, 409)  # pas le bon nombre d'items
+        code, body = self.call('POST', f'/api/packs/{self.pack_id}/prelabel/', {'count': 4})
+        self.assertEqual(code, 200)
+        self.assertIn('&o=', body['open_url'])
+        self.assertTrue(body['open_label']['valid'])
+        self.assertEqual(body['open_label']['count'], 4)
+        return body
+
+    def test_open_label_valid_until_an_item_is_scanned_alone(self) -> None:
+        body = self.prelabel_from_poste()
+        key = body['open_url'].split('&o=')[1]
+        code, pack = self.call('GET', f'/api/packs/{self.pack_id}/?o={key}', local=False)
+        self.assertTrue(pack['open_label']['scanned'])
+        code, pack = self.call('GET', f'/api/packs/{self.pack_id}/?o=ancienne', local=False)
+        self.assertFalse(pack['open_label']['scanned'])
+        # verif avec l'etiquette de paquet ouvert : tous les items scannes, elle reste valable
+        code, _ = self.call('POST', f'/api/lots/{self.lot.id}/verif/', {'items': self.iids})
+        self.assertEqual(code, 200)
+        code, pack = self.call('GET', f'/api/packs/{self.pack_id}/', local=False)
+        self.assertTrue(pack['open_label']['valid'])
+        # un item scanne seul : le paquet a ete ouvert
+        code, _ = self.call('POST', f'/api/lots/{self.lot.id}/verif/', {'items': self.iids[:1]})
+        self.assertEqual(code, 200)
+        code, pack = self.call('GET', f'/api/packs/{self.pack_id}/', local=False)
+        self.assertFalse(pack['open_label']['valid'])
+        self.assertIn('scanné seul', pack['open_label']['problem'])
+        # plus rien a pre-etiqueter : tous les items ont ete revus depuis l'ouverture
+        self.assertNotEqual(pack['prelabel_blocked'], '')
+        self.assertEqual(Operation.objects.filter(kind='pack_label').count(), 1)
+
+    def test_open_label_invalid_when_an_item_leaves(self) -> None:
+        self.prelabel_from_poste()
+        item = Items.objects.get(iid=self.iids[0])
+        item.location = self.lot
+        item.save()
+        code, pack = self.call('GET', f'/api/packs/{self.pack_id}/', local=False)
+        self.assertEqual(pack['open_label']['problem'], 'Un item du paquet a changé de lot')
+        item.location = None
+        item.status = 'deleted'
+        item.save()
+        code, pack = self.call('GET', f'/api/packs/{self.pack_id}/', local=False)
+        self.assertEqual(pack['open_label']['problem'], 'Un item du paquet a été utilisé ou retiré du stock')
+
+    def test_web_prelabel_sends_open_label_with_new_key(self) -> None:
+        first = self.prelabel_from_poste()
+        self.user.role = 'gestion'
+        self.user.save()
+        code, body = self.web('prelabel', count=4)
+        self.assertEqual(code, 200)
+        self.assertNotIn('open_url', body['pack'])  # la cle ne sort que vers le poste
+        printed = self.print_pending()
+        self.assertTrue(printed['open_label'])
+        self.assertNotEqual(printed['pack_data']['open_url'], first['open_url'])  # nouvelle cle
+        old_key = first['open_url'].split('&o=')[1]
+        code, pack = self.call('GET', f'/api/packs/{self.pack_id}/?o={old_key}', local=False)
+        self.assertFalse(pack['open_label']['scanned'])
