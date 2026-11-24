@@ -35,6 +35,7 @@
 #include <algorithm>
 #include <cmath>
 #include <memory>
+#include <utility>
 
 namespace qrprotec {
 
@@ -216,7 +217,7 @@ bool App::label_prints_badge(const std::string &code, ScanSource source) {
   label_prints_.focus           = true;
   label_prints_.queue.clear();
   label_prints_.queue_by_user = false;
-  for (const Json &queue : label_prints_.data["queues"].items())
+  for (const Json &queue : std::as_const(label_prints_.data)["queues"].items())
     if (!queue["matricule"].str().empty() && queue["matricule"].str() == scan.id) {
       label_prints_.queue         = queue["queue"].str();
       label_prints_.queue_by_user = true;
@@ -355,7 +356,7 @@ void App::draw_label_queue(const Json &queue) {
     for (const Json &request : queue["prints"].items())
       rows.push_back(&request);
   } else {
-    for (const Json &request : label_prints_.data["pending"].items())
+    for (const Json &request : std::as_const(label_prints_.data)["pending"].items())
       if (request["queue"].str() == queue["queue"].str())
         rows.push_back(&request);
   }
@@ -412,8 +413,10 @@ void App::draw_label_prints() {
     ImGui::End();
     return;
   }
-  const Json  &queues = state.data["queues"];
-  const Json  &recent = state.data["recent"];
+  // lecture seule (std::as_const) : sur un autre ordinateur, data n'a pas « recent », et l'ajouter deplacait
+  // « queues » sous la reference deja prise (boucle sans fin a l'ouverture de la fenetre)
+  const Json  &queues = std::as_const(state.data)["queues"];
+  const Json  &recent = std::as_const(state.data)["recent"];
   const float  base   = ImGui::GetStyle().FontSizeBase;
   const double now    = ImGui::GetTime();
 
