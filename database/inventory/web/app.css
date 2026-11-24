@@ -1203,3 +1203,8 @@ dialog.order-explain .legend { row-gap: 2px; }
    non selectionnable dans l'appli, sauf les champs de saisie et les identifiants (iid, n° de lot) a copier. */
 body { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
 input, textarea, select, [contenteditable], .selectable, #fiche-body ul.iids .iid { -webkit-user-select: text; user-select: text; -webkit-touch-callout: default; }
+
+/* fiche d'un paquet : ouverture et pre-etiquetage (gestion, admin) */
+.pack-manage { display: flex; flex-direction: column; gap: 6px; margin: 12px 0; }
+.pack-manage button, button.pack-login { width: 100%; }
+.pack-manage .sub { margin: 0; }

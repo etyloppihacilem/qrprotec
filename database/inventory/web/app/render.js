@@ -481,7 +481,7 @@ function renderDone() {
     const mine = index < state.scanned.length;
     const info = entry.info;
     let name = entry.kind === 'check' && info ? `☑ ${info.count || ''} × ${info.type_name}`
-      : entry.kind === 'pack' && info ? `Paquet : ${info.count} × ${info.type_name}` : info ? info.type_name : idText(entry.iid) || 'Code non reconnu';
+      : entry.kind === 'pack' && info ? `Paquet : ${(entry.items || []).length || info.count} × ${info.type_name}` : info ? info.type_name : idText(entry.iid) || 'Code non reconnu';
     let cls = 'ok';
     const tags = [];
     if (entry.error) { cls = 'error'; tags.push(el('span', { class: 'tag red' }, 'INCONNU')); }

@@ -427,7 +427,7 @@ function liveSnapshot(remaining) {
       .map((lot) => lot.name),
     scanned: scanned.map((entry) => ({
       name: entry.kind === 'check' && entry.info ? `☑ ${entry.info.type_name}`
-        : entry.kind === 'pack' && entry.info ? `Paquet : ${entry.info.count} × ${entry.info.type_name}`
+        : entry.kind === 'pack' && entry.info ? `Paquet : ${(entry.items || []).length || entry.info.count} × ${entry.info.type_name}`
         // pas d'iid : le suivi en direct est vu par tous, pas seulement le TECH
         : (entry.info && entry.info.type_name) || (entry.kind === 'item' && !entry.error ? 'Item' : 'code inconnu'),
       expired: !!entry.expired,

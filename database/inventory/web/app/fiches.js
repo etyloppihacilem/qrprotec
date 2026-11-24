@@ -1,18 +1,19 @@
-/* QRProtec - front web : fiches de lot et d'item, ecran d'ouverture d'un scelle. */
+/* QRProtec - front web : fiches de lot, d'item et de paquet, ecran d'ouverture d'un scelle. */
 'use strict';
 
 // Fiches lot et item : page d'arrivee d'une etiquette ouverte avec l'appareil photo du telephone (sans le lecteur
 // integre), ou d'un lot / item touche dans une fiche. Pas de camera : « Lancer une vérif » ouvre le lecteur sur le
 // bon lot (le lot de la fiche, ou le dernier emplacement connu de l'item).
 
-const fiche = { kind: '', id: '', key: '', seal: '', label: false, lot: null, item: null, error: '', keyCheck: '', keyError: '', token: 0, folds: new Set(), subFolds: new Map(), contentOpen: null, offline: false };
+const fiche = { kind: '', id: '', key: '', seal: '', label: false, lot: null, item: null, pack: null, busy: false, error: '', keyCheck: '', keyError: '', token: 0, folds: new Set(), subFolds: new Map(), contentOpen: null, offline: false };
 
 function ficheOpen() { return !$('#fiche').hidden; }
 
 // Premiere lettre en majuscule (texte saisi au poste, ex : emplacement de l'etiquette privee)
 const cap = (text) => (text ? text.charAt(0).toUpperCase() + text.slice(1) : '');
 
-const ficheUrl = (kind, id, seal = '') => (kind !== 'lot' ? `item?id=${encodeURIComponent(id)}`
+const ficheUrl = (kind, id, seal = '') => (kind === 'pack' ? `pack?id=${encodeURIComponent(id)}`
+  : kind !== 'lot' ? `item?id=${encodeURIComponent(id)}`
   : seal ? `seal?lot=${encodeURIComponent(id)}&s=${encodeURIComponent(seal)}` : `verif?lot=${encodeURIComponent(id)}`);
 
 // Lien vers la fiche d'un lot ou d'un item (vraie URL : appui long pour l'ouvrir dans un autre onglet)
@@ -40,12 +41,13 @@ function storeFicheKey(id, key) {
 // push : nouvelle entree d'historique (le bouton retour du telephone revient a la page precedente)
 // seal : code de l'etiquette du scelle scannee (fiche du lot scelle, sans vérif tant que le scelle est intact)
 // label : fiche ouverte par l'etiquette du lot (« Lancer une vérif » la compte comme scannee)
+// pack : key est la cle de l'etiquette de paquet ouvert scannee (paquet pre-etiquete)
 async function openFiche(kind, id, { key = '', seal = '', push = true, label = false } = {}) {
   if (kind === 'lot' && !seal) {
     if (key) storeFicheKey(id, key); else key = storedFicheKey(id);
   }
   const token = fiche.token + 1;
-  Object.assign(fiche, { kind, id, key, seal, label, lot: null, item: null, error: '', keyCheck: '', keyError: '', token, folds: new Set(), subFolds: new Map(), contentOpen: null, offline: false });
+  Object.assign(fiche, { kind, id, key, seal, label, lot: null, item: null, pack: null, busy: false, error: '', keyCheck: '', keyError: '', token, folds: new Set(), subFolds: new Map(), contentOpen: null, offline: false });
   if (push) history.pushState({ inApp: true }, '', ficheUrl(kind, id, seal));
   $('#fiche').hidden = false;
   document.body.classList.add('fiche-open');
@@ -66,6 +68,11 @@ async function openFiche(kind, id, { key = '', seal = '', push = true, label = f
         if (lot.seal_check === 'valid' && !lot.expired_count && !lot.unusable) feedback.good();
         else if (lot.seal_check === 'wrong') feedback.warn(); else feedback.bad();
       }
+    } else if (kind === 'pack') {
+      const pack = await api(`packs/${encodeURIComponent(id)}/` + (key ? `?o=${encodeURIComponent(key)}` : ''));
+      if (fiche.token !== token) return;
+      fiche.pack = pack;
+      if (pack.reported) alertReports('pack:' + pack.id, `Paquet signalé : ${pack.count} × ${pack.type_name}`, pack.reports);
     } else {
       const item = await api(`items/${encodeURIComponent(id)}/`);
       if (fiche.token !== token) return;
@@ -78,7 +85,8 @@ async function openFiche(kind, id, { key = '', seal = '', push = true, label = f
     const copy = e.status === 0 && !seal ? await offlineFiche(kind, id, key) : null;
     if (fiche.token !== token) return;
     if (copy) Object.assign(fiche, copy);
-    else fiche.error = e.status === 404 ? (kind === 'lot' ? 'Lot introuvable' : 'Item inconnu dans la base') : e.message;
+    else fiche.error = e.status === 404 ? (kind === 'lot' ? 'Lot introuvable' : kind === 'pack' ? 'Paquet inconnu dans la base'
+      : 'Item inconnu dans la base') : e.message;
   }
   renderFiche();
 }
@@ -88,6 +96,10 @@ async function openFiche(kind, id, { key = '', seal = '', push = true, label = f
 // vérif (keyAccepted). Le scelle, lui, reste controle par le serveur : pas de fiche hors connexion.
 async function offlineFiche(kind, id, key) {
   await vcache.ready();
+  if (kind === 'pack') {
+    const pack = vcache.pack(id);
+    return pack ? { pack, offline: true } : null;
+  }
   if (kind === 'item') {
     const item = vcache.item(id);
     return item ? { item, offline: true } : null;
@@ -161,6 +173,15 @@ async function launchFromFiche() {
 
 // Item ouvert hors du lecteur pendant une vérif : on peut l'ajouter aux scans de la vérif en cours
 function addFicheItem() {
+  if (fiche.kind === 'pack') {
+    const packScan = { kind: 'pack', code: fiche.key ? `pack?id=${fiche.id}&o=${fiche.key}` : `pack?id=${fiche.id}`, id: fiche.id, key: fiche.key };
+    startCamera();
+    closeFiche();
+    history.pushState({ inApp: true }, '', 'verif');
+    switchTab('todo');
+    scanPack(packScan);
+    return;
+  }
   const scan = parseCode(fiche.id);
   if (scan.kind !== 'item') return;
   startCamera();
@@ -204,11 +225,12 @@ function renderFiche() {
   }
   if (fiche.kind === 'lot' && fiche.lot) renderLotFiche(body, fiche.lot);
   else if (fiche.kind === 'item' && fiche.item) renderItemFiche(body, fiche.item);
+  else if (fiche.kind === 'pack' && fiche.pack) renderPackFiche(body, fiche.pack);
   else {
     body.replaceChildren(el('p', { class: 'sub' }, 'Chargement…'));
     launch.disabled = true;
   }
-  if (fiche.offline && (fiche.lot || fiche.item)) {
+  if (fiche.offline && (fiche.lot || fiche.item || fiche.pack)) {
     const when = fmtOn(new Date(vcache.syncedAt()).toISOString());
     body.prepend(el('div', { class: 'banner warn' }, el('b', {}, 'Hors connexion'),
       el('div', {}, `Fiche de la dernière mise à jour, ${when}. La vérif peut se faire : elle sera envoyée au retour du réseau.`)));
@@ -754,6 +776,129 @@ function renderItemFiche(body, item) {
       (item.tasks || []).length ? fact('Tâches à la vérif', el('ul', { class: 'tasks-facts' }, ...item.tasks.map((task) => el('li', {}, task)))) : [],
       item.deleted_reason ? fact('Raison', item.deleted_reason) : []),
     where ? '' : el('p', { class: 'sub' }, "Aucun lot connu pour cet item : il n'y a pas de vérif à lancer."),
+  );
+}
+
+
+// Fiche d'un paquet ferme : etiquette du paquet scannee hors vérif (scanner, appareil photo du telephone), ou etiquette
+// de paquet ouvert d'un paquet pre-etiquete. Pas de vérif a lancer depuis un paquet. Gestion et admins : ouvrir le
+// paquet (les etiquettes de ses items partent au poste, a coller sur chaque item), puis « J'ai déjà étiqueté le
+// contenu » (etiquette de paquet ouvert envoyee au poste, a poser de sorte qu'elle se dechire a l'ouverture).
+function packBanner(pack) {
+  const label = pack.open_label;
+  const expired = !!(pack.peremption && parseDate(pack.peremption) < today());
+  if (fiche.key) {
+    if (!label || label.scanned === false) return { kind: 'bad', label: "✘ Ancienne étiquette de paquet ouvert : elle ne vaut plus rien" };
+    if (!label.valid) return { kind: 'bad', label: `✘ Étiquette de paquet ouvert plus valable : ${label.problem.charAt(0).toLowerCase() + label.problem.slice(1)}` };
+  }
+  if (pack.disabled > 0 && pack.disabled >= pack.count) return { kind: 'bad', label: '✘ Désactivé : à remplacer' };
+  if (expired) return { kind: 'bad', label: '✘ Périmé' };
+  if (!pack.opened) return { kind: 'ok', label: '✔ Paquet fermé' };
+  if (label && label.valid) return { kind: 'ok', label: '✔ Paquet pré-étiqueté : contenu déjà étiqueté' };
+  return { kind: 'warn', label: '⚠ Paquet ouvert : ses items se scannent un par un' };
+}
+
+async function packAction(path, body, done) {
+  if (fiche.busy) return;
+  fiche.busy = true;
+  renderFiche();
+  const token = fiche.token;
+  try {
+    const result = await api(`packs/${encodeURIComponent(fiche.id)}/${path}/`, { user: badge(), ...body });
+    if (fiche.token !== token) return;
+    fiche.pack = result.pack;
+    feedback.good();
+    done(result);
+  } catch (e) {
+    if (fiche.token !== token) return;
+    feedback.bad();
+    toast(e.message, true);
+  } finally {
+    if (fiche.token === token) { fiche.busy = false; renderFiche(); }
+  }
+}
+
+function sendPackLabels(pack) {
+  packAction('send-labels', {}, () => toast(
+    `${nb(pack.count, 'étiquette envoyée', 'étiquettes envoyées')} au poste : lancez l'impression dans « Impressions en attente », puis collez-en une sur chaque item.`));
+}
+
+async function prelabelPack(pack) {
+  const count = pack.prelabel_count;
+  const again = pack.open_label && pack.open_label.valid;
+  const ok = await confirmDialog(again ? "Réimprimer l'étiquette de paquet ouvert ?" : "Le contenu est déjà étiqueté ?",
+    (again ? "L'ancienne étiquette ne vaudra plus rien. " : '')
+    + `Le paquet doit contenir ${nb(count, 'item')} de ${pack.type_name}, chacun avec son étiquette. Une étiquette de paquet ouvert part au poste : `
+    + "posez-la de sorte qu'elle se déchire à l'ouverture du paquet. Elle compte tout le contenu en vérif tant que personne n'a ouvert le paquet.",
+    "Envoyer l'étiquette au poste");
+  if (!ok) return;
+  packAction('prelabel', { count }, () => toast("Étiquette de paquet ouvert envoyée au poste : collez-la de sorte qu'elle se déchire à l'ouverture."));
+}
+
+function packManageBlock(pack) {
+  if (!state.user) {
+    return pack.opened ? '' : el('button', { type: 'button', class: 'secondary pack-login', onclick: () => requireLogin('ouvrir ce paquet', renderFiche) },
+      'Gestion ou TECH : connectez-vous pour ouvrir ce paquet');
+  }
+  if (!detailed()) return '';
+  const parts = [];
+  const button = (text, cls, onclick) => el('button', { type: 'button', class: cls, disabled: fiche.busy || fiche.offline, onclick }, text);
+  if (!pack.opened) {
+    parts.push(button(`Ouvrir le paquet et envoyer les ${nb(pack.count, 'étiquette')} au poste`, 'primary',
+      () => sendPackLabels(pack)));
+    parts.push(el('p', { class: 'sub' }, "Les étiquettes des items sortent au poste (« Impressions en attente ») : collez-en une sur chaque item."));
+    return el('div', { class: 'pack-manage' }, ...parts);
+  }
+  if (!pack.labels_printed) {
+    parts.push(el('p', { class: 'warn-text' }, "⚠ Les étiquettes des items n'ont pas encore été imprimées au poste (« Impressions en attente »)."));
+    parts.push(button('Renvoyer les étiquettes au poste', 'secondary', () => sendPackLabels(pack)));
+  } else if (!pack.prelabel_blocked) {
+    const again = pack.open_label && pack.open_label.valid;
+    parts.push(button(again ? "Réimprimer l'étiquette de paquet ouvert" : `J'ai déjà étiqueté le contenu (${nb(pack.prelabel_count, 'item')})`,
+      again ? 'secondary' : 'primary', () => prelabelPack(pack)));
+    if (!again) parts.push(el('p', { class: 'sub' }, "Items étiquetés et remis dans le paquet : une étiquette de paquet ouvert le referme, à déchirer à l'ouverture. Le paquet compte alors en vérif sans le rouvrir."));
+  } else if (!(pack.open_label && pack.open_label.valid)) {
+    parts.push(el('p', { class: 'sub' }, pack.prelabel_blocked + '.'));
+  }
+  return parts.length ? el('div', { class: 'pack-manage' }, ...parts) : '';
+}
+
+function renderPackFiche(body, pack) {
+  $('#fiche-launch').hidden = true; // pas de vérif depuis un paquet
+  const add = $('#fiche-add');
+  add.hidden = !verifInProgress() || !!packRefusal(pack, { key: fiche.key });
+  add.textContent = `Ajouter aux scans de la vérif en cours (${state.lot ? state.lot.name : ''})`;
+  $('#fiche-actions').hidden = add.hidden;
+  const label = pack.open_label;
+  const banner = packBanner(pack);
+  const fact = (name, ...value) => [el('dt', {}, name), el('dd', {}, ...value)];
+  const when = (at, by) => (at ? cap(fmtDateTime(at, { long: true })) + (by ? ' par ' + by : '') : '–');
+  const prelabeled = !!(label && label.valid);
+  const refused = fiche.key ? packRefusal(pack, { key: fiche.key }) : null;
+  const advice = refused ? (label && label.valid && label.scanned === false
+    ? "Elle a été remplacée : scannez l'étiquette de paquet ouvert actuelle, ou les items un par un." : refused[1])
+    : !pack.opened
+    ? (detailed() ? '' : "Mieux vaut prendre des items déjà étiquetés. Si vous devez ouvrir ce paquet, prévenez le TECH : ses items n'ont pas encore d'étiquette.")
+    : prelabeled ? "Chaque item a déjà son étiquette : vous pouvez ouvrir le paquet, en déchirant l'étiquette de paquet ouvert."
+      : "Scannez chacun de ses items : l'étiquette du paquet ne compte plus en vérif.";
+  body.replaceChildren(
+    el('h2', {}, `${nb(prelabeled ? label.count : pack.count, 'unité')} × ${pack.type_name}`),
+    el('div', { class: 'sub' }, showIds() ? `Paquet ${pack.id}` : 'Paquet'),
+    el('div', { class: 'banner ' + banner.kind }, banner.label),
+    advice ? el('p', { class: 'sub' }, advice) : '',
+    reportsBlock((pack.reports || []).map((report) => ({ report }))),
+    packManageBlock(pack),
+    reportButton({ pack: pack.id, type: pack.type, label: withId(`Paquet de ${pack.type_name}`, pack.id) }),
+    el('dl', { class: 'facts' },
+      fact('Péremption', pack.peremption ? fmtDate(pack.peremption) : 'Non périssable'),
+      fact('Unités', String(pack.count)),
+      pack.disabled > 0 ? fact('Désactivés', `${pack.disabled} sur ${pack.count} : à remplacer comme des périmés`) : [],
+      fact('Réceptionné', when(pack.created, pack.created_by)),
+      fact('Ouvert', pack.opened ? when(pack.opened, pack.opened_by) : 'Non, toujours fermé'),
+      pack.opened && detailed() ? fact('Étiquettes des items', pack.labels_printed ? 'imprimées ' + fmtOn(pack.labels_printed, { long: true }) : 'pas encore imprimées') : [],
+      label ? fact('Pré-étiqueté', when(label.at, label.by),
+        el('div', { class: 'sub' }, label.valid ? `Étiquette de paquet ouvert valable, ${nb(label.count, 'item')}`
+          : `Étiquette de paquet ouvert plus valable : ${label.problem.charAt(0).toLowerCase() + label.problem.slice(1)}`)) : []),
   );
 }
 

@@ -139,6 +139,7 @@ window.addEventListener('popstate', () => {
     return;
   }
   if ((route === 'item' || route === 'task') && expandIid(params.get('id'))) { openFiche('item', expandIid(params.get('id')), { push: false }); return; }
+  if (route === 'pack' && params.get('id')) { openFiche('pack', params.get('id'), { key: params.get('o') || '', push: false }); return; }
   if (route === 'liste' && params.get('id')) { closeFiche(); openList(params.get('id'), false); return; }
   closeFiche();
   lists.id = '';
