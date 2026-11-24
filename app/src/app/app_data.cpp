@@ -190,6 +190,7 @@ std::string main_qr_payload(TemplateCategory category) {
   switch (category) {
     case TemplateCategory::Item: return "{{item_url}}";
     case TemplateCategory::ItemPack: return "{{pack_url}}";
+    case TemplateCategory::PackOpen: return "{{pack_open_url}}";
     case TemplateCategory::LotPublic: return "{{lot_url}}";
     case TemplateCategory::LotPrivate: return "{{lot_private_url}}";
     case TemplateCategory::LotSeal: return "{{seal_url}}";
@@ -396,6 +397,7 @@ void App::preview_jobs(std::vector< PrintJob > jobs, const std::string &title) {
   preview.open    = true;
   preview.dirty   = true;
   preview.focus   = true;
+  preview.on_print = nullptr;
 }
 
 void App::print_documents(std::vector< PrintJob > jobs) {

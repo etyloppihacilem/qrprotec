@@ -84,6 +84,21 @@ Parameters sealed_pack_parameters(const Json &pack) {
   return parameters;
 }
 
+// Etiquette de paquet ouvert (paquet pre-etiquete) : `pack` vient de /api/packs/<id>/prelabel/ (poste) ou d'une
+// impression envoyee du web (pack_data), avec open_url (cle de l'etiquette)
+Parameters pack_open_parameters(const Json &pack) {
+  Parameters parameters;
+  parameters["pack_id"]       = pack["id"].str();
+  parameters["pack_open_url"] = pack["open_url"].str();
+  parameters["count"]         = pack["open_label"]["count"].str();
+  parameters["labeled_date"]  = label_date(Json(pack["open_label"]["at"].str().substr(0, 10)));
+  parameters["type"]          = pack["type"].str();
+  parameters["type_name"]     = pack["type_name"].str();
+  parameters["tear_notice"]   = "";
+  add_peremption(parameters, pack["peremption"]);
+  return parameters;
+}
+
 Parameters lot_parameters(const Json &lot) {
   Parameters parameters;
   parameters["lot_id"]          = lot["id"].str();

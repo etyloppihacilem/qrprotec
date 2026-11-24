@@ -107,6 +107,10 @@ static void test_scans() {
   assert(temp.kind == ScanKind::User && temp.id == "M001" && temp.key.empty() && temp.temp == "eyJtIjoiTTAwMSJ9:1vW:ab-c_d");
   const ParsedScan pack = parse_scan("https://example.com/pack?id=0000002B");
   assert(pack.kind == ScanKind::SealedPack && pack.id == "0000002B");
+  assert(pack.key.empty());
+  // etiquette de paquet ouvert (paquet pre-etiquete) : sa cle
+  const ParsedScan open_pack = parse_scan("https://example.com/pack?id=0000002B&o=Ab12Cd34");
+  assert(open_pack.kind == ScanKind::SealedPack && open_pack.id == "0000002B" && open_pack.key == "Ab12Cd34");
   const ParsedScan seal = parse_scan("https://example.com/seal?lot=sacpse00000001&s=AbC123");
   assert(seal.kind == ScanKind::LotSeal && seal.id == "sacpse00000001" && seal.key == "AbC123");
   assert(parse_scan("https://example.com/seal?lot=sacpse00000001").kind == ScanKind::Unknown);

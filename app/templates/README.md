@@ -57,8 +57,11 @@ après chaque clone.
   nom). Carte réimprimée pour un invité qui revient : `{{full_name}}`, `{{prenom}}`, `{{nom}}`, `{{antenne}}`,
   et `{{validite}}` (« Valable 48 h après la 1re connexion » sur une carte neuve, l'antenne et la fin de
   validité sur une carte à un nom).
+- `paquet_ouvert.qr` referme un paquet dont chaque item est déjà étiqueté (paquet pré-étiqueté) : à poser
+  de sorte qu'elle se **déchire à l'ouverture**. Elle compte tout le contenu en vérif tant que personne n'a
+  ouvert le paquet.
 - `scelle_ouverture.qr` est l'étiquette d'ouverture, imprimée avec celle du scellé et rangée **à
   l'intérieur** du lot : la scanner ouvre le scellé, même sans être connecté.
 
 Modèles fournis (40 × 30 mm) : les 9 étiquettes d'items ci-dessus, `item_planche.qr`, `paquet.qr`, `lot_public.qr`, `lot_prive.qr`, `scelle.qr`,
-`scelle_ouverture.qr`, `rangement.qr`, `emplacement.qr`, `badge.qr`, `carte_invite.qr`.
+`scelle_ouverture.qr`, `rangement.qr`, `emplacement.qr`, `badge.qr`, `carte_invite.qr`, `paquet_ouvert.qr`.

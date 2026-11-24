@@ -74,8 +74,27 @@ Une boîte fermée reçoit **une seule étiquette** de paquet ; ses items existe
   imprimées restent valables.
 - Rouvrir une boîte déjà ouverte réimprime ses étiquettes sans changer sa date d'ouverture.
 - On peut mettre une **boîte fermée entière dans un sac** : scanner l'étiquette de la boîte compte
-  pour tous ses items.
+  pour tous ses items. Une fois la boîte **ouverte**, son étiquette ne compte plus : ses items se
+  scannent un par un.
 - L'onglet **Paquets fermés** de l'inventaire liste les boîtes en réserve.
+- **Depuis le téléphone** : scanner une boîte (hors vérif) ouvre sa **fiche** (réception,
+  péremption, nombre d'unités, ouverture). Gestion et admins y ont **Ouvrir le paquet et envoyer
+  les étiquettes au poste** : elles sortent dans « Impressions en attente », à coller sur chaque
+  item. Les autres y lisent qu'il vaut mieux prendre des items déjà étiquetés.
+
+### Paquets pré-étiquetés
+
+Une boîte peut être **étiquetée à l'avance** (gestion et admins, au poste ou sur le téléphone) :
+ouvrez-la, imprimez et collez les étiquettes de ses items, remettez-les dedans, puis rescannez la
+boîte et choisissez **J'ai déjà étiqueté le contenu** (seulement une fois les étiquettes des items
+imprimées). Une **étiquette de paquet ouvert** (`paquet_ouvert.qr`) s'imprime : posez-la de sorte
+qu'elle se **déchire à l'ouverture**, comme un scellé.
+
+- Tant qu'elle est valable, la scanner en vérif compte tout le contenu, sans rouvrir la boîte.
+- Elle ne vaut plus rien dès qu'un item de la boîte est scanné seul dans une vérif, change de lot,
+  est utilisé ou supprimé : on scanne alors les items un par un. Le TECH n'est pas prévenu : ouvrir
+  une boîte pré-étiquetée est normal.
+- La réimprimer en donne une nouvelle : l'ancienne ne vaut plus rien.
 
 ## Imprimer des étiquettes depuis le téléphone
 

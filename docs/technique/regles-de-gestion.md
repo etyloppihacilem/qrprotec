@@ -393,7 +393,20 @@ une étiquette de scellé est imprimée (`seal?lot=…&s=CODE`) ; scannée hors 
 compresses) : les 25 items sont créés tout de suite (le stock est juste), mais une seule étiquette
 de paquet est imprimée. À l'ouverture (`POST /api/packs/<id>/open/`), les 25 étiquettes d'item sont
 imprimées. Scanner l'étiquette du paquet dans une vérif ou un réassort compte pour tous ses items
-(`ScanStack::iids()` développe le paquet). Un paquet ouvert par erreur se referme.
+(`ScanStack::iids()` développe le paquet). Un paquet ouvert par erreur se referme. Une fois le
+paquet ouvert, son étiquette ne compte plus en vérif (web et poste) : ses items se scannent un par un.
+
+Depuis la fiche du paquet du web, gestion et admins l'ouvrent (`POST /api/packs/<id>/send-labels/`) :
+les étiquettes de ses items partent au poste (`LabelPrint` de type `pack`). `SealedPacks.labels_printed`
+est rempli quand elles sont imprimées (poste : `POST /api/packs/<id>/printed/` après l'aperçu).
+
+**Paquet pré-étiqueté** (`inventory/packs.py`) : un paquet ouvert dont les étiquettes sont imprimées
+peut être refermé par une **étiquette de paquet ouvert** (`pack?id=ID&o=CLE`,
+`POST /api/packs/<id>/prelabel/`, nouvelle clé à chaque fois). Elle couvre les items du paquet pas
+revus depuis l'ouverture (`open_label_items`) et les compte en vérif tant qu'elle est valable : elle
+casse quand une vérif scanne une partie seulement de ces items (`services.perform_verif` →
+`packs.break_open_labels`), et ne vaut plus rien dès qu'un d'eux n'est plus actif ou n'est plus dans
+le même lot que les autres (`packs.open_label_problem`).
 
 ## Suppression
 

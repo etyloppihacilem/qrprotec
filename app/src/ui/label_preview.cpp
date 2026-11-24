@@ -140,6 +140,8 @@ void draw_label_preview(App &app) {
       const std::string all = (poste ? "Envoyer au poste les " : "Imprimer les ") + std::to_string(count) + " étiquettes";
       if (primary_button(all.c_str()) || enter_pressed()) {
         app.print_documents(preview.jobs);
+        if (preview.on_print)
+          preview.on_print();
         open = false;
       }
       ImGui::SameLine();
@@ -147,6 +149,8 @@ void draw_label_preview(App &app) {
         app.print_documents({ job });
     } else if (primary_button(poste ? "Envoyer au poste" : "Imprimer") || enter_pressed()) {
       app.print_documents(preview.jobs);
+      if (preview.on_print)
+        preview.on_print();
       open = false;
     }
     ImGui::EndDisabled();
@@ -158,6 +162,7 @@ void draw_label_preview(App &app) {
   if (!open) {
     preview.open = false;
     preview.jobs.clear();
+    preview.on_print = nullptr;
   }
 }
 

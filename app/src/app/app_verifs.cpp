@@ -73,14 +73,18 @@ std::string App::take_journal_lot() {
   return lot_id;
 }
 
-void App::show_pack(const std::string &pack_id) {
-  pack_to_show_ = pack_id;
+void App::show_pack(const std::string &pack_id, const std::string &key) {
+  pack_to_show_     = pack_id;
+  pack_key_to_show_ = key;
   open_window("pack");
 }
 
-std::string App::take_pack_to_show() {
+std::string App::take_pack_to_show(std::string *key) {
   std::string pack_id;
   pack_id.swap(pack_to_show_);
+  if (key)
+    key->swap(pack_key_to_show_);
+  pack_key_to_show_.clear();
   return pack_id;
 }
 

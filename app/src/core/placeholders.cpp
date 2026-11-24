@@ -158,6 +158,22 @@ std::vector< CategoryInfo > build_categories() {
     pack.placeholders.push_back(info);
   categories.push_back(pack);
 
+  // paquet pre-etiquete : ouvert, items etiquetes et remis dedans, referme par cette etiquette posee de sorte qu'elle
+  // se dechire a l'ouverture (comme un scelle). Elle compte en verif les items qu'elle couvre tant qu'elle est valable.
+  CategoryInfo pack_open{ TemplateCategory::PackOpen, "pack_open", "Paquet ouvert (contenu déjà étiqueté)",
+                          "Étiquette qui referme un paquet dont chaque item est déjà étiqueté, à poser de sorte "
+                          "qu'elle se déchire à l'ouverture. Le QR code doit contenir {{pack_open_url}}.",
+                          {} };
+  pack_open.placeholders.push_back({ "pack_id", "Identifiant du paquet", "0000002B" });
+  pack_open.placeholders.push_back(
+    { "pack_open_url", "URL de l'étiquette de paquet ouvert, avec sa clé (contenu du QR code)",
+      "https://example.com/pack?id=0000002B&o=Ab12Cd34Ef56Gh78" });
+  pack_open.placeholders.push_back({ "count", "Nombre d'items étiquetés dans le paquet", "25" });
+  pack_open.placeholders.push_back({ "labeled_date", "Date du pré-étiquetage JJ/MM/AAAA", "24/11/2026" });
+  for (const PlaceholderInfo &info : item_type_placeholders())
+    pack_open.placeholders.push_back(info);
+  categories.push_back(pack_open);
+
   CategoryInfo lot_public{ TemplateCategory::LotPublic, "lot_public", "Lot - étiquette publique",
                            "Étiquette visible du lot. Le QR code doit contenir {{lot_url}}.", lot_placeholders() };
   categories.push_back(lot_public);
