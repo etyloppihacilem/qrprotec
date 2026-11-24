@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+from datetime import timezone as dt_timezone
 from typing import TYPE_CHECKING
 
 from .base import *  # noqa: F401,F403
+from .. import lot_report
 from .base import setUpModule, tearDownModule  # noqa: F401 (PIN facultatif pendant ces tests)
 
 if TYPE_CHECKING:
@@ -297,6 +299,35 @@ class RecentVerifsTests(ApiTestCase):
         self.assertIsNone(old.started)
         _, report = self.call('POST', f'/api/verifs/{old.id}/report/', {'user': badge}, local=False)
         self.assertIsNone(report['started'])
+
+    def test_verif_across_dst_change(self) -> None:
+        """Vérif a cheval sur un changement d'heure (Europe/Paris) : les fronts envoient des heures UTC, la base les
+        garde en UTC, la duree reste la vraie (20 min) et le compte rendu donne l'heure locale avec son decalage, a
+        l'automne (02:50 heure d'ete -> 02:10 heure d'hiver) comme au printemps (01:50 -> 03:10)."""
+        items = self.create(self.compresses, self.today + timedelta(days=200), 1)
+        self.call('POST', f'/api/lots/{self.lot.id}/add/', {'items': [items[0].iid]})
+        badge = {'matricule': self.user.matricule, 'key': self.user.new_key}
+        utc = dt_timezone.utc
+        cases = [(datetime(2026, 10, 25, 0, 50, tzinfo=utc), '2026-10-25T02:50:00+02:00', '2026-10-25T02:10:00+01:00'),
+                 (datetime(2027, 3, 28, 0, 50, tzinfo=utc), '2027-03-28T01:50:00+01:00', '2027-03-28T03:10:00+02:00')]
+        for start, started_local, done_local in cases:
+            done, sent = start + timedelta(minutes=20), start + timedelta(minutes=25)
+            with mock.patch('django.utils.timezone.now', return_value=sent):
+                code, _ = self.call('POST', '/api/verifs/', {
+                    'lots': [{'id': self.lot.id}], 'items': [items[0].iid],
+                    'started_at': start.isoformat().replace('+00:00', 'Z'),
+                    'scanned_at': {items[0].iid: (start + timedelta(minutes=5)).isoformat().replace('+00:00', 'Z')},
+                    'done_at': done.isoformat().replace('+00:00', 'Z'),
+                    'sent_at': sent.isoformat().replace('+00:00', 'Z')})
+            self.assertEqual(code, 200)
+            verif = Verifs.objects.filter(lot=self.lot).latest('id')
+            self.assertEqual((verif.started, verif.datetime), (start, done))
+            self.assertEqual(verif.datetime - verif.started, timedelta(minutes=20))
+            scan = VerifItem.objects.get(verif=verif, item_id=items[0].iid).scanned_at
+            self.assertEqual(scan, start + timedelta(minutes=5))
+            _, report = self.call('POST', f'/api/verifs/{verif.id}/report/', {'user': badge}, local=False)
+            self.assertEqual((report['started'], report['at']), (started_local, done_local))
+            self.assertEqual(lot_report.duration(verif.datetime - verif.started), '20 min 00 s')
 
     def test_verif_sent_right_away_keeps_reception_time(self) -> None:
         items = self.create(self.compresses, self.today + timedelta(days=200), 1)
