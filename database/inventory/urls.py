@@ -60,6 +60,8 @@ public_patterns = [
     path('lots/<str:lot_id>/return/', views.lot_return),
     path('lots/<str:lot_id>/slots/<str:action>/', views.lot_slot_action),
     path('packs/<str:pack_id>/', views.sealed_pack_detail),
+    path('packs/<str:pack_id>/send-labels/', views.sealed_pack_send_labels),  # web : ouvrir, etiquettes au poste
+    path('packs/<str:pack_id>/prelabel/', views.sealed_pack_prelabel),  # contenu deja etiquete (gestion, admin)
     path('remote-scanner/check/', views.remote_scanner_check),
     path('push/key/', views.push_key),
     path('push/subscription/', views.push_subscription),
@@ -118,6 +120,7 @@ local_patterns = [
     path('packs/', views.sealed_packs),
     path('packs/<str:pack_id>/open/', views.sealed_pack_open),
     path('packs/<str:pack_id>/close/', views.sealed_pack_close),
+    path('packs/<str:pack_id>/printed/', views.sealed_pack_printed),
     path('lot-types/', views.lot_types),
     path('lot-types/<str:type_code>/', views.lot_type_detail),
     path('lot-types/<str:type_code>/requirements/', views.lot_type_requirements),

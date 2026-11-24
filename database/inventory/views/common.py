@@ -52,6 +52,7 @@ from .. import journal
 from .. import label_prints
 from .. import lot_report
 from .. import lot_sheet
+from .. import packs
 from .. import live
 from .. import consumables
 from .. import notifications

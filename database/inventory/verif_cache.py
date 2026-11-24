@@ -25,6 +25,7 @@ import time
 from datetime import timedelta
 from typing import TYPE_CHECKING, Any
 
+from django.db.models import Q
 from django.utils import timezone
 
 from . import serializers as ser
@@ -81,7 +82,9 @@ def _lot_records(today: date) -> dict[str, Any]:
 
 def _pack_records() -> dict[Any, Any]:
     since = timezone.now() - timedelta(days=OPENED_PACK_DAYS)
-    queryset = SealedPacks.objects.select_related('item_type').exclude(opened__lt=since)
+    # paquet pre-etiquete (etiquette de paquet ouvert pas dechiree) : garde tant qu'il peut rester dans un sac
+    queryset = (SealedPacks.objects.select_related('item_type')
+                .exclude(Q(opened__lt=since) & (Q(open_label_key='') | Q(open_label_broken__isnull=False))))
     return {f'p:{pack.id}': ser.sealed_pack_dict(pack) for pack in queryset}
 
 

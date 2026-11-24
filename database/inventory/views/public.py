@@ -25,7 +25,7 @@ if TYPE_CHECKING:
     from inventory.models import Lots, PushSubscription, Role, Secouristes
     from inventory.views.common import ApiError
     from rest_framework.request import Request
-    from collections.abc import Iterable
+    from collections.abc import Callable, Iterable
     from django.http import HttpRequest
 
 
@@ -1743,5 +1743,47 @@ def report_update(request: Request, report_id: int) -> Response:
 @api_view(['GET'])
 @handle_errors
 def sealed_pack_detail(request: Request, pack_id: str) -> Response:
+    """Fiche d'un paquet ferme. ?o=CLE : etiquette de paquet ouvert scannee (open_label.scanned)."""
     sealed_pack = get_object_or_404(SealedPacks.objects.select_related('item_type'), id=pack_id)
-    return Response(ser.sealed_pack_dict(sealed_pack))
+    key = request.query_params.get('o')
+    return Response(ser.sealed_pack_dict(sealed_pack, key=key if key else None))
+
+
+def _pack_call(function: Callable[..., Any], *args: Any) -> Any:
+    try:
+        return function(*args)
+    except packs.PackError as exc:
+        raise ApiError(exc.message, exc.code)
+
+
+@api_view(['POST'])
+@handle_errors
+def sealed_pack_send_labels(request: Request, pack_id: str) -> Response:
+    """Fiche du paquet du web, gestion et admins : {"user"} ouvre le paquet et envoie les etiquettes de ses items au
+    poste (« Impressions en attente »). Repond le paquet a jour et la demande d'impression."""
+    user = connected_user(request, GESTION)
+    sealed_pack = get_object_or_404(SealedPacks.objects.select_related('item_type'), id=pack_id)
+    row = _pack_call(packs.send_item_labels, sealed_pack, f'{SOURCE_VERIFIED}:{user.matricule}')
+    sealed_pack.refresh_from_db()
+    return Response({'pack': ser.sealed_pack_dict(sealed_pack), 'print': label_prints.print_dict(row)})
+
+
+@api_view(['POST'])
+@handle_errors
+def sealed_pack_prelabel(request: Request, pack_id: str) -> Response:
+    """« J'ai déjà étiqueté le contenu », gestion et admins : {"user", "count"} (nombre d'items vu sur la fiche).
+    Nouvelle etiquette de paquet ouvert (packs.py). Au poste, la reponse a son URL (open_url) pour l'imprimer ; depuis
+    le web, elle est envoyee au poste (print)."""
+    user = connected_user(request, GESTION)
+    sealed_pack = get_object_or_404(SealedPacks.objects.select_related('item_type'), id=pack_id)
+    raw_count = request.data.get('count')
+    count = None if raw_count in (None, '') else parse_int(raw_count, 'count', 0)
+    by = f'{SOURCE_VERIFIED}:{user.matricule}'
+    if is_front(request):
+        _pack_call(packs.prelabel, sealed_pack, by, count)
+        data = ser.sealed_pack_dict(sealed_pack)
+        data['open_url'] = ser.pack_open_url(sealed_pack)
+        return Response(data)
+    row = _pack_call(packs.send_open_label, sealed_pack, by, count)
+    sealed_pack.refresh_from_db()
+    return Response({'pack': ser.sealed_pack_dict(sealed_pack), 'print': label_prints.print_dict(row)})

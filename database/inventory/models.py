@@ -367,6 +367,22 @@ class SealedPacks(models.Model):
     created_by = models.CharField(max_length=32)
     opened = models.DateTimeField(blank=True, null=True)
     opened_by = models.CharField(max_length=32, blank=True, default='')
+    # etiquettes individuelles des items imprimees (au poste, a l'ouverture ou depuis la demande envoyee du web) :
+    # seulement alors le contenu peut etre pre-etiquete (voir packs.py)
+    labels_printed = models.DateTimeField(blank=True, null=True)
+    # Paquet pre-etiquete : ouvert, items etiquetes puis remis dans le paquet, ferme par une etiquette de paquet
+    # ouvert (pack?id=ID&o=CLE) a dechirer a l'ouverture. Elle compte en verif les items qu'elle couvre
+    # (open_label_items) tant qu'aucun n'a ete scanne seul, n'a change de lot ou n'est sorti du stock. Nouvelle cle a
+    # chaque impression : une ancienne etiquette ne vaut plus rien.
+    open_label_key = models.CharField(max_length=32, blank=True, default='')
+    open_label_at = models.DateTimeField(blank=True, null=True)
+    open_label_by = models.CharField(max_length=64, blank=True, default='')
+    open_label_items = models.JSONField(default=list, blank=True)
+    open_label_broken = models.DateTimeField(blank=True, null=True)
+    open_label_broken_reason = models.CharField(max_length=128, blank=True, default='')
+
+    def check_open_label(self, key: str) -> bool:
+        return bool(self.open_label_key) and keys_match(self.open_label_key, key)
 
     def save(self, *args: Any, **kwargs: Any) -> None:
         if not self.id:
@@ -841,6 +857,7 @@ class OperationKind(models.TextChoices):
     ITEM_OUT_USED = 'item_out_used', 'Sortie non revenue'
     PACK_OPEN = 'pack_open', 'Ouverture de paquet'
     PACK_CLOSE = 'pack_close', 'Paquet refermé'
+    PACK_PRELABEL = 'pack_label', 'Paquet pré-étiqueté'
     LOT = 'lot', 'Gestion des lots'
     LOT_KEY = 'lot_key', 'Étiquette clé renouvelée'
     CATALOG = 'catalog', "Types d'items et de lots"
@@ -1843,6 +1860,7 @@ class ChecklistScan(models.Model):
 class LabelPrintKind(models.TextChoices):
     ITEMS = 'items', "Nouvelles étiquettes d'items (web)"
     LABELS = 'labels', "Étiquettes d'un autre ordinateur"
+    PACK = 'pack', "Étiquettes d'un paquet ouvert (web)"
 
 
 class LabelPrint(models.Model):
@@ -1855,6 +1873,9 @@ class LabelPrint(models.Model):
     - `labels` : etiquettes deja pretes d'un front sur un autre ordinateur (API distante, cle de front), qui n'a pas
       l'imprimante : « Imprimer » y envoie les images 1 bit des etiquettes (`labels`), que le poste imprime telles
       quelles. `front` : nom de ce front.
+    - `pack` : etiquettes d'un paquet ferme ouvert depuis le web (gestion et admins, fiche du paquet) : celles de ses
+      items (deja crees a la reception), ou son etiquette de paquet ouvert (`open_label`, paquet pre-etiquete, voir
+      packs.py). L'impression marque les etiquettes des items comme imprimees (SealedPacks.labels_printed).
 
     Le poste ouvre la fenetre « Impressions en attente » meme sans personne de connecte, une file par personne qui
     demande (`queue`). Une demande pas imprimee expire au bout de 24 h (EXPIRY_HOURS). `printed_on` : nom du front qui a imprime, vide pour le poste local.
@@ -1878,6 +1899,9 @@ class LabelPrint(models.Model):
     # « Lancer l'impression » a distance (admin, web ou autre ordinateur) : le poste l'imprime a son prochain passage
     launch_requested = models.DateTimeField(null=True, blank=True)
     launch_requested_by = models.CharField(max_length=64, blank=True, default='')
+    # etiquettes d'un paquet (kind pack) : celles de ses items, ou son etiquette de paquet ouvert
+    sealed_pack = models.ForeignKey(SealedPacks, on_delete=models.SET_NULL, null=True, blank=True, related_name='+')
+    open_label = models.BooleanField(default=False)
 
     @property
     def queue(self) -> str:
