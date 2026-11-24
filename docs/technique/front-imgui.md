@@ -56,7 +56,7 @@ rapporte ses résultats par une file lue à chaque image :
 | Requêtes HTTP | `ApiClient` | `get/post/...` mettent en file une requête et un callback ; `poll()` (thread UI) appelle les callbacks. Les fenêtres n'ont jamais à se soucier des threads. |
 | Impression | `PrintQueue` | `enqueue(jobs)` ; `status()` pour la barre de progression. En cas d'erreur (papier, couvercle), la file se met en pause et garde les étiquettes restantes. |
 | SDK douchette | `InateckWorker` | Commandes en file ; `take_scans()` et `snapshot()` lus par l'UI. |
-| Téléphone-douchette, impressions en direct | `WebSocketLink` | Reconnexion automatique, ping toutes les 15 s ; `take_messages()`. |
+| Téléphone-douchette, impressions en direct | `WebSocketLink` | Reconnexion automatique, ping toutes les 15 s (applicatif et du protocole), connexion muette 45 s refaite ; `take_messages()`. |
 
 ## L'objet `App`
 
@@ -299,7 +299,8 @@ PrintQueue (thread) ── AnyPrinter ─┬─ RawLabelPrinter ── TSPL (BIT
   `GET /api/label-prints/pending/` toutes les 20 s, connecté ou non (route des postes, sans session).
   Dès qu'il y voit une nouvelle demande, il ouvre le WebSocket `/ws/label-prints`
   (`App::update_label_prints_live`, `WebSocketLink`) : chaque changement de la file (`changed`) la lui fait
-  relire aussitôt, et l'interrogation s'arrête tant qu'il est connecté. 15 min sans nouvelle impression
+  relire aussitôt ; tant qu'il est connecté, l'interrogation ralentit à une fois par minute, filet si un signal se
+  perd. Une connexion muette (aucune trame, pas même le pong d'un ping, depuis 45 s) est coupée et refaite. 15 min sans nouvelle impression
   (`LabelPrints::live_until`) : le WebSocket se ferme et l'interrogation toutes les 20 s reprend. Un
   serveur sans ce WebSocket (404) laisse l'interrogation seule. Bouton « Rafraîchir » dans la fenêtre.
   Une demande jamais vue ouvre la fenêtre « Impressions en attente », dessinée par `App` hors de la

@@ -14,7 +14,8 @@ Le poste interroge /api/label-prints/pending/ toutes les 20 s. Des qu'il y voit 
 WebSocket : chaque changement de la file (nouvelle demande du web ou d'un autre ordinateur, file lancee ou annulee a
 distance, impression faite) lui est signale aussitot, et il relit la file sans attendre son prochain tour. Sans nouvelle
 impression pendant 15 min, le poste ferme le WebSocket et reprend l'interrogation toutes les 20 s (le delai est tenu par
-le poste, voir app/src/app/label_prints.cpp).
+le poste, voir app/src/app/label_prints.cpp). Connecte, il relit quand meme la file toutes les minutes : un signal perdu
+ne bloque pas une impression lancee a distance.
 
 Le serveur ne fait que signaler ({"type": "changed"}) : le poste relit la file par l'API habituelle, avec ses droits.
 Reserve au poste principal (API locale, ou cle de front marquee poste, comme /api/label-prints/pending/).

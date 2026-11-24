@@ -132,7 +132,10 @@ void WebSocketLink::run(ApiEndpoint endpoint, std::string path, std::string cont
       for (const std::string &text : pending)
         socket.send_text(text);
       if (clock::now() - last_ping > std::chrono::seconds(15)) {
+        // ping applicatif (le serveur ferme un client muet) et ping du protocole, dont le pong prouve que le
+        // serveur repond encore
         socket.send_text("{\"type\":\"ping\"}");
+        socket.send_ping();
         last_ping = clock::now();
       }
       std::string message;
@@ -140,6 +143,12 @@ void WebSocketLink::run(ApiEndpoint endpoint, std::string path, std::string cont
       if (result == 1) {
         std::lock_guard< std::mutex > lock(mutex_);
         inbox_.push_back(std::move(message));
+      }
+      // rien recu depuis 45 s malgre les pings : connexion morte sans fermeture (veille, reseau coupe, proxy).
+      // Sans ce delai, le lien se croirait connecte indefiniment et n'apporterait plus rien.
+      if (clock::now() - socket.last_frame() > std::chrono::seconds(45)) {
+        socket.close();
+        break;
       }
     }
     connected_ = false;

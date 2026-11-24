@@ -312,7 +312,7 @@ struct LabelPrints {
     bool            queue_by_user = false; // choisie a la main ou par badge : gardee tant qu'elle existe
     double          empty_since = -1.0;    // plus rien en attente depuis (fermeture au bout de 15 min)
     // en direct (poste principal) : WebSocket /ws/label-prints ouvert jusqu'a live_until (15 min apres la derniere
-    // impression), l'interrogation toutes les 20 s s'arrete tant qu'il est connecte
+    // impression) ; tant qu'il est connecte, la file est relue a chaque signal et toutes les minutes (au lieu de 20 s)
     double          live_until       = 0.0;
     bool            live_unsupported = false; // serveur sans ce WebSocket (ancienne version) : interrogation seule
     bool            again            = false; // changement signale pendant une lecture : relire a la fin

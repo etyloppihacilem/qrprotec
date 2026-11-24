@@ -41,6 +41,9 @@ namespace qrprotec {
 namespace {
 
 constexpr double      kPollSeconds = 20.0;
+// en direct, la file est quand meme relue de temps en temps : un signal perdu (connexion coupee sans fermeture,
+// erreur d'envoi du serveur) ne bloque plus les impressions demandees ou lancees a distance
+constexpr double      kLivePollSeconds = 60.0;
 constexpr std::size_t kSendBytes   = 1500000; // par envoi au poste (le serveur refuse les requetes de plus de 2,5 Mo)
 constexpr std::size_t kSendLabels  = 200;     // par envoi (label_prints.MAX_COUNT)
 constexpr double      kAutoCloseSeconds = 15 * 60.0; // fenetre fermee apres 15 min sans rien en attente
@@ -139,7 +142,7 @@ void App::update_label_prints_live() {
 void App::refresh_label_prints() {
   label_prints_.loading   = true;
   label_prints_.again     = false;
-  label_prints_.next_poll = ImGui::GetTime() + kPollSeconds;
+  label_prints_.next_poll = ImGui::GetTime() + (label_prints_link_.connected() ? kLivePollSeconds : kPollSeconds);
   if (label_prints_.remote) {
     // autre ordinateur, admins : files du poste, a gerer et lancer a distance
     api.post("/api/label-prints/queues/", Json::object(), [this](const ApiResult &result) {
@@ -320,11 +323,15 @@ void App::launch_label_prints(std::vector< int > ids) {
   const int id             = ids.front();
   ids.erase(ids.begin());
   api.post("/api/label-prints/" + std::to_string(id) + "/print/", Json::object(),
-           [this, ids](const ApiResult &result) {
+           [this, id, ids](const ApiResult &result) {
              if (result.ok)
                print_label_request(result.data);
              else
                notify("Impression refusée : " + result.error, true);
+             // serveur injoignable : la demande, toujours lancee cote serveur, est reprise a la prochaine lecture
+             // (une demande deja imprimee entre-temps serait refusee par le serveur, jamais imprimee deux fois)
+             if (result.status == 0)
+               label_prints_.launched.erase(id);
              launch_label_prints(ids);
            });
 }

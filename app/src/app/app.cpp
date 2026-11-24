@@ -575,11 +575,11 @@ void App::begin_frame() {
   // poste principal seulement (API locale, ou cle marquee poste sur un back sans kiosk)
   // Sur un autre ordinateur, les admins voient les files du poste tant que leur fenetre est ouverte. Le poste
   // principal n'imprime que sous Linux (kLocalPrinting).
-  // Apres une nouvelle impression, le poste principal la recoit en direct pendant 15 min (WebSocket) : pas
-  // d'interrogation tant qu'il est connecte.
+  // Apres une nouvelle impression, le poste principal la recoit en direct pendant 15 min (WebSocket) : il relit
+  // alors la file a chaque signal, et toutes les minutes seulement au lieu de 20 s (filet si un signal se perd).
   update_label_prints_live();
   if (((kLocalPrinting && main_poste()) || (label_prints_.open && label_prints_.remote && privileged())) && !label_prints_.loading
-      && !label_prints_link_.connected() && ImGui::GetTime() >= label_prints_.next_poll)
+      && ImGui::GetTime() >= label_prints_.next_poll)
     refresh_label_prints();
   // cache de vérif tenu a jour toutes les minutes (vérif possible hors connexion), envois en attente reessayes
   sync_cache(60.0);

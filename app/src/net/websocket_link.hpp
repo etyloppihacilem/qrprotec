@@ -24,8 +24,8 @@ namespace qrprotec {
 
 // WebSocket du front vers le serveur (API locale ou distante) : session de telephone-douchette
 // (/ws/scanner/front?s=ID, voir remote_scanner_path) ou impressions en attente en direct (/ws/label-prints).
-// Un thread maintient la connexion (reconnexion automatique, ping toutes les 15 s) ; les messages
-// recus sont lus depuis le thread de l'interface avec take_messages().
+// Un thread maintient la connexion (reconnexion automatique, ping toutes les 15 s, connexion muette depuis 45 s
+// refaite) ; les messages recus sont lus depuis le thread de l'interface avec take_messages().
 class WebSocketLink {
   public:
     WebSocketLink() = default;
