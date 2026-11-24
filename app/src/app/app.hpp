@@ -331,6 +331,8 @@ struct LabelPreviewState {
     bool                    open  = false;
     bool                    dirty = true;  // image a regenerer
     bool                    focus = false; // mettre la fenetre au premier plan
+    // appele quand toutes les etiquettes partent a l'imprimante (ex : etiquettes d'un paquet ouvert, notees imprimees)
+    std::function< void() > on_print;
 };
 
 struct Toast {
@@ -444,8 +446,9 @@ class App {
     };
     LotsAttention lots_attention() const;
     std::string take_seal_to_show();           // code du QR de scelle scanne (vide sinon)
-    void show_pack(const std::string &pack_id); // ouvre la fiche du paquet ferme (mode privilegie)
-    std::string take_pack_to_show();            // lu par la fenetre Paquet
+    // ouvre la fiche du paquet ferme (mode privilegie). key : cle de l'etiquette de paquet ouvert scannee
+    void        show_pack(const std::string &pack_id, const std::string &key = "");
+    std::string take_pack_to_show(std::string *key = nullptr); // lu par la fenetre Paquet
     void show_journal(const std::string &lot_id); // journal des operations filtre sur un lot (mode privilegie)
     std::string take_journal_lot();               // lu par la fenetre Journal
     void pack_opened(const std::string &pack_id); // paquet ouvert ou referme : met a jour la pile et les listes
@@ -839,6 +842,7 @@ class App {
     std::string             label_shown_; // lot dont la fiche a ete ouverte par le scan de son etiquette
     std::string             public_label_scanned_; // etiquette publique du dernier scan (fiche ouverte), sinon vide
     std::string             pack_to_show_;
+    std::string             pack_key_to_show_;
     std::string             journal_lot_;
     // Premiere configuration : aucun responsable avec un badge valide
     bool                    setup_known_     = false;

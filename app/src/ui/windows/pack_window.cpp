@@ -27,14 +27,19 @@ std::vector< Parameters > item_labels(const Json &items) {
 }
 
 // Fiche d'un paquet ferme : ouverte en scannant l'etiquette du paquet (mode privilegie), depuis la reception
-// ou la liste des paquets. L'ouverture imprime (apres apercu) les etiquettes individuelles des items.
+// ou la liste des paquets. L'ouverture imprime (apres apercu) les etiquettes individuelles des items. Une fois
+// celles-ci imprimees et collees, « J'ai déjà étiqueté le contenu » imprime l'etiquette de paquet ouvert (paquet
+// pre-etiquete, voir packs.py du serveur) : posee de sorte qu'elle se dechire a l'ouverture, elle compte le contenu
+// en verif tant que personne n'a ouvert le paquet.
 class PackWindow final : public AppWindow {
   public:
     PackWindow() : AppWindow("pack", "Paquet fermé", true, true) {}
 
     void draw(App &app) override {
-      if (const std::string id = app.take_pack_to_show(); !id.empty()) {
+      std::string key;
+      if (const std::string id = app.take_pack_to_show(&key); !id.empty()) {
         pack_id_ = id;
+        key_     = key;
         load(app);
       }
       ImGui::SetNextItemWidth(160.0f);
@@ -43,6 +48,7 @@ class PackWindow final : public AppWindow {
       ImGui::SameLine();
       if ((button("Afficher") || enter) && !input_.empty()) {
         pack_id_ = input_;
+        key_.clear();
         input_.clear();
         load(app);
       }
@@ -68,12 +74,21 @@ class PackWindow final : public AppWindow {
       if (pack_.is_null())
         return;
 
-      const bool opened = !pack_["opened"].is_null();
-      const int  count  = pack_["count"].integer();
-      const auto date   = Date::parse(pack_["peremption"].str());
-      const bool expired = date && *date < app.today();
-      if (opened)
-        status_banner("OUVERT " + display_on(pack_["opened"], true), colors::grey);
+      const bool  opened     = !pack_["opened"].is_null();
+      const int   count      = pack_["count"].integer();
+      const auto  date       = Date::parse(pack_["peremption"].str());
+      const bool  expired    = date && *date < app.today();
+      const Json &open_label = pack_["open_label"];
+      const bool  prelabeled = !open_label.is_null() && open_label["valid"].boolean();
+      // etiquette de paquet ouvert scannee : ancienne, ou plus valable
+      if (!key_.empty() && (open_label.is_null() || !open_label["scanned"].boolean()))
+        status_banner("ANCIENNE ÉTIQUETTE DE PAQUET OUVERT : ELLE NE VAUT PLUS RIEN", colors::red);
+      else if (!key_.empty() && !prelabeled)
+        status_banner("ÉTIQUETTE DE PAQUET OUVERT PLUS VALABLE", colors::red);
+      else if (prelabeled)
+        status_banner("PRÉ-ÉTIQUETÉ : contenu déjà étiqueté", colors::green);
+      else if (opened)
+        status_banner("OUVERT " + display_on(pack_["opened"], true) + " : items à scanner un par un", colors::grey);
       else
         status_banner("FERMÉ", colors::orange);
 
@@ -98,6 +113,11 @@ class PackWindow final : public AppWindow {
         open_pack(app);
       if (!opened)
         ImGui::TextDisabled("Un aperçu des étiquettes s'affiche avant l'impression.");
+      else if (pack_["labels_printed"].is_null())
+        ImGui::TextColored(colors::orange, "Étiquettes des items pas encore imprimées.");
+      else
+        ImGui::TextDisabled("Étiquettes des items imprimées %s.", display_on(pack_["labels_printed"], true).c_str());
+      draw_prelabel(app, open_label, prelabeled);
       if (button("Étiquette du paquet"))
         app.preview_labels(TemplateCategory::ItemPack, { sealed_pack_parameters(pack_) }, "Paquet");
       if (opened) {
@@ -148,11 +168,66 @@ class PackWindow final : public AppWindow {
     }
 
   private:
+    // Paquet pre-etiquete : etat de l'etiquette de paquet ouvert, et « J'ai déjà étiqueté le contenu » une fois les
+    // etiquettes des items imprimees (le serveur dit ce qui l'empeche sinon : prelabel_blocked)
+    void draw_prelabel(App &app, const Json &label, bool prelabeled) {
+      if (pack_["opened"].is_null())
+        return;
+      ImGui::Spacing();
+      if (!label.is_null()) {
+        ImGui::Text("Pré-étiqueté %s par %s", display_on(label["at"], true).c_str(), label["by"].str().c_str());
+        if (prelabeled)
+          ImGui::TextColored(colors::green, "Étiquette de paquet ouvert valable : %s.", nb(label["count"].integer(), "item").c_str());
+        else
+          ImGui::TextColored(colors::red, "Étiquette de paquet ouvert plus valable : %s.", label["problem"].str().c_str());
+      }
+      const std::string blocked = pack_["prelabel_blocked"].str();
+      if (!blocked.empty()) {
+        if (!prelabeled && !pack_["labels_printed"].is_null())
+          ImGui::TextDisabled("%s.", blocked.c_str());
+        return;
+      }
+      const int         items = pack_["prelabel_count"].integer();
+      const std::string text  = prelabeled ? "Réimprimer l'étiquette de paquet ouvert"
+                                           : "J'ai déjà étiqueté le contenu (" + nb(items, "item") + ")";
+      const std::string ask   = (prelabeled ? std::string("L'ancienne étiquette ne vaudra plus rien. ") : std::string())
+                            + "Le paquet doit contenir " + nb(items, "item") + " de " + pack_["type_name"].str()
+                            + ", chacun avec son étiquette. Posez l'étiquette de paquet ouvert de sorte qu'elle se "
+                              "déchire à l'ouverture : elle compte tout le contenu en vérif tant que personne n'a "
+                              "ouvert le paquet. Continuer ?";
+      ImGui::BeginDisabled(busy_);
+      if (confirm_button(text.c_str(), ask.c_str(), "prelabel_pack"))
+        prelabel(app, items);
+      ImGui::EndDisabled();
+    }
+
+    void prelabel(App &app, int items) {
+      busy_ = true;
+      Json body;
+      body["user"]         = app.user_ref();
+      body["count"]        = items;
+      const std::string id = pack_id_;
+      app.api.post("/api/packs/" + url_encode(id) + "/prelabel/", body, [this, &app, id](const ApiResult &result) {
+        busy_ = false;
+        if (!result.ok) {
+          app.notify(result.error, true);
+          return;
+        }
+        app.preview_labels(TemplateCategory::PackOpen, { pack_open_parameters(result.data) }, "Paquet ouvert");
+        app.pack_opened(id);
+        if (id == pack_id_) {
+          key_.clear(); // l'etiquette scannee, s'il y en avait une, ne vaut plus rien
+          load(app);
+        }
+      });
+    }
+
     void load(App &app) {
       loading_ = true;
       error_.clear();
       const std::string id = pack_id_;
-      app.api.get("/api/packs/" + url_encode(id) + "/", [this, id](const ApiResult &result) {
+      app.api.get("/api/packs/" + url_encode(id) + "/" + (key_.empty() ? "" : "?o=" + url_encode(key_)),
+                  [this, id](const ApiResult &result) {
         if (id != pack_id_)
           return;
         loading_ = false;
@@ -176,7 +251,17 @@ class PackWindow final : public AppWindow {
           app.notify(result.error, true);
           return;
         }
-        app.preview_labels(TemplateCategory::Item, item_labels(result.data["items"]), "Paquet ouvert");
+        // etiquettes parties a l'imprimante (pas seulement vues en apercu) : le contenu peut etre pre-etiquete
+        if (app.preview_labels(TemplateCategory::Item, item_labels(result.data["items"]), "Paquet ouvert"))
+          app.preview.on_print = [this, &app, id]() {
+            app.api.post("/api/packs/" + url_encode(id) + "/printed/", Json::object(),
+                         [this, &app, id](const ApiResult &done) {
+                           if (!done.ok)
+                             app.notify(done.error, true);
+                           if (id == pack_id_)
+                             load(app);
+                         });
+          };
         app.pack_opened(id);
         if (id == pack_id_)
           load(app);
@@ -224,6 +309,7 @@ class PackWindow final : public AppWindow {
     }
 
     std::string pack_id_;
+    std::string key_; // cle de l'etiquette de paquet ouvert scannee (vide : etiquette du paquet, ou code saisi)
     std::string input_;
     std::string reason_; // raison de la desactivation
     Json        pack_;

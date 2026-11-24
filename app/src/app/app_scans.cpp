@@ -141,7 +141,7 @@ void App::handle_scan(const std::string &code, ScanSource source) {
       resolve_pack(id);
       // le responsable peut ouvrir le paquet directement depuis sa fiche
       if (privileged())
-        show_pack(scan.id);
+        show_pack(scan.id, scan.key);
       return;
     }
     case ScanKind::Checklist: return;
@@ -418,7 +418,9 @@ void App::resolve_pack(int entry_id) {
   const bool  had    = cached != nullptr;
   if (had)
     pack_resolved(entry_id, *cached, source);
-  api.get("/api/packs/" + url_encode(entry->scan.id) + "/", [this, entry_id, source, had](const ApiResult &result) {
+  // etiquette de paquet ouvert : sa cle, controlee par le serveur (open_label.scanned)
+  const std::string query = entry->scan.key.empty() ? "" : "?o=" + url_encode(entry->scan.key);
+  api.get("/api/packs/" + url_encode(entry->scan.id) + "/" + query, [this, entry_id, source, had](const ApiResult &result) {
     ScanEntry *entry = stack.find(entry_id);
     if (!entry)
       return;
@@ -428,7 +430,8 @@ void App::resolve_pack(int entry_id) {
       return;
     }
     const auto facts = [](const Json &pack) {
-      std::string text = pack["disabled"].str() + "|" + pack["opened"].str() + "|" + pack["items"].dump();
+      std::string text = pack["disabled"].str() + "|" + pack["opened"].str() + "|" + pack["items"].dump() + "|"
+                       + pack["open_label"].dump();
       for (const Json &report : pack["reports"].items())
         text += "|" + report["id"].str() + ":" + report["status"].str() + ":" + (report["usable"].boolean() ? "1" : "0");
       return text;
@@ -443,20 +446,45 @@ void App::resolve_pack(int entry_id) {
   });
 }
 
+// Ce que compte un paquet scanne en vérif : vide s'il compte, sinon pourquoi pas (meme regle que le front web).
+// Etiquette du paquet ferme : tout son contenu tant qu'il n'est pas ouvert ; ouvert, ses items se scannent un par un.
+// Etiquette de paquet ouvert (paquet pre-etiquete, cle o=) : les items qu'elle couvre, tant qu'elle est valable. Hors
+// connexion (cache de vérif), la cle n'est pas controlee : une etiquette valable compte.
+static std::string pack_refusal(const Json &pack, const std::string &key) {
+  const Json &label = pack["open_label"];
+  if (!key.empty()) {
+    if (label.is_null() || (label.contains("scanned") && !label["scanned"].boolean()))
+      return "ancienne étiquette de paquet ouvert, elle ne vaut plus rien : scannez les items un par un";
+    if (!label["valid"].boolean())
+      return "étiquette de paquet ouvert plus valable (" + label["problem"].str() + ") : scannez les items un par un";
+    return "";
+  }
+  if (pack["opened"].is_null())
+    return "";
+  if (!label.is_null() && label["valid"].boolean())
+    return "paquet ouvert : scannez son étiquette de paquet ouvert, ou ses items un par un";
+  return "paquet ouvert, son étiquette ne compte plus : scannez ses items un par un";
+}
+
 void App::pack_resolved(int entry_id, const Json &resolved, ScanSource source) {
   ScanEntry *entry = stack.find(entry_id);
   if (!entry)
     return;
-  const Json pack = resolved; // copie : `resolved` peut etre dans le cache de vérif
-  entry->state = EntryState::Ok;
-  entry->data  = pack;
+  const Json        pack     = resolved; // copie : `resolved` peut etre dans le cache de vérif
+  const bool        prelabel = !entry->scan.key.empty();
+  const std::string refusal  = pack_refusal(pack, entry->scan.key);
+  entry->data = pack;
   entry->pack_items.clear();
-  for (const Json &iid : pack["items"].items())
+  if (!refusal.empty()) {
+    entry_error(entry_id, refusal, source);
+    return;
+  }
+  entry->state = EntryState::Ok;
+  for (const Json &iid : (prelabel ? pack["open_label"]["items"] : pack["items"]).items())
     entry->pack_items.push_back(iid.str());
-  entry->title  = "Paquet : " + pack["count"].str() + " x " + pack["type_name"].str();
+  const std::string count = prelabel ? pack["open_label"]["count"].str() : pack["count"].str();
+  entry->title  = (prelabel ? "Paquet pré-étiqueté : " : "Paquet : ") + count + " x " + pack["type_name"].str();
   entry->detail = pack["peremption"].is_null() ? "Non périssable" : "Exp. " + display_date(pack["peremption"]);
-  if (!pack["opened"].is_null())
-    entry->detail += " - déjà ouvert";
   const auto date = Date::parse(pack["peremption"].str());
   if (date && *date < today() && !entry->expired) {
     entry->expired = true;

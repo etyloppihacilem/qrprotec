@@ -515,6 +515,7 @@ ParsedScan parse_scan(const std::string &input) {
   } else if (route == "pack" && !params["id"].empty()) {
     scan.kind = ScanKind::SealedPack;
     scan.id   = params["id"];
+    scan.key  = params["o"]; // etiquette de paquet ouvert (paquet pre-etiquete) : sa cle
   } else if (route == "liste" && !params["id"].empty()) {
     scan.kind = ScanKind::Checklist;
     scan.id   = params["id"];

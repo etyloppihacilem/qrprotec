@@ -290,6 +290,12 @@ void App::print_label_request(const Json &request) {
       print_documents(std::move(jobs));
     return;
   }
+  // etiquette de paquet ouvert demandee depuis la fiche du paquet du web (paquet pre-etiquete)
+  if (request["kind"].str() == "pack" && request["open_label"].boolean()) {
+    if (!request["pack_data"].is_null())
+      print_labels(TemplateCategory::PackOpen, { pack_open_parameters(request["pack_data"]) }, "Paquet ouvert");
+    return;
+  }
   const Json               &items = request["items"];
   std::vector< Parameters > labels;
   const int                 count = static_cast< int >(items.size());

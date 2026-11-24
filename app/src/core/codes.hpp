@@ -58,7 +58,8 @@ enum class ScanKind { Item, Lot, User, SealedPack, LotSeal, LotSealOpen, Checkli
 //   user      : <base>/badge?m=MATRICULE&key=CLE, ou le matricule seul (sans cle : PIN obligatoire) ;
 //               <base>/badge?m=MATRICULE&t=JETON : QR code de connexion temporaire (depannage du TECH, ou montre par
 //               un secouriste connecte au web avec sa passkey), envoye a /api/auth/temp/
-//   sealed    : <base>/pack?id=ID
+//   sealed    : <base>/pack?id=ID ; <base>/pack?id=ID&o=CLE : etiquette de paquet ouvert (paquet pre-etiquete,
+//               contenu deja etiquete : elle compte en verif les items qu'elle couvre tant qu'elle est valable)
 //   lot seal  : <base>/seal?lot=ID&s=CODE (lot scelle : valide sans verif)
 //   seal open : <base>/unseal?lot=ID&c=CODE (etiquette d'ouverture, dans le lot : son scan ouvre le scelle)
 //   checklist : <base>/liste?id=ID (liste de materiel partagee par QR code)
@@ -69,7 +70,8 @@ struct ParsedScan {
     ScanKind              kind = ScanKind::Unknown;
     std::string           raw;
     std::string           id;  // iid, id de lot, matricule, id de paquet ou de liste
-    std::string           key; // cle du lot (etiquette privee), du badge ou code du scelle (ou de son etiquette d'ouverture)
+    std::string           key; // cle du lot (etiquette privee), du badge, code du scelle (ou de son etiquette
+                               // d'ouverture), ou cle de l'etiquette de paquet ouvert
     std::string           temp; // badge : jeton du QR code de connexion temporaire (badge?m=...&t=...)
     std::string           item_type;
     std::optional< Date > peremption; // items dates uniquement

@@ -22,6 +22,7 @@ namespace qrprotec {
 // Conversion des objets de l'API en valeurs de placeholders (voir core/placeholders.cpp).
 Parameters item_parameters(const Json &item, int index = 1, int count = 1);
 Parameters sealed_pack_parameters(const Json &pack);
+Parameters pack_open_parameters(const Json &pack); // etiquette de paquet ouvert (paquet pre-etiquete)
 Parameters lot_parameters(const Json &lot);
 // Emplacements du contenu d'un lot (lot["requirements"]), dans l'ordre de la verif, sans « sans emplacement ».
 std::vector< std::string > lot_locations(const Json &lot);
