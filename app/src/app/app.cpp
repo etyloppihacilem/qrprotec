@@ -804,13 +804,13 @@ void App::draw_menu_bar() {
       ImGui::SetItemTooltip("Problèmes signalés pas encore pris en charge : ouvrir les signalements.");
     }
     // etiquettes demandees depuis le web pas encore imprimees (tout le monde, connecte ou non)
-    if (const int requests = static_cast< int >(label_prints_.data["pending"].size()); requests > 0) {
+    if (const int requests = static_cast< int >(std::as_const(label_prints_.data)["pending"].size()); requests > 0) {
       const std::string label = "● " + nb(requests, "impression") + " en attente";
       if (bar_item(bar, label.c_str(), bar.blue))
         open_label_prints();
       if (ImGui::BeginItemTooltip()) {
         ImGui::TextUnformatted("Étiquettes demandées depuis le web ou un autre ordinateur, une file par personne :");
-        for (const Json &queue : label_prints_.data["queues"].items())
+        for (const Json &queue : std::as_const(label_prints_.data)["queues"].items())
           ImGui::BulletText("%s : %s", queue["name"].str().c_str(), nb(queue["labels"].integer(), "étiquette").c_str());
         ImGui::TextDisabled("Cliquer : ouvrir pour les imprimer.");
         ImGui::EndTooltip();
@@ -975,7 +975,7 @@ void App::draw_gestion_menus(bool dark_bar) {
     ImGui::TextDisabled("Étiquettes d'un lot : sa fiche, onglet Étiquettes.");
     ImGui::TextDisabled("Étiquette d'un item : Items, ou la pile de scans.");
     ImGui::Separator();
-    const int requests = static_cast< int >(label_prints_.data["pending"].size());
+    const int requests = static_cast< int >(std::as_const(label_prints_.data)["pending"].size());
     const std::string queues = "Étiquettes demandées (web, autres ordinateurs)"
                              + (requests > 0 ? " : " + std::to_string(requests) : std::string()) + "...";
     if (ImGui::MenuItem(queues.c_str())) {
@@ -1000,7 +1000,7 @@ void App::draw_gestion_menus(bool dark_bar) {
 // attendent, rouge en pause.
 void App::draw_print_menu(bool dark_bar, const PrintQueueStatus &print) {
   const BarColors bar = bar_colors(dark_bar);
-  const int  requests = static_cast< int >(label_prints_.data["pending"].size());
+  const int  requests = static_cast< int >(std::as_const(label_prints_.data)["pending"].size());
   if (!privileged() && !print.paused && print.pending == 0)
     return;
   std::string label = "Impression";
