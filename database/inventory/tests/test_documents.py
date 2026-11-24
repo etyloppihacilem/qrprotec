@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from typing import TYPE_CHECKING, Any
 
 from .base import *  # noqa: F401,F403
@@ -298,9 +299,10 @@ class LotStateReportTests(ApiTestCase):  # meme base que LotSheetTests, sans ses
     def test_offline_verif_shows_reception_time(self) -> None:
         # vérif faite hors connexion il y a 7 jours, reçue par le serveur il y a 6 jours
         Verifs.objects.filter(lot=self.lot).update(received=self.ago(6))
-        text = self.text(self.report(5))
-        self.assertIn('faite hors', text)
-        self.assertIn('re\xe7ue par le serveur le', text)
+        # texte des lignes mis bout a bout : le retour a la ligne depend de la longueur de la date (jour de la
+        # semaine, heure du jour) et peut tomber dans « faite hors connexion »
+        words = ' '.join(re.findall(r'\(((?:\\.|[^\\)])*)\) Tj', self.text(self.report(5))))
+        self.assertIn('faite hors connexion, re\xe7ue par le serveur le', words)
 
     def test_absent_and_moved_items(self) -> None:
         i1, i2, i3 = self.items
