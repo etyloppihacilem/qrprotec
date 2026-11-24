@@ -174,6 +174,7 @@ bool WebSocketClient::connect(const HttpUrl &url, const std::string &path, const
   }
   buffer_ = response.substr(end + 4);
   fragments_.clear();
+  last_frame_ = std::chrono::steady_clock::now();
   return true;
 }
 
@@ -190,6 +191,10 @@ bool WebSocketClient::send_text(const std::string &text) {
   return send_frame(kText, text);
 }
 
+bool WebSocketClient::send_ping() {
+  return send_frame(kPing, std::string());
+}
+
 int WebSocketClient::receive(std::string &message, int timeout_ms) {
   for (;;) {
     if (!connection_.is_open())
@@ -202,6 +207,7 @@ int WebSocketClient::receive(std::string &message, int timeout_ms) {
     }
     if (consumed > 0) {
       buffer_.erase(0, static_cast< std::size_t >(consumed));
+      last_frame_ = std::chrono::steady_clock::now();
       if (frame.opcode == kPing) {
         send_frame(kPong, frame.payload);
         continue;

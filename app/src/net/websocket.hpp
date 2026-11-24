@@ -13,6 +13,7 @@
 #include "connection.hpp"
 #include "http.hpp"
 
+#include <chrono>
 #include <cstdint>
 #include <mutex>
 #include <string>
@@ -31,10 +32,14 @@ class WebSocketClient {
     bool connect(const HttpUrl &url, const std::string &path, const HttpHeaders &headers, int timeout_ms,
                  std::string &error, int &status);
     bool send_text(const std::string &text);
+    // ping du protocole : le serveur repond par un pong, compte dans last_frame()
+    bool send_ping();
     // 1 : message recu dans `message` ; 0 : rien dans le delai ; -1 : connexion fermee
     int  receive(std::string &message, int timeout_ms);
     void close();
     bool is_open() const { return connection_.is_open(); }
+    // derniere trame recue du serveur (pong compris), ou la poignee de main : connexion muette au-dela
+    std::chrono::steady_clock::time_point last_frame() const { return last_frame_; }
 
   private:
     bool send_frame(int opcode, const std::string &payload);
@@ -43,6 +48,7 @@ class WebSocketClient {
     std::string buffer_;
     std::string fragments_;
     std::mutex  send_mutex_;
+    std::chrono::steady_clock::time_point last_frame_{};
 };
 
 // Exposes pour les tests
