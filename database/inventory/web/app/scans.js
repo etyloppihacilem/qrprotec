@@ -48,6 +48,12 @@ async function handleCode(raw) {
     scannedFiche = scan;
     return;
   }
+  // paquet hors vérif (pile vide) : sa fiche, comme pour un item (ouverture, contenu deja etiquete)
+  if (scan.kind === 'pack' && !inHome() && !ficheOpen() && !taskPopup && !checkRunning() && !allScanned().length) {
+    feedback.info();
+    openFiche('pack', scan.id, { key: scan.key || '' });
+    return;
+  }
   // etiquette du scelle hors vérif (scanner ou petit lecteur de l'accueil) : fiche du lot scelle, sans bouton de
   // vérif tant que le scelle est intact. Pendant une vérif, elle compte le lot comme verifie (scanSeal).
   if (scan.kind === 'seal' && !taskPopup && !checkRunning() && !allScanned().length) {
@@ -373,28 +379,55 @@ function discardedEntry(plan) {
     : entry.kind === 'pack' && (entry.items || []).length > 0 && entry.items.every((iid) => plan.discard.has(iid)));
 }
 
+// Ce que compte un paquet scanne en vérif ('' : il compte, sinon pourquoi pas). Etiquette du paquet ferme : tout son
+// contenu tant qu'il n'est pas ouvert ; une fois ouvert, ses items se scannent un par un. Etiquette de paquet ouvert
+// (paquet pre-etiquete, cle o=) : les items qu'elle couvre, tant qu'elle est valable (pas d'item scanne seul ou parti).
+function packRefusal(pack, scan) {
+  const label = pack.open_label;
+  if (scan.key) {
+    if (!label || label.scanned === false) return ['Ancienne étiquette de paquet ouvert', 'Elle ne vaut plus rien : scannez les items un par un.'];
+    if (!label.valid) return ['Étiquette de paquet ouvert plus valable', `${label.problem}. Scannez les items un par un.`];
+    return null;
+  }
+  if (!pack.opened) return null;
+  if (label && label.valid) return ['Paquet ouvert', "Scannez plutôt son étiquette de paquet ouvert (contenu déjà étiqueté), ou ses items un par un."];
+  return ['Paquet ouvert', 'Son étiquette ne compte plus : scannez ses items un par un.'];
+}
+
+const packItems = (pack, scan) => (scan.key && pack.open_label ? pack.open_label.items || [] : pack.items);
+const packTitle = (pack, scan) => (scan.key && pack.open_label ? `Paquet pré-étiqueté : ${pack.open_label.count} × ${pack.type_name}`
+  : `Paquet : ${pack.count} × ${pack.type_name}`);
+
 async function scanPack(scan) {
   try {
-    // cache de vérif : le paquet est connu tout de suite, le serveur confirme ensuite (confirmPack)
+    // cache de vérif : le paquet est connu tout de suite, le serveur confirme ensuite (confirmPack). La cle d'une
+    // etiquette de paquet ouvert n'est controlee que par le serveur : hors connexion, une etiquette valable compte.
     const cached = vcache.pack(scan.id);
-    const pack = cached || await api(`packs/${encodeURIComponent(scan.id)}/`);
-    // perime, ou entierement desactive (rappel produit) : a remplacer
-    const expired = !!(pack.peremption && parseDate(pack.peremption) < today()) || (pack.disabled > 0 && pack.disabled >= pack.count);
+    const pack = cached || await api(`packs/${encodeURIComponent(scan.id)}/` + (scan.key ? `?o=${encodeURIComponent(scan.key)}` : ''));
     if (allScanned().some((entry) => entry.kind === 'pack' && entry.code === scan.code)) {
-      showInfo('ok', '✓ Déjà scanné', `Paquet : ${pack.count} × ${pack.type_name}`);
+      showInfo('ok', '✓ Déjà scanné', packTitle(pack, scan));
       return;
     }
+    const refusal = packRefusal(pack, scan);
+    if (refusal) {
+      feedback.bad();
+      showInfo('bad', ...refusal);
+      return;
+    }
+    const items = packItems(pack, scan);
+    // perime, ou entierement desactive (rappel produit) : a remplacer
+    const expired = !!(pack.peremption && parseDate(pack.peremption) < today()) || (pack.disabled > 0 && pack.disabled >= items.length);
     scannedAgain();
     state.lastVerif = null;
-    const entry = { code: scan.code, kind: 'pack', iid: '', info: pack, expired, error: '', items: pack.items,
+    const entry = { code: scan.code, kind: 'pack', iid: '', info: pack, expired, error: '', items, key: scan.key || '',
                     place: state.lot ? currentPlace() : '', at: new Date().toISOString() };
     state.scanned.push(entry);
-    if (cached) confirmPack(entry, scan.id);
+    if (cached) confirmPack(entry, scan);
     if (expired) feedback.bad(); else feedback.good();
     alertReports('pack:' + pack.id, `Paquet signalé : ${pack.count} × ${pack.type_name}`, pack.reports);
-    showInfo(expired ? 'bad' : 'ok', `Paquet : ${pack.count} × ${pack.type_name}`,
+    showInfo(expired ? 'bad' : 'ok', packTitle(pack, scan),
       pack.peremption ? 'Péremption : ' + fmtDate(pack.peremption) : 'Non périssable',
-      pack.opened ? 'Paquet ouvert ' + fmtOn(pack.opened) : 'Paquet fermé');
+      scan.key ? 'Contenu déjà étiqueté' : 'Paquet fermé');
     save();
     render();
   } catch (e) {
@@ -403,21 +436,31 @@ async function scanPack(scan) {
   }
 }
 
-// Paquet scanne venu du cache de vérif : etat actuel demande au serveur, seule une difference est signalee
-async function confirmPack(entry, id) {
+// Paquet scanne venu du cache de vérif : etat actuel demande au serveur, seule une difference est signalee. Une
+// etiquette que le serveur refuse (ancienne, plus valable, paquet ouvert entre-temps) sort des scans.
+async function confirmPack(entry, scan) {
   let fresh;
   try {
-    fresh = await api(`packs/${encodeURIComponent(id)}/`);
+    fresh = await api(`packs/${encodeURIComponent(scan.id)}/` + (scan.key ? `?o=${encodeURIComponent(scan.key)}` : ''));
   } catch (e) {
     return;
   }
-  const facts = (pack) => JSON.stringify([pack.disabled, pack.opened, pack.items,
+  const refusal = packRefusal(fresh, scan);
+  if (refusal) {
+    state.scanned = state.scanned.filter((other) => other !== entry);
+    feedback.bad();
+    showInfo('bad', ...refusal);
+    save();
+    render();
+    return;
+  }
+  const facts = (pack) => JSON.stringify([pack.disabled, pack.opened, packItems(pack, scan),
     (pack.reports || []).map((report) => [report.id, report.status, report.usable])]);
   const before = entry.info;
   entry.info = fresh;
-  entry.items = fresh.items;
+  entry.items = packItems(fresh, scan);
   if (facts(before) === facts(fresh)) return;
-  const expired = !!(fresh.peremption && parseDate(fresh.peremption) < today()) || (fresh.disabled > 0 && fresh.disabled >= fresh.count);
+  const expired = !!(fresh.peremption && parseDate(fresh.peremption) < today()) || (fresh.disabled > 0 && fresh.disabled >= entry.items.length);
   if (expired && !entry.expired) { entry.expired = true; feedback.bad(); }
   const known = new Set((before.reports || []).map((report) => report.id));
   if ((fresh.reports || []).some((report) => !known.has(report.id))) {

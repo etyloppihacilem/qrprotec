@@ -59,9 +59,9 @@ async function boot() {
     if (scan.kind === 'item') await openFiche('item', scan.id, { push: false });
     else { cleanUrl(state.lotId); feedback.bad(); showInfo('bad', 'Code non reconnu', params.get('id')); }
   } else if (route === 'pack' && params.get('id')) {
-    cleanUrl(state.lotId);
+    // QR d'un paquet (ou etiquette de paquet ouvert) scanne avec l'appareil photo : fiche du paquet
     if (state.lotId) await loadLot(state.lotId);
-    await scanPack({ kind: 'pack', code: location.href, id: params.get('id') });
+    await openFiche('pack', params.get('id'), { key: params.get('o') || '', push: false });
   } else if (route === 'liste' && params.get('id')) {
     // lien ou QR code d'une liste de materiel : la liste, a verifier en direct (connexion demandee)
     openList(params.get('id'), false);

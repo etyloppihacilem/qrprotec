@@ -738,7 +738,7 @@ function undoLastScan() {
   if (state.scanned.length) scannedAgain();
   const last = state.scanned.pop();
   if (last) {
-    const name = last.kind === 'pack' && last.info ? `paquet ${last.info.count} × ${last.info.type_name}`
+    const name = last.kind === 'pack' && last.info ? `paquet ${(last.items || []).length || last.info.count} × ${last.info.type_name}`
       : last.info && last.info.type_name ? withId(last.info.type_name, last.iid) : idText(last.iid) || 'code inconnu';
     toast('Dernier scan annulé : ' + name);
   }

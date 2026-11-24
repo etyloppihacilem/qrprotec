@@ -101,6 +101,7 @@ def open_label_dict(pack: SealedPacks, key: str | None = None) -> dict[str, Any]
         'at': _date(pack.open_label_at),
         'by': _who(pack.open_label_by),
         'count': len(pack.open_label_items),
+        'items': list(pack.open_label_items),  # iids comptes en verif par l'etiquette
         'valid': not problem,
         'problem': problem,
         'broken': _date(pack.open_label_broken),

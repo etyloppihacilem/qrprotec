@@ -505,7 +505,8 @@ function parseCode(raw) {
   if (route === 'verif' && p.get('lot')) return { kind: 'lot', code, id: p.get('lot'), key: p.get('key') || '' };
   // badge, ou QR code de connexion temporaire (t) cree par un admin dans l'outil de debug
   if (route === 'badge' && p.get('m')) return { kind: 'user', code, id: p.get('m'), key: p.get('key') || '', temp: p.get('t') || '' };
-  if (route === 'pack' && p.get('id')) return { kind: 'pack', code, id: p.get('id') };
+  // etiquette du paquet ferme, ou etiquette de paquet ouvert (paquet pre-etiquete, avec sa cle o=)
+  if (route === 'pack' && p.get('id')) return { kind: 'pack', code, id: p.get('id'), key: p.get('o') || '' };
   if (route === 'seal' && p.get('lot') && p.get('s')) return { kind: 'seal', code, id: p.get('lot'), key: p.get('s') };
   if (route === 'unseal' && p.get('lot') && p.get('c')) return { kind: 'sealopen', code, id: p.get('lot'), key: p.get('c') };
   if (route === 'scanner' && p.get('s') && p.get('k')) return { kind: 'remote', code, search: url.search };
