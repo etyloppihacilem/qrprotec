@@ -682,8 +682,10 @@ async function openVerifReport(ids, quiet = false) {
     && !(lot.present_count + lot.missing_count + lot.expired_count);
   const lots = [...byId.values()].filter((lot) => !frame(lot));
   // durée : du début de la 1re étape à la fin de la dernière, seulement si chaque étape a son début (vérifs d'avant
-  // le chronométrage : pas de durée)
-  const started = reports.every((one) => one.started) ? reports.map((one) => one.started).sort()[0] : null;
+  // le chronométrage : pas de durée). Tri sur l'instant, pas sur le texte : heures locales avec leur décalage, au
+  // changement d'heure « 02:10+01:00 » vient après « 02:50+02:00 »
+  const started = reports.every((one) => one.started)
+    ? reports.map((one) => one.started).sort((a, b) => new Date(a) - new Date(b))[0] : null;
   reportView.report = { ...last, started, complete: reports.every((one) => one.complete),
     participants: [...new Set(reports.flatMap((one) => [one.by, ...(one.participants || [])]))].filter((who) => who !== last.by),
     lots, sealed: reports.flatMap((one) => one.sealed),
