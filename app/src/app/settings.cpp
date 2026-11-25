@@ -191,6 +191,8 @@ void AppSettings::load() {
       print.label_type = std::clamp(to_int(value, print.label_type), 1, 3);
     else if (key == "templates_dir")
       templates_dir = value;
+    else if (key == "code_prefix")
+      code_prefix = value;
     else if (key.rfind("template.", 0) == 0)
       label_templates[key.substr(9)] = value;
     else if (key == "remote_scanner_timeout_minutes")
@@ -309,6 +311,7 @@ bool AppSettings::save(std::string &error) const {
          << "rotate_counterclockwise=" << (rotate_counterclockwise ? 1 : 0) << '\n'
          << "flip_labels=" << (flip_labels ? 1 : 0) << '\n'
          << "templates_dir=" << templates_dir << '\n'
+         << "code_prefix=" << code_prefix << '\n'
          << "label_title=" << escape_line(label_title) << '\n'
          << "layout_version=" << kLayoutVersion << '\n';
   for (const auto &[category, template_path] : label_templates)

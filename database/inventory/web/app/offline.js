@@ -486,20 +486,25 @@ const vcache = (() => {
 // Meme format que le front ordinateur (app/src/core/codes.cpp)
 function parseCode(raw) {
   const code = raw.trim();
+  // etiquette d'une autre antenne (code de l'antenne devant l'iid ou l'id) : refusee, voir readIid / readId
+  const foreign = (prefix) => ({ kind: 'foreign', code, prefix });
   // etiquette d'item : l'iid seul (ancien format) ou l'URL <base>/item?id=IID
   // etiquette de taches (TaskItem) : <base>/task?id=IID, un item dont les taches sont a cocher a la verif
   const itemScan = (iid, task = false) => {
     const date = iid.slice(6, 14);
     return { kind: 'item', code, id: iid, type: iid.slice(0, 6), peremption: date === '00000000' ? null : parseDate(date), task };
   };
-  if (expandIid(code)) return itemScan(expandIid(code));
+  const bare = readIid(code);
+  if (bare.iid) return itemScan(bare.iid);
+  if (bare.foreign) return foreign(bare.foreign);
   let url;
   try { url = new URL(code); } catch (e) {
     // matricule seul (code d'une carte sans l'URL du badge) : badge sans cle, le serveur exige alors le PIN
     return MATRICULE_RE.test(code) ? { kind: 'user', code, id: code, key: '' } : { kind: 'unknown', code };
   }
   const route = url.pathname.replace(/\/+$/, '').split('/').pop();
-  const p = url.searchParams;
+  const { params: p, foreign: other } = labelParams(route, url.search);
+  if (other) return foreign(other);
   if (route === 'item' && expandIid(p.get('id'))) return itemScan(expandIid(p.get('id')));
   if (route === 'task' && expandIid(p.get('id'))) return itemScan(expandIid(p.get('id')), true);
   if (route === 'verif' && p.get('lot')) return { kind: 'lot', code, id: p.get('lot'), key: p.get('key') || '' };
@@ -513,4 +518,28 @@ function parseCode(raw) {
   if (route === 'pinreset' && p.get('m') && p.get('t')) return { kind: 'pinreset', code, id: p.get('m'), key: p.get('t') };
   if (route === 'liste' && p.get('id')) return { kind: 'liste', code, id: p.get('id') };
   return { kind: 'unknown', code };
+}
+
+// Parametres d'une adresse d'etiquette (verif?lot=, seal?lot=, unseal?lot=, item?id=, task?id=, pack?id=) avec l'id
+// de cette antenne (code de l'antenne retire) ; foreign : code d'une autre antenne, '' sinon
+function labelParams(route, search) {
+  const params = new URLSearchParams(search);
+  const name = ['verif', 'seal', 'unseal'].includes(route) ? 'lot' : ['pack', 'item', 'task'].includes(route) ? 'id' : '';
+  if (!name || !params.get(name)) return { params, foreign: '' };
+  const value = params.get(name);
+  let read;
+  if (route === 'item' || route === 'task') {
+    const item = readIid(value);
+    read = { id: item.iid || value, foreign: item.foreign };
+  } else {
+    read = readId(value, route === 'pack' ? PACK_ID_LENGTH : LOT_ID_LENGTH);
+  }
+  if (!read.foreign) params.set(name, read.id);
+  return { params, foreign: read.foreign };
+}
+
+// Etiquette d'une autre antenne scannee (ou ouverte par son lien) : rien a faire ici
+function showForeign(prefix) {
+  feedback.bad();
+  showInfo('bad', "Étiquette d'une autre antenne", `Code d'antenne ${prefix} : ce matériel n'appartient pas à cette antenne.`);
 }

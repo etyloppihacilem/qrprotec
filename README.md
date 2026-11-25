@@ -318,6 +318,12 @@ publier dans un dépôt public dédié, par exemple `etyloppihacilem/qrprotec-rp
 `QRPROTEC_PUBLIC_BASE_URL` du back. Le front reconnaît les QR codes quel que soit le domaine : changer
 la base n'invalide pas les étiquettes déjà imprimées.
 
+Le code de l'antenne (`QRPROTEC_CODE_PREFIX`, 2 lettres majuscules ou chiffres, ex. `PC`) précède l'iid et l'id du
+lot ou du paquet dans chaque code imprimé (`PCserphy20271231NA1`, `verif?lot=PCsacpse00000001`) : les étiquettes
+de deux antennes ne se confondent plus. Sans code, une étiquette est celle du serveur (imprimée avant) ; avec le
+code d'une autre antenne, elle est refusée. Figé au premier démarrage, voir
+[docs/technique/donnees.md](docs/technique/donnees.md#code-de-lantenne).
+
 ## Back (Django)
 
 ```sh

@@ -75,9 +75,13 @@ L'assistant pose les questions une à une (valeur actuelle entre crochets, Entr�
 Il est relançable à tout moment. Version sans questions :
 
 ```sh
-sudo qrprotec-setup --domain inventaire.mon-antenne.org --tls admin@mon-antenne.org \
+sudo qrprotec-setup --domain inventaire.mon-antenne.org --tls admin@mon-antenne.org --antenne PC \
     --keyboard fr --open-firewall --no-admin --yes
 ```
+
+`--antenne` : code de l'antenne (2 lettres majuscules ou chiffres), imprimé devant chaque code d'étiquette pour
+que celles de deux antennes ne se confondent pas. Il est figé au premier démarrage : choisissez-le avant
+d'imprimer.
 
 `sudo qrprotec-setup --help` liste toutes les options.
 

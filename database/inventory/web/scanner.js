@@ -94,14 +94,28 @@
   // Libelle court d'un code scanne : jamais de cle (badge, etiquette privee, session), pas d'URL complete.
   // iid complet d'un iid eventuellement en forme courte (D : sans date, N : zeros de tete du compteur), '' sinon.
   // serphy20261029N7 = serphy2026102900000007, lecglyDN6 = lecgly0000000000000006 (meme regle que expand_iid de
-  // app/src/core/codes.cpp et de models.py)
-  function expandIid(code) {
+  // app/src/core/codes.cpp et de models.py). Code de l'antenne (meta ecrite par le serveur) devant : retire ; code
+  // d'une autre antenne : foreignPrefix le donne (le poste refuse l'etiquette).
+  const CODE_PREFIX = (document.querySelector('meta[name="qrprotec-code-prefix"]') || {}).content || '';
+  function expandPlainIid(code) {
     const match = /^([A-Za-z0-9]{6})(\d{8}|D)(N[A-Za-z0-9]{1,6}|[A-Za-z0-9]{8})$/.exec(code || '');
     if (!match) return '';
     const counter = match[3].length < 8 ? match[3].slice(1).padStart(8, '0') : match[3];
     return match[1] + (match[2] === 'D' ? '00000000' : match[2]) + counter;
   }
+  function expandIid(code) {
+    code = code || '';
+    if (CODE_PREFIX && code.startsWith(CODE_PREFIX) && expandPlainIid(code.slice(CODE_PREFIX.length))) {
+      return expandPlainIid(code.slice(CODE_PREFIX.length));
+    }
+    return expandPlainIid(code);
+  }
+  function foreignPrefix(code) {
+    code = code || '';
+    return !expandIid(code) && /^[A-Z0-9]{2}$/.test(code.slice(0, 2)) && expandPlainIid(code.slice(2)) ? code.slice(0, 2) : '';
+  }
   function describe(raw) {
+    if (foreignPrefix(raw)) return `Étiquette d'une autre antenne (${foreignPrefix(raw)})`;
     const code = expandIid(raw) || raw;
     if (expandIid(code)) {
       const date = code.slice(6, 14);
@@ -117,6 +131,7 @@
     try { url = new URL(code); } catch (e) { return code.length > 24 ? code.slice(0, 24) + '…' : code; }
     const route = url.pathname.replace(/\/+$/, '').split('/').pop();
     const p = url.searchParams;
+    if ((route === 'item' || route === 'task') && foreignPrefix(p.get('id'))) return describe(p.get('id'));
     if (route === 'item' && expandIid(p.get('id'))) return describe(p.get('id'));
     if (route === 'task' && expandIid(p.get('id'))) return 'Tâches · ' + describe(p.get('id'));
     if (route === 'verif' && p.get('lot')) return `Lot ${p.get('lot')}` + (p.get('key') ? ' · étiquette clé' : '');

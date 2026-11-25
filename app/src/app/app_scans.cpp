@@ -149,7 +149,9 @@ void App::handle_scan(const std::string &code, ScanSource source) {
     case ScanKind::Unknown: {
       stack.add(scan, source);
       feedback.error(source, settings);
-      notify("Code non reconnu : " + describe_scan(scan), true);
+      notify(scan.foreign.empty() ? "Code non reconnu : " + describe_scan(scan)
+                                  : describe_scan(scan) + " : ce matériel n'appartient pas à cette antenne.",
+             true);
       return;
     }
   }

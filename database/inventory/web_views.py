@@ -23,7 +23,7 @@ from pathlib import Path
 from django.http import FileResponse, Http404, HttpRequest, HttpResponse, HttpResponseNotModified
 from django.utils.http import http_date, parse_http_date_safe
 
-from .models import ServerSettings
+from .models import ServerSettings, code_prefix
 
 WEB_DIR = Path(__file__).resolve().parent / 'web'
 
@@ -103,12 +103,15 @@ def _csp(request: HttpRequest) -> str:
 
 
 BARCODE_SCRIPT = '  <script src="web/code128.js" defer></script>\n'
+CODE_PREFIX_META = '<meta name="qrprotec-code-prefix" content="">'
 
 
 def _page(request: HttpRequest, name: str) -> HttpResponse:
     """Page HTML ; sans le decodeur de codes-barres (web/code128.js) tant que le reglage du serveur le coupe :
-    aucune etiquette a code-barres en circulation, la page reste plus legere."""
+    aucune etiquette a code-barres en circulation, la page reste plus legere. Le code de l'antenne (2 lettres ou
+    chiffres, sans caractere a echapper) est ecrit dans la page : elle lit les etiquettes, meme hors connexion."""
     html = (WEB_DIR / name).read_text(encoding='utf-8')
+    html = html.replace(CODE_PREFIX_META, CODE_PREFIX_META.replace('content=""', f'content="{code_prefix()}"'))
     if not ServerSettings.get().web_barcodes:
         html = html.replace(BARCODE_SCRIPT, '')
     response = HttpResponse(html, content_type='text/html; charset=utf-8')
@@ -162,8 +165,8 @@ def offline_files() -> list[str]:
 
 def offline_version() -> str:
     """Empreinte de la version du front (date et taille de chaque fichier, comme l'ETag, et reglage des codes-barres
-    qui change la page) : une mise a jour du paquet change le service worker, qui recharge alors tous les fichiers."""
-    digest = hashlib.sha256(str(ServerSettings.get().web_barcodes).encode())
+    et code de l'antenne, qui changent la page) : une mise a jour du paquet change le service worker, qui recharge alors tous les fichiers."""
+    digest = hashlib.sha256(f'{ServerSettings.get().web_barcodes}:{code_prefix()}'.encode())
     for name in ['index.html', 'app-sw.js', *ASSETS]:
         stat = (WEB_DIR / name).stat()
         digest.update(f'{name}:{int(stat.st_mtime)}:{stat.st_size};'.encode())

@@ -43,8 +43,9 @@ std::string label_date(const Json &value) {
 Parameters item_parameters(const Json &item, int index, int count) {
   Parameters parameters;
   parameters["iid"]       = item["iid"].str();
-  // forme courte (D sans date, N pour les zeros du compteur) : code-barres et petit QR plus courts, plus facile a taper
-  parameters["iid_short"] = compact_iid(item["iid"].str());
+  // code imprime : code de l'antenne + forme courte (D sans date, N pour les zeros du compteur), donne par le serveur ;
+  // code-barres et petit QR plus courts, plus facile a taper
+  parameters["iid_short"] = item["iid_short"].str().empty() ? item_code(item["iid"].str()) : item["iid_short"].str();
   // QR de l'etiquette : URL du front web (l'iid seul pour un item qui n'en a pas, ex : apercu)
   parameters["item_url"]  = item["url"].str().empty() ? item["iid"].str() : item["url"].str();
   parameters["type"]      = item["type"].str();

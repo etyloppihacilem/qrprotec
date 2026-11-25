@@ -247,6 +247,48 @@ static void test_bare_matricule() {
   assert(parse_scan("https://example.com/task?id=lecglyDN6").task);
 }
 
+// Code de l'antenne devant les codes imprimes : le notre est retire, sans code l'etiquette est a nous (imprimee avant),
+// celui d'une autre antenne est refuse (Unknown, foreign)
+static void test_code_prefix() {
+  set_code_prefix("PC");
+  assert(code_prefix() == "PC");
+  assert(item_code("serphy2026102900000007") == "PCserphy20261029N7");
+  assert(expand_iid("PCserphy20261029N7") == "serphy2026102900000007");
+  assert(expand_iid("PCserphy2026102900000007") == "serphy2026102900000007");
+  assert(expand_iid("serphy20261029N7") == "serphy2026102900000007"); // ancienne etiquette : a nous
+  std::string foreign;
+  assert(expand_iid("12serphy20261029N7", &foreign).empty() && foreign == "12");
+  assert(expand_iid("12serphyDN7").empty());
+
+  const ParsedScan mine = parse_scan("PClecglyDN6");
+  assert(mine.kind == ScanKind::Item && mine.id == "lecgly0000000000000006" && mine.foreign.empty());
+  const ParsedScan other = parse_scan("12lecglyDN6"); // aurait ressemble a un matricule
+  assert(other.kind == ScanKind::Unknown && other.foreign == "12");
+  assert(describe_scan(other) == "Étiquette d'une autre antenne (12)");
+  assert(parse_scan("https://example.com/item?id=PCserphy20261029N7").id == "serphy2026102900000007");
+  assert(parse_scan("https://example.com/task?id=12serphy20261029N7").foreign == "12");
+
+  // lots, rangements, scelles : id de 14 caracteres (type de lot + compteur)
+  const ParsedScan lot = parse_scan("https://example.com/verif?lot=PCsacpse00000003&key=abc");
+  assert(lot.kind == ScanKind::Lot && lot.id == "sacpse00000003" && lot.key == "abc");
+  assert(parse_scan("https://example.com/verif?lot=sacpse00000003").id == "sacpse00000003");
+  assert(parse_scan("https://example.com/verif?lot=12sacpse00000003").foreign == "12");
+  assert(parse_scan("https://example.com/seal?lot=PCsacpse00000003&s=X").id == "sacpse00000003");
+  assert(parse_scan("https://example.com/unseal?lot=AZsacpse00000003&c=X").kind == ScanKind::Unknown);
+  // paquets fermes : id de 8 caracteres
+  assert(parse_scan("https://example.com/pack?id=PC0000002B").id == "0000002B");
+  assert(parse_scan("https://example.com/pack?id=0000002B").id == "0000002B");
+  assert(parse_scan("https://example.com/pack?id=AB0000002B").foreign == "AB");
+  assert(read_id("L1", kLotIdLength) == "L1"); // autre longueur : tel quel
+
+  // sans code d'antenne (serveur pas encore regle) : toute etiquette avec un code est d'une autre antenne
+  set_code_prefix("");
+  assert(parse_scan("PCserphy20261029N7").foreign == "PC");
+  assert(parse_scan("serphy20261029N7").kind == ScanKind::Item);
+  set_code_prefix("pc"); // invalide : aucun
+  assert(code_prefix().empty());
+}
+
 static void test_barcode() {
   // jeu C pour les suites de chiffres : depart C pour 4 chiffres, depart B puis C au milieu d'un iid
   assert((code128_symbols("1234") == std::vector< int >{ 105, 12, 34, 82, 106 }));
@@ -277,6 +319,8 @@ static void test_barcode() {
   document.parameters["iid_short"] = "abcdef20271231zzzzzzzz"; // compteur sans zero : forme courte = iid
   assert(validate(document).empty());
   assert(barcode_module_pixels(barcode, "abcdef20271231zzzzzzzz", document.media.pixels_per_mm) >= 1);
+  // avec le code de l'antenne devant (2 caracteres, 22 modules de plus) : tient encore
+  assert(barcode_module_pixels(barcode, "ZZabcdef20271231zzzzzzzz", document.media.pixels_per_mm) >= 1);
 
   // relecture du rendu sur une ligne : memes symboles que l'encodeur (le code seul, sans les autres elements)
   TemplateDocument alone = document;
@@ -523,6 +567,7 @@ int main() {
   test_douchette();
   test_http();
   test_compact_iid();
+  test_code_prefix();
   test_bare_matricule();
   test_barcode();
   test_qr_and_categories();

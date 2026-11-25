@@ -107,6 +107,8 @@ class ApiTestCase(TestCase):
         return response.status_code, (response.json() if is_json else None)
 
     def setUp(self) -> None:
+        models.forget_code_prefix()  # code de l'antenne relu dans la base de ce test (aucun par defaut)
+        self.addCleanup(models.forget_code_prefix)
         self.today = timezone.localdate()
         self.compresses = ItemType.objects.create(type='compre', name='Compresses', perissable=True, min_quantity=10)
         self.garrot = ItemType.objects.create(type='garrot', name='Garrot', perissable=False, min_quantity=2)

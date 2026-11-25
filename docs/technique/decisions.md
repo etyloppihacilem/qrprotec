@@ -234,6 +234,11 @@ s'il en retire au moins deux, sans quoi `N` + 7 caractères aurait la longueur d
 court à coder et à taper ; un iid complet a 22 caractères et 8 chiffres de date, donc aucune ambiguïté.
 Même règle dans `codes.cpp`, `models.py`, `web/app/state.js` et `scanner.js`.
 
+Le code de l'antenne (2 caractères, `PC`) précède l'iid et les id de lots et de paquets dans les codes imprimés,
+pour que les étiquettes de deux antennes ne se confondent pas (même type, même date, même compteur). Il n'existe
+que dans les codes : la base garde les id sans code, donc rien à migrer. Les étiquettes sans code, imprimées
+avant, restent celles du serveur ; celles d'un autre code sont refusées. Voir [donnees.md](donnees.md#code-de-lantenne).
+
 ## Borne Fedora en RPM, Cage, Caddy
 
 **Raison.** Mises à jour par `dnf upgrade`, configuration préservée, services systemd durcis,

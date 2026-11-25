@@ -77,6 +77,7 @@ struct ParsedScan {
     std::optional< Date > peremption; // items dates uniquement
     bool                  task = false; // item scanne par son etiquette de taches (TaskItem)
     std::map< std::string, std::string > params; // code d'action : parametres (id = nom de l'action)
+    std::string           foreign; // etiquette d'une autre antenne : son code (kind Unknown, rien a faire ici)
 };
 
 // Codes d'action rapide des postes : « qrprotec:poste/ACTION?param=valeur&... ». Pas une URL web : le telephone
@@ -115,7 +116,24 @@ std::string compact_iid(const std::string &iid);
 // d'etiquette ecrits en majuscules ({{RANGEMENT}})
 std::string utf8_upper(const std::string &text);
 std::string utf8_capitalize(const std::string &text); // premiere lettre seulement (« armoire » → « Armoire »)
-std::string expand_iid(const std::string &code); // iid complet, vide si ce n'est un iid sous aucune forme
+// iid complet d'un code d'item de cette antenne (avec ou sans son code, complet ou en forme courte), vide sinon ; item
+// d'une autre antenne : vide, et son code dans *foreign
+std::string expand_iid(const std::string &code, std::string *foreign = nullptr);
+
+// Code de l'antenne (2 lettres majuscules ou chiffres, ex : PC, 12) devant l'iid et l'id du lot ou du paquet dans
+// chaque code imprime : deux antennes peuvent avoir les memes types, dates et compteurs. Donne par le serveur
+// (/api/health/ code_prefix), garde dans les reglages du poste pour lire les etiquettes hors connexion. A la lecture :
+// notre code est retire, un code sans prefixe (etiquette imprimee avant) est a nous, celui d'une autre antenne est
+// refuse. Meme regle que read_iid / read_id de models.py et readIid / readId de web/app/state.js.
+constexpr std::size_t kCodePrefixLength = 2;
+constexpr std::size_t kLotIdLength      = kTypeLength + kCounterLength; // type de lot + compteur base62
+constexpr std::size_t kPackIdLength     = kCounterLength;               // compteur base62 des paquets fermes
+void               set_code_prefix(const std::string &prefix); // invalide (pas 2 majuscules ou chiffres) : aucun
+const std::string &code_prefix();
+std::string        item_code(const std::string &iid); // code imprime : code de l'antenne + forme courte
+// id local d'un id de lot (kLotIdLength) ou de paquet (kPackIdLength) lu dans un code ; celui d'une autre antenne :
+// vide, et son code dans *foreign. Un id d'une autre longueur est rendu tel quel (ancienne etiquette).
+std::string read_id(const std::string &code, std::size_t length, std::string *foreign = nullptr);
 ParsedScan  parse_scan(const std::string &raw);
 const char *scan_kind_name(ScanKind kind);
 // Libelle court d'un code scanne, pour l'affichage : jamais de cle (badge, etiquette privee, scelle, session),

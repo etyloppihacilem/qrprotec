@@ -693,8 +693,13 @@ $('#menu').addEventListener('click', async (event) => {
     if (code && code.trim()) {
       const value = code.trim();
       // un identifiant de lot seul (sans URL) est accepte pour ouvrir un lot sans etiquette
-      if (!expandIid(value) && !/^https?:/.test(value)) scanLot({ kind: 'lot', code: '', id: value, key: '' });
-      else handleCode(value);
+      if (!expandIid(value) && !readIid(value).foreign && !/^https?:/.test(value)) {
+        const lot = readId(value, LOT_ID_LENGTH);  // id imprime, avec ou sans le code de l'antenne
+        if (lot.foreign) showForeign(lot.foreign);
+        else scanLot({ kind: 'lot', code: '', id: lot.id, key: '' });
+      } else {
+        handleCode(value);
+      }
     }
   }
   if (action === 'quit-verif') quitVerif();

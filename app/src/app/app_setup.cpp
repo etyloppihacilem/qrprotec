@@ -71,6 +71,13 @@ void App::refresh_server_rules() {
     restock_verif_recommended = !restock.is_bool() || restock.boolean();
     poste_key         = result.data["poste"].boolean();
     server_version    = result.data["version"].str();
+    // code de l'antenne devant les codes imprimes : garde dans les reglages pour lire les etiquettes hors connexion
+    // (ancien serveur sans le champ : on garde le dernier connu)
+    if (const Json &prefix = result.data["code_prefix"]; prefix.is_string() && prefix.str() != settings.code_prefix) {
+      settings.code_prefix = prefix.str();
+      set_code_prefix(settings.code_prefix);
+      save_settings();
+    }
     const Json &volume = result.data["scanner_volume_default"];
     scanner_volume_default = volume.is_number() ? volume.integer() : -1;
     if (!logged_in())

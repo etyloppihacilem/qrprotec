@@ -22,7 +22,7 @@ from django.utils import timezone
 from .idendity import SOURCE_VERIFIED, identity_name
 from . import packs
 from .journal import plural
-from .models import MAINTENANCE, PIN_OPTIONAL_ROLES, PUSH_TYPES, WEB_PREFS, ItemStatus, LotType, Role, STOCK_LOT_TYPE, STORAGE_KIND_DEFAULT, Verifs, compact_iid, custom_order_key, qrprotec_setting
+from .models import MAINTENANCE, PIN_OPTIONAL_ROLES, PUSH_TYPES, WEB_PREFS, ItemStatus, LotType, Role, STOCK_LOT_TYPE, STORAGE_KIND_DEFAULT, Verifs, custom_order_key, item_code, lot_code, pack_code, qrprotec_setting
 from .reports import item_reports, lot_reports, pack_reports, summary as report_summary
 from .services import restock_credit, LotPreload, fixed_slots_missing, optional_lot, slot_candidates, assign_slots, optional_types, ordered_requirements, lot_distribution, hidden_in_verif, virtual_lot, unplaced_lines, out_deadline, requirements_status
 
@@ -95,10 +95,11 @@ def item_dict(item: Items, today: date | None = None) -> dict[str, Any]:
     today = today or timezone.localdate()
     return {
         'iid': item.iid,
-        # forme courte imprimee sur les etiquettes (D sans date, N pour les zeros du compteur)
-        'iid_short': compact_iid(item.iid),
+        # code imprime sur les etiquettes : prefixe d'antenne + forme courte (D sans date, N pour les zeros du
+        # compteur)
+        'iid_short': item_code(item.iid),
         # contenu du QR code de l'etiquette : ouvre le front web comme un scan de l'item
-        'url': public_url('item', id=compact_iid(item.iid)),
+        'url': public_url('item', id=item_code(item.iid)),
         'type': item.pack.item_type_id,
         'type_name': item.pack.item_type.name,
         # etiquette a dechirer avant utilisation : un item non scanne a une verif est utilise
@@ -112,7 +113,7 @@ def item_dict(item: Items, today: date | None = None) -> dict[str, Any]:
         'lost_object': item.pack.item_type.lost_object,
         # taches a cocher a la verif (etiquette de taches) : l'item ne compte qu'une fois toutes validees
         'tasks': list(item.pack.item_type.tasks or []),
-        'task_url': public_url('task', id=compact_iid(item.iid)),
+        'task_url': public_url('task', id=item_code(item.iid)),
         'peremption': _date(item.pack.peremption),
         # materiel a reviser : prochaine revision (en retard : a remplacer si le type ne le permet pas, sinon
         # avertissement), taches de la revision, derniere revision
@@ -263,7 +264,7 @@ def item_last_location(item: Items) -> dict[str, Any] | None:
 
 def pack_open_url(sealed_pack: SealedPacks) -> str:
     """Contenu du QR de l'etiquette de paquet ouvert (avec sa cle : seulement pour l'imprimer, au poste)."""
-    return public_url('pack', id=sealed_pack.id, o=sealed_pack.open_label_key)
+    return public_url('pack', id=pack_code(sealed_pack.id), o=sealed_pack.open_label_key)
 
 
 def sealed_pack_dict(sealed_pack: SealedPacks, with_items: bool = True, key: str | None = None) -> dict[str, Any]:
@@ -278,7 +279,7 @@ def sealed_pack_dict(sealed_pack: SealedPacks, with_items: bool = True, key: str
         'created_by': _who(sealed_pack.created_by),
         'opened': _date(sealed_pack.opened),
         'opened_by': _who(sealed_pack.opened_by),
-        'url': public_url('pack', id=sealed_pack.id),
+        'url': public_url('pack', id=pack_code(sealed_pack.id)),
         # items desactives (rappel produit, non-conformite) et signalements ouverts du paquet
         'disabled': sealed_pack.items.filter(disabled=True).count(),
         'reported': sealed_pack.reports.exclude(status='resolved').count(),
@@ -498,7 +499,7 @@ def _lot_core(lot: Lots, today: date, items: list[Items] | None = None, preload:
         # complet des que le minimum d'items frais est la : un perime en trop ne le rend pas incomplet
         # places fixes (lots exiges, LotTypeSlot) vides : le lot est incomplet
         'slots_missing': fixed_slots_missing(lot, preload),
-        'public_url': public_url('verif', lot=lot.id),
+        'public_url': public_url('verif', lot=lot_code(lot.id)),
         # signalements ouverts du lot lui-meme (ou d'un type d'item du lot) : toujours affiches sur sa fiche ; un
         # seul inutilisable rend le lot non utilisable
         'reports': ([report_summary(report) for report in preload.reports[lot.id]] if preload is not None
@@ -707,10 +708,10 @@ def lot_dict(lot: Lots, local: bool = False, with_items: bool = False, today: da
     if local:
         data['verif_key'] = lot.verif_key
         data['verif_key_expires'] = _date(lot.verif_key_expires)
-        data['private_url'] = public_url('verif', lot=lot.id, key=lot.verif_key)
-        data['seal_url'] = public_url('seal', lot=lot.id, s=lot.seal_code) if lot.is_sealed else ''
+        data['private_url'] = public_url('verif', lot=lot_code(lot.id), key=lot.verif_key)
+        data['seal_url'] = public_url('seal', lot=lot_code(lot.id), s=lot.seal_code) if lot.is_sealed else ''
         # etiquette d'ouverture, a ranger dans le lot scelle : la scanner ouvre le scelle
-        data['seal_open_url'] = (public_url('unseal', lot=lot.id, c=lot.seal_open_code)
+        data['seal_open_url'] = (public_url('unseal', lot=lot_code(lot.id), c=lot.seal_open_code)
                                  if lot.is_sealed and lot.seal_open_code else '')
         data['own_content'] = lot_own_content(lot, preload)
         if preload is None:
@@ -991,6 +992,8 @@ def server_settings_dict(settings_row: ServerSettings) -> dict[str, Any]:
         'scanner_volume_default': settings_row.scanner_volume_default,
         'web_barcodes': settings_row.web_barcodes,
         'antenna_name': settings_row.antenna_name,
+        # code de l'antenne devant les codes imprimes (fige, voir models.code_prefix) : affiche seulement
+        'code_prefix': settings_row.code_prefix,
         'departure_full_verif': settings_row.departure_full_verif,
         'restock_verif_recommended': settings_row.restock_verif_recommended,
         'restock_credit_outings': settings_row.restock_credit_outings,

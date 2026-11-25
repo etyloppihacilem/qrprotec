@@ -26,13 +26,14 @@ from django.utils import timezone
 from . import serializers as ser
 from . import services
 from .idendity import short_names
-from .models import Checklist, Items, LabelStyle, Lots, Role, SealedPacks, Secouristes, compact_iid
+from .models import Checklist, Items, LabelStyle, Lots, Role, SealedPacks, Secouristes, lot_code, pack_code
+from .models import item_code as printed_iid
 
 
 def item_code(item: Items) -> str:
     """Contenu du code imprime sur l'etiquette de l'item, d'apres le style de son type (voir LabelStyle)."""
     item_type = item.pack.item_type
-    short = compact_iid(item.iid)
+    short = printed_iid(item.iid)
     if item_type.label_style != LabelStyle.QR:
         return short  # QR reduit et code-barres : l'iid court seul
     return ser.public_url('task' if item_type.tasks else 'item', id=short)
@@ -42,7 +43,7 @@ def item_row(item: Items) -> dict[str, Any]:
     item_type = item.pack.item_type
     return {
         'iid': item.iid,
-        'short': compact_iid(item.iid),
+        'short': printed_iid(item.iid),
         'type': item_type.type,
         'type_name': item_type.name,
         'peremption': ser._date(item.pack.peremption),
@@ -61,15 +62,15 @@ def lot_codes(lot: Lots, virtual: bool = False) -> list[dict[str, str]]:
     Un lot de referentiel sans contenu a lui (services.virtual_lot, ex : le B+) n'a ni etiquette publique ni cle."""
     codes = []
     if not lot.storage and not virtual:
-        codes.append({'kind': 'public', 'label': 'Étiquette publique', 'code': ser.public_url('verif', lot=lot.id)})
+        codes.append({'kind': 'public', 'label': 'Étiquette publique', 'code': ser.public_url('verif', lot=lot_code(lot.id))})
     if not virtual:
         codes.append({'kind': 'key', 'label': 'Étiquette de rangement' if lot.storage else 'Étiquette clé',
-                      'code': ser.public_url('verif', lot=lot.id, key=lot.verif_key)})
+                      'code': ser.public_url('verif', lot=lot_code(lot.id), key=lot.verif_key)})
     if lot.is_sealed and lot.seal_code:
-        codes.append({'kind': 'seal', 'label': 'Scellé', 'code': ser.public_url('seal', lot=lot.id, s=lot.seal_code)})
+        codes.append({'kind': 'seal', 'label': 'Scellé', 'code': ser.public_url('seal', lot=lot_code(lot.id), s=lot.seal_code)})
     if lot.is_sealed and lot.seal_open_code:
         codes.append({'kind': 'sealopen', 'label': 'Ouverture du scellé',
-                      'code': ser.public_url('unseal', lot=lot.id, c=lot.seal_open_code)})
+                      'code': ser.public_url('unseal', lot=lot_code(lot.id), c=lot.seal_open_code)})
     return codes
 
 
@@ -140,7 +141,7 @@ def catalog() -> dict[str, Any]:
             'peremption': ser._date(pack.peremption),
             'count': pack.count,
             'opened': pack.opened is not None,
-            'code': ser.public_url('pack', id=pack.id),
+            'code': ser.public_url('pack', id=pack_code(pack.id)),
         } for pack in SealedPacks.objects.select_related('item_type').order_by('opened', '-created')],
         'lists': [{
             'id': checklist.id,
