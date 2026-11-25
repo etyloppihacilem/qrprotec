@@ -12,8 +12,9 @@
 # BUNDLE       : en plus, .flatpak a joindre a la release, lie au depot (mises a jour) et a Flathub (runtime)
 #
 # Depot signe obligatoire : GPG_KEY_ID (cle secrete deja importee dans gpg, la meme que celle du depot dnf, sans
-# phrase de passe a saisir : gpg-agent prechargee). Les FLATPAK_KEEP (3) derniers commits sont gardes
-# (`flatpak update --commit=...` pour revenir en arriere).
+# phrase de passe a saisir : gpg-agent prechargee). Les FLATPAK_KEEP (2) derniers commits sont gardes
+# (`flatpak update --commit=...` pour revenir en arriere). L'extension .Debug (symboles) n'est pas publiee : elle
+# doublait la taille du depot pour un usage nul sur les postes.
 set -euo pipefail
 
 pages=${1:?PAGES_DIR}
@@ -22,7 +23,7 @@ source_repo=${3:?DEPOT_SOURCE}
 bundle=${4:-}
 app_id=io.github.etyloppihacilem.QRProtec
 branch=${FLATPAK_BRANCH:-master}
-keep=${FLATPAK_KEEP:-3}
+keep=${FLATPAK_KEEP:-2}
 flathub=https://dl.flathub.org/repo/flathub.flatpakrepo
 
 if [[ -z ${GPG_KEY_ID:-} ]]; then
@@ -42,12 +43,17 @@ fi
 # refs/mirrors, tmp... et ostree / flatpak build-update-repo echouent (opendir(refs/remotes)). On les recree.
 mkdir -p "$repo"/{objects,refs/heads,refs/remotes,refs/mirrors,tmp,state,extensions}
 
-# L'application et ses extensions (.Debug, .Locale) construites par flatpak-builder
-mapfile -t refs < <(ostree refs --repo="$source_repo" | grep -E "^(app|runtime)/${app_id//./\\.}([./]|$)")
+# L'application et son extension .Locale construites par flatpak-builder (.Debug laissee de cote)
+mapfile -t refs < <(ostree refs --repo="$source_repo" | grep -E "^(app|runtime)/${app_id//./\\.}([./]|$)" \
+    | grep -vE "^runtime/${app_id//./\\.}\.Debug/")
 if ((${#refs[@]} == 0)); then
     echo "publish-flatpak : $app_id absent de $source_repo" >&2
     exit 1
 fi
+# .Debug des publications d'avant : retiree du depot, ses objets partent au --prune ci-dessous
+while read -r debug_ref; do
+    ostree refs --repo="$repo" --delete "$debug_ref"
+done < <(ostree refs --repo="$repo" | grep -E "^runtime/${app_id//./\\.}\.Debug/" || true)
 flatpak build-commit-from --src-repo="$source_repo" "${sign[@]}" --no-update-summary "$repo" "${refs[@]}"
 flatpak build-update-repo "${sign[@]}" --title=QRProtec --default-branch="$branch" \
     --generate-static-deltas --prune --prune-depth="$keep" "$repo"

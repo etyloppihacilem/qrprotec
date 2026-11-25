@@ -129,23 +129,20 @@ jobs:
           name=${PAGES_REPO#*/}
           url=${PAGES_URL:-https://${owner}.github.io/${name}}
           remote="https://x-access-token:${PAGES_TOKEN}@github.com/${PAGES_REPO}.git"
-          git config --global user.name "github-actions[bot]"
-          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          if ! git clone --depth 1 --branch gh-pages "$remote" pages; then
-            git init -b gh-pages pages
-            git -C pages remote add origin "$remote"
-          fi
-          packaging/publish-flatpak.sh pages "$url" repo QRProtec-front.flatpak
-          cd pages
-          # caches locaux d'OSTree, recrees au besoin
-          rm -rf flatpak/tmp flatpak/state flatpak/.lock
-          git add -A
-          git commit -m "QRProtec $GITHUB_REF_NAME (Flatpak)"
-          # depot dnf publie en meme temps par rpm.yml : on reprend sa publication avant de pousser
+          # gh-pages repart d'un seul commit a chaque publication (packaging/push-pages.sh) ; si rpm.yml a publie
+          # entre le clone et le push, on recommence depuis un clone a jour au lieu d'ecraser sa publication
           for attempt in 1 2 3 4 5; do
-            git push origin gh-pages && exit 0
+            rm -rf pages
+            if ! git clone --depth 1 --branch gh-pages "$remote" pages; then
+              git init -b gh-pages pages
+              git -C pages remote add origin "$remote"
+            fi
+            # le .flatpak est refait a chaque essai, lie au depot publie
+            packaging/publish-flatpak.sh pages "$url" repo QRProtec-front.flatpak
+            # caches locaux d'OSTree, recrees au besoin
+            rm -rf pages/flatpak/tmp pages/flatpak/state pages/flatpak/.lock
+            packaging/push-pages.sh pages "QRProtec $GITHUB_REF_NAME" && exit 0
             sleep $((attempt * 5))
-            git pull --rebase origin gh-pages
           done
           exit 1
       - name: Release GitHub

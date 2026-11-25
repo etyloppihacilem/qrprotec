@@ -151,20 +151,17 @@ jobs:
           name=${PAGES_REPO#*/}
           url=${PAGES_URL:-https://${owner}.github.io/${name}}
           remote="https://x-access-token:${PAGES_TOKEN}@github.com/${PAGES_REPO}.git"
-          if ! git clone --depth 1 --branch gh-pages "$remote" pages; then
-            git init -b gh-pages pages
-            git -C pages remote add origin "$remote"
-          fi
-          packaging/publish-repo.sh pages "$url" rpms/*.rpm
-          cd pages
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -A
-          git commit -m "QRProtec $GITHUB_REF_NAME"
+          # gh-pages repart d'un seul commit a chaque publication (packaging/push-pages.sh) ; si flatpak.yml a
+          # publie entre le clone et le push, on recommence depuis un clone a jour au lieu d'ecraser sa publication
           for attempt in 1 2 3 4 5; do
-            git push origin gh-pages && exit 0
+            rm -rf pages
+            if ! git clone --depth 1 --branch gh-pages "$remote" pages; then
+              git init -b gh-pages pages
+              git -C pages remote add origin "$remote"
+            fi
+            packaging/publish-repo.sh pages "$url" rpms/*.rpm
+            packaging/push-pages.sh pages "QRProtec $GITHUB_REF_NAME" && exit 0
             sleep $((attempt * 5))
-            git pull --rebase origin gh-pages
           done
           exit 1
 

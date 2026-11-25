@@ -6,7 +6,10 @@
 # PAGES_DIR : copie de travail de la branche gh-pages
 # BASE_URL  : URL publique de ce depot (ex : https://etyloppihacilem.github.io/qrprotec)
 # Les RPM vont dans PAGES_DIR/fedora/<version Fedora>/<arch>/ (version lue dans la release, ex
-# 1.fc43). Les KEEP_VERSIONS (5) dernieres versions de chaque paquet sont gardees (dnf downgrade possible).
+# 1.fc43). Les KEEP_VERSIONS (3) dernieres versions de chaque paquet sont gardees (dnf downgrade possible).
+# Les paquets -debuginfo / -debugsource ne sont pas publies ici (15 Mo par paquet et par Fedora, jamais installes
+# sur une borne) : ils restent dans les pieces jointes de la release GitHub. Les dossiers des Fedora plus
+# anciennes que la plus ancienne publiee ici (sorties de la liste de rpm.yml) sont retires.
 # Depot signe obligatoire : GPG_KEY_ID (cle secrete deja importee dans gpg, celle qui a signe les RPM) signe
 # aussi les metadonnees (repomd.xml.asc), et qrprotec.repo active gpgcheck et repo_gpgcheck. Phrase de passe
 # eventuelle dans le fichier GPG_PASSPHRASE_FILE. ALLOW_UNSIGNED=1 publie sans signature (essais seulement : les
@@ -16,7 +19,7 @@ set -euo pipefail
 pages=${1:?PAGES_DIR}
 base_url=${2:?BASE_URL}
 shift 2
-keep=${KEEP_VERSIONS:-5}
+keep=${KEEP_VERSIONS:-3}
 if [[ -z ${GPG_KEY_ID:-} && ${ALLOW_UNSIGNED:-0} != 1 ]]; then
     echo "publish-repo : GPG_KEY_ID manquant, depot non signe refuse (secrets RPM_GPG_PRIVATE_KEY / RPM_GPG_PASSPHRASE)" >&2
     exit 1
@@ -24,21 +27,39 @@ fi
 root=$(cd "$(dirname "$0")/.." && pwd)
 
 declare -A touched=()
+oldest=
 for rpm_file in "$@"; do
     [[ $rpm_file == *.src.rpm ]] && continue
+    case $(rpm -qp --qf '%{NAME}' "$rpm_file") in
+        *-debuginfo | *-debugsource) continue ;;
+    esac
     release=$(rpm -qp --qf '%{RELEASE}' "$rpm_file")
     arch=$(rpm -qp --qf '%{ARCH}' "$rpm_file")
     if [[ ! $release =~ \.fc([0-9]+) ]]; then
         echo "publish-repo : $rpm_file n'est pas un RPM Fedora (release $release)" >&2
         exit 1
     fi
-    dir=$pages/fedora/${BASH_REMATCH[1]}/$arch
+    fedora=${BASH_REMATCH[1]}
+    if [[ -z $oldest ]] || ((fedora < oldest)); then
+        oldest=$fedora
+    fi
+    dir=$pages/fedora/$fedora/$arch
     mkdir -p "$dir"
     cp -f "$rpm_file" "$dir/"
     touched[$dir]=1
 done
 
+# Fedora sorties de la liste construite : plus de mises a jour pour elles, on ne les sert plus
+for fedora_dir in "$pages"/fedora/*/; do
+    fedora=$(basename "$fedora_dir")
+    if [[ -n $oldest && $fedora =~ ^[0-9]+$ ]] && ((fedora < oldest)); then
+        rm -rf "$fedora_dir"
+    fi
+done
+
 for dir in "${!touched[@]}"; do
+    # Publications d'avant : debuginfo / debugsource retires du depot (restent dans les releases)
+    rm -f "$dir"/*-debuginfo-*.rpm "$dir"/*-debugsource-*.rpm
     # Garde, pour chaque paquet (nom), les $keep versions les plus recentes (date de construction)
     mapfile -t old < <(for f in "$dir"/*.rpm; do
         printf '%s %s %s\n' "$(rpm -qp --qf '%{NAME}' "$f")" "$(rpm -qp --qf '%{BUILDTIME}' "$f")" "$f"
