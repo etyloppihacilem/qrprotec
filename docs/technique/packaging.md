@@ -25,6 +25,8 @@ actif par défaut. Voir [decisions.md](decisions.md#borne-fedora-en-rpm-cage-cad
 | `Containerfile` | Image Fedora de construction, avec les dépendances de build en cache. |
 | `version.sh` | Version depuis le tag git : `v1.2.0` → `1.2.0`, entre deux tags `1.2.0^3.gabc1234`. |
 | `publish-repo.sh` | Met à jour le dépôt dnf statique (`createrepo_c`, signature optionnelle). |
+| `publish-flatpak.sh` | Met à jour le dépôt Flatpak statique (`flatpak/` de `gh-pages`). |
+| `push-pages.sh` | Pousse `gh-pages` en un seul commit sans historique (`--force-with-lease`). |
 | `rpmlint.toml` | Exceptions justifiées pour `rpmlint`. |
 | `files/` | Tout ce qui est installé hors code : unités systemd, configurations, scripts. |
 
@@ -168,8 +170,8 @@ flatpak install --user dist/QRProtec-front.flatpak
 
 `.github/workflows/flatpak.yml` construit le `.flatpak` (image `flatpak-github-actions` de Flathub).
 Sur un tag `vX.Y.Z`, le job `publish` (`packaging/publish-flatpak.sh`) ajoute la version au **dépôt
-Flatpak** statique `flatpak/` de la branche `gh-pages` (à côté du dépôt dnf, même clé GPG, 3 derniers
-commits gardés, deltas statiques), écrit `qrprotec.flatpakrepo` et `qrprotec.flatpakref`, puis joint à la
+Flatpak** statique `flatpak/` de la branche `gh-pages` (à côté du dépôt dnf, même clé GPG, 2 derniers
+commits gardés, deltas statiques, sans l'extension `.Debug`), écrit `qrprotec.flatpakrepo` et `qrprotec.flatpakref`, puis joint à la
 release un `.flatpak` **lié à ce dépôt** (`--repo-url`, clé GPG, runtime depuis Flathub). Un poste
 installé depuis la release ou le `.flatpakref` reçoit donc les versions suivantes par `flatpak update`,
 et sans rien faire par Logiciels (GNOME) ou Discover (KDE), qui mettent les Flatpak à jour d'office.
@@ -228,8 +230,11 @@ décompressé et vérifie la copie des modèles.
 `.github/workflows/rpm.yml` : à chaque push sur `main` touchant le code ou le packaging, construit les
 RPM pour la dernière Fedora stable et les deux précédentes (liste lue dans Bodhi à chaque lancement,
 une nouvelle Fedora est prise dès sa sortie) ; sur un tag `vX.Y.Z`, crée la release GitHub et met à jour le dépôt dnf
-statique sur la branche `gh-pages` (`fedora/<version>/<arch>/`, 5 dernières versions), servi par
-GitHub Pages. Variables optionnelles : `RPM_PAGES_REPO` / `RPM_PAGES_URL` / `RPM_PAGES_TOKEN` pour
+statique sur la branche `gh-pages` (`fedora/<version>/<arch>/`, 3 dernières versions, sans les
+`-debuginfo` / `-debugsource` qui restent dans la release, Fedora sorties de la liste retirées), servi par
+GitHub Pages. `gh-pages` n'a pas d'historique : chaque publication la remplace par un seul commit
+(`packaging/push-pages.sh`), sinon chaque release y ajoutait ~65 Mo de binaires et le dépôt git atteignait
+1,2 Go. Pour un clone de travail léger : `git clone --single-branch -b main`. Variables optionnelles : `RPM_PAGES_REPO` / `RPM_PAGES_URL` / `RPM_PAGES_TOKEN` pour
 publier dans un dépôt public dédié si celui-ci reste privé. **Obligatoires pour publier** :
 `RPM_GPG_PRIVATE_KEY` / `RPM_GPG_PASSPHRASE`. Sans clé, le job de publication échoue au lieu de publier un dépôt
 non signé : les RPM sont signés, les métadonnées aussi (`repomd.xml.asc`), et `qrprotec.repo` active `gpgcheck`
