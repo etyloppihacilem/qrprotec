@@ -49,7 +49,8 @@ def compact_iid(iid: str) -> str:
     """Forme courte d'un iid, imprimee sur les etiquettes (plus courte a coder, plus facile a taper) : date
     « 00000000 » ecrite D, zeros de tete du compteur remplaces par N quand cela en retire au moins deux.
     serphy20261029N7 = serphy2026102900000007, lecglyDN6 = lecgly0000000000000006. La base garde l'iid complet,
-    les fronts deplient la forme courte (codes.cpp expand_iid, expandIid de web/app/state.js et scanner.js)."""
+    les fronts deplient la forme courte (codes.cpp expand_iid, expandIid de web/app/state.js et scanner.js). Le code
+    imprime y ajoute le prefixe d'antenne (item_code)."""
     if len(iid) != IID_LENGTH:
         return iid
     date, counter = iid[TYPE_LENGTH:TYPE_LENGTH + DATE_LENGTH], iid[TYPE_LENGTH + DATE_LENGTH:]
@@ -58,8 +59,8 @@ def compact_iid(iid: str) -> str:
     return short + ('N' + stripped if stripped and len(counter) - len(stripped) >= 2 else counter)
 
 
-def expand_iid(code: str) -> str:
-    """iid complet d'un iid en forme courte (ou deja complet) ; '' si ce n'est pas un iid."""
+def _expand_plain_iid(code: str) -> str:
+    """iid complet d'un iid sans prefixe d'antenne, en forme courte ou deja complet ; '' sinon."""
     match = re.fullmatch(r'([A-Za-z0-9]{%d})(\d{%d}|D)(N[A-Za-z0-9]{1,%d}|[A-Za-z0-9]{%d})'
                          % (TYPE_LENGTH, DATE_LENGTH, COUNTER_LENGTH - 2, COUNTER_LENGTH), code or '')
     if not match:
@@ -68,6 +69,86 @@ def expand_iid(code: str) -> str:
     if len(counter) < COUNTER_LENGTH:
         counter = counter[1:].rjust(COUNTER_LENGTH, '0')
     return type_code + (NO_DATE if date == 'D' else date) + counter
+
+
+# Prefixe d'antenne : 2 lettres majuscules ou chiffres (PC pour Paris Centre, 12 pour le 12e) devant l'iid et l'id du
+# lot ou du paquet ferme dans chaque code imprime (item, taches, lot, rangement, scelle, ouverture du scelle, paquet).
+# Deux antennes peuvent avoir les memes types, les memes dates et les memes compteurs : sans prefixe, leurs etiquettes
+# se confondraient. La base garde les id sans prefixe ; on l'ajoute a l'ecriture d'un code (item_code, lot_code,
+# pack_code) et on le retire a la lecture (read_iid, read_id). A la lecture :
+#   - notre prefixe : retire ;
+#   - pas de prefixe (etiquettes imprimees avant) : le code est a nous ;
+#   - prefixe d'une autre antenne : refuse (« Étiquette d'une autre antenne (XX) »).
+# Meme regle au poste (codes.cpp) et sur le web (web/app/state.js, scanner.js).
+CODE_PREFIX_LENGTH = 2
+CODE_PREFIX_RE = re.compile(r'[A-Z0-9]{%d}' % CODE_PREFIX_LENGTH)
+LOT_ID_LENGTH = TYPE_LENGTH + COUNTER_LENGTH  # type de lot + compteur base62 (Lots._build_id)
+PACK_ID_LENGTH = COUNTER_LENGTH               # compteur base62 (SealedPacks.save)
+_code_prefix: str | None = None  # lu une fois : fige apres le premier demarrage
+
+
+def code_prefix() -> str:
+    """Prefixe d'antenne de ce serveur ('' : aucun)."""
+    global _code_prefix
+    if _code_prefix is None:
+        _code_prefix = ServerSettings.get().code_prefix
+    return _code_prefix
+
+
+def forget_code_prefix() -> None:
+    """Relire le prefixe en base au prochain code_prefix() (apres l'avoir change)."""
+    global _code_prefix
+    _code_prefix = None
+
+
+def item_code(iid: str) -> str:
+    """Code imprime d'un item (iid seul du petit QR et du code-barres, id= des URLs item et task) : prefixe + forme
+    courte."""
+    return code_prefix() + compact_iid(iid)
+
+
+def lot_code(lot_id: str) -> str:
+    """Id d'un lot (ou rangement) dans ses codes imprimes (verif?lot=, seal?lot=, unseal?lot=)."""
+    return code_prefix() + lot_id
+
+
+def pack_code(pack_id: str) -> str:
+    """Id d'un paquet ferme dans ses codes imprimes (pack?id=)."""
+    return code_prefix() + pack_id
+
+
+def read_iid(code: str) -> tuple[str, str]:
+    """(iid complet local, '') d'un code d'item, avec ou sans prefixe, en forme courte ou complete ; ('', XX) pour
+    l'item d'une autre antenne XX ; ('', '') si ce n'est pas un iid. Notre prefixe est essaye en premier."""
+    code = code or ''
+    own = code_prefix()
+    if own and code.startswith(own):
+        iid = _expand_plain_iid(code[len(own):])
+        if iid:
+            return iid, ''
+    iid = _expand_plain_iid(code)
+    if iid:
+        return iid, ''
+    prefix = code[:CODE_PREFIX_LENGTH]
+    if CODE_PREFIX_RE.fullmatch(prefix) and _expand_plain_iid(code[CODE_PREFIX_LENGTH:]):
+        return '', prefix
+    return '', ''
+
+
+def expand_iid(code: str) -> str:
+    """iid complet d'un code d'item a nous (voir read_iid) ; '' si ce n'est pas un iid ou s'il est d'une autre
+    antenne."""
+    return read_iid(code)[0]
+
+
+def read_id(code: str, length: int) -> tuple[str, str]:
+    """(id local, '') d'un id de lot (length LOT_ID_LENGTH) ou de paquet (PACK_ID_LENGTH) lu dans un code ; ('', XX)
+    pour celui d'une autre antenne XX. Un id d'une autre longueur est rendu tel quel (ancien code, sans prefixe)."""
+    code = code or ''
+    prefix = code[:CODE_PREFIX_LENGTH]
+    if len(code) == length + CODE_PREFIX_LENGTH and CODE_PREFIX_RE.fullmatch(prefix):
+        return (code[CODE_PREFIX_LENGTH:], '') if prefix == code_prefix() else ('', prefix)
+    return code, ''
 
 
 KEY_ALPHABET = string.digits + string.ascii_letters
@@ -1545,6 +1626,10 @@ class ServerSettings(models.Model):
     # Nom de l'antenne, dans la case « Certifié par le TECH <antenne> » des rapports d'etat de lot (retenu a chaque
     # rapport edite depuis le front web)
     antenna_name = models.CharField(max_length=64, blank=True, default='')
+    # Code de l'antenne devant les iid et les id de lots et de paquets dans les codes imprimes (voir code_prefix) :
+    # vide = pas de prefixe. Ecrit une fois au demarrage depuis QRPROTEC_CODE_PREFIX, puis fige (le changer rendrait
+    # etrangeres toutes les etiquettes deja imprimees) : `manage.py code_prefix XX --force` seulement.
+    code_prefix = models.CharField(max_length=CODE_PREFIX_LENGTH, blank=True, default='')
     # Depart avec une liste (« Partir avec ») : verif complete de chaque lot non scelle avant de partir. Desactive
     # (defaut) : on fait confiance aux secouristes, l'etiquette du lot suffit, et la verif se fait au retour
     # (« Vérif recommandée »). Jamais pour un lot scelle.

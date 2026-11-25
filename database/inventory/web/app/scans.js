@@ -71,6 +71,7 @@ async function handleCode(raw) {
     case 'seal': return scanSeal(scan);
     case 'sealopen': return openSeal(scan);
     case 'pinreset': return startPinReset(scan.id, scan.key);
+    case 'foreign': return showForeign(scan.prefix);
     case 'remote':
       // QR code affiche par le poste : ce telephone devient sa douchette
       feedback.info();

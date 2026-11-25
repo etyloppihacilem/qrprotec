@@ -144,6 +144,32 @@ nom à afficher.
 poste est dans `app/src/core/codes.cpp` (`parse_scan`), côté web dans `web/app/offline.js` (`parseCode`). Les deux
 ignorent le domaine.
 
+### Code de l'antenne
+
+Deux antennes peuvent avoir les mêmes types, les mêmes dates et les mêmes compteurs : `serphy20261029N7`
+existerait chez les deux. Chaque serveur a donc un **code d'antenne** de 2 lettres majuscules ou chiffres (`PC`,
+`12`), écrit **devant** l'iid et l'id du lot ou du paquet fermé dans chaque code imprimé : item, tâches, lot et
+rangement (étiquettes publique et clé), scellé, ouverture du scellé, paquet fermé. Exemples :
+`PCserphy20261029N7`, `…/verif?lot=PCsacpse00000001&key=…`, `…/pack?id=PC0000002B`. Les badges (clé aléatoire) et
+les listes (id aléatoire de 12 caractères) n'en ont pas besoin.
+
+- **La base garde les id sans code** (pas de migration, l'API et les fronts échangent les id locaux). Le code est
+  ajouté à l'écriture (`models.item_code`, `lot_code`, `pack_code`) et retiré à la lecture (`read_iid`, `read_id`
+  de `models.py`, `expand_iid` / `read_id` de `codes.cpp`, `readIid` / `readId` de `web/app/state.js`).
+- À la lecture : notre code est retiré ; un code **sans** code d'antenne (étiquette imprimée avant) est à nous ;
+  celui d'une **autre** antenne est refusé (« Étiquette d'une autre antenne (XX) »). Un iid complet a 22 ou
+  24 caractères, un id de lot 14 ou 16, un id de paquet 8 ou 10 : pas d'ambiguïté. Pour la forme courte de l'iid,
+  notre code est essayé en premier.
+- Réglage : `QRPROTEC_CODE_PREFIX` (`qrprotec-setup --antenne PC`), enregistré dans `ServerSettings.code_prefix`
+  au premier démarrage (`qrprotec-manage code_prefix --sync`, avant le serveur), puis **figé** : en changer
+  rendrait étrangères toutes les étiquettes déjà imprimées (`qrprotec-manage code_prefix XX --force` seulement).
+  Vide : aucun code.
+- Le poste le reçoit par `/api/health/` (`code_prefix`) et le garde dans ses réglages pour lire hors connexion ;
+  le serveur l'écrit dans les pages web (`<meta name="qrprotec-code-prefix">`), gardées hors connexion.
+- Taille : 2 caractères de plus. Code-barres : 22 modules de plus, 277 au pire (iid complet), qui tiennent encore à
+  1 point par module sur la zone de 38 mm de `item_codebarre.qr` (vérifié par `codes_test.cpp`). Petit QR : même
+  version (1 jusqu'à 14 caractères, 2 jusqu'à 26) pour presque tous les iid.
+
 ### Format de l'iid
 
 ```

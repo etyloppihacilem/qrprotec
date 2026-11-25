@@ -27,7 +27,7 @@ ScanEntry &ScanStack::add(const ParsedScan &scan, ScanSource source) {
   entry.at      = utc_now_iso();
   if (scan.kind == ScanKind::Unknown) {
     entry.state  = EntryState::Error;
-    entry.detail = "Code non reconnu";
+    entry.detail = scan.foreign.empty() ? "Code non reconnu" : "Étiquette d'une autre antenne (" + scan.foreign + ")";
   }
   entries_.push_back(entry);
   refresh_duplicates();

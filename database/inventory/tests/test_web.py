@@ -5,6 +5,8 @@ from __future__ import annotations
 from .base import *  # noqa: F401,F403
 from .base import setUpModule, tearDownModule  # noqa: F401 (PIN facultatif pendant ces tests)
 
+from django.core.management.base import CommandError
+
 
 class WebFrontTests(ApiTestCase):
     def test_qr_urls_serve_the_web_page(self) -> None:
@@ -223,6 +225,56 @@ class BarcodeLabelTests(ApiTestCase):
         entry = next(entry for entry in body['items'] if entry['iid'] == item.iid)
         self.assertEqual(entry['iid_short'], compact_iid(item.iid))
         self.assertTrue(entry['url'].endswith('item?id=' + compact_iid(item.iid)))
+
+    def test_code_prefix(self) -> None:
+        """Code de l'antenne devant les codes imprimes : enregistre au premier demarrage puis fige ; a la lecture, le
+        notre est retire, une etiquette sans code (imprimee avant) est a nous, celle d'une autre antenne est refusee."""
+        out = StringIO()
+        with override_settings(QRPROTEC={**settings.QRPROTEC, 'CODE_PREFIX': 'PC'}):
+            call_command('code_prefix', '--sync', stdout=out, stderr=StringIO())
+        self.assertEqual(models.ServerSettings.get().code_prefix, 'PC')
+        self.assertEqual(models.code_prefix(), 'PC')
+        # fige : un autre code dans la configuration est ignore, il faut --force
+        err = StringIO()
+        with override_settings(QRPROTEC={**settings.QRPROTEC, 'CODE_PREFIX': '12'}):
+            call_command('code_prefix', '--sync', stdout=StringIO(), stderr=err)
+        self.assertIn('ignoré', err.getvalue())
+        self.assertEqual(models.ServerSettings.get().code_prefix, 'PC')
+        with self.assertRaises(CommandError):
+            call_command('code_prefix', '12', stdout=StringIO())
+        with self.assertRaises(CommandError):
+            call_command('code_prefix', 'pc', '--force', stdout=StringIO())
+
+        iid = 'serphy2026102900000007'
+        self.assertEqual(models.item_code(iid), 'PCserphy20261029N7')
+        self.assertEqual(models.read_iid('PCserphy20261029N7'), (iid, ''))
+        self.assertEqual(models.read_iid('PCserphy2026102900000007'), (iid, ''))
+        self.assertEqual(models.read_iid('serphy20261029N7'), (iid, ''))  # ancienne etiquette : a nous
+        self.assertEqual(models.read_iid('12serphy20261029N7'), ('', '12'))
+        self.assertEqual(expand_iid('12serphy20261029N7'), '')
+        self.assertEqual(models.read_iid('M001'), ('', ''))
+        self.assertEqual(models.read_id('PCsacpse00000003', models.LOT_ID_LENGTH), ('sacpse00000003', ''))
+        self.assertEqual(models.read_id('sacpse00000003', models.LOT_ID_LENGTH), ('sacpse00000003', ''))
+        self.assertEqual(models.read_id('12sacpse00000003', models.LOT_ID_LENGTH), ('', '12'))
+        self.assertEqual(models.read_id('AB0000002B', models.PACK_ID_LENGTH), ('', 'AB'))
+
+        # codes imprimes : items, lots (etiquettes publique et privee), paquets fermes, poste au courant
+        item = self.create(self.compresses, self.today + timedelta(days=90), 1)[0]
+        Items.objects.filter(iid=item.iid).update(location=self.lot)
+        code, body = self.call('GET', f'/api/lots/{self.lot.id}/')
+        self.assertEqual(body['id'], self.lot.id)  # la base et l'API gardent les id sans code
+        self.assertTrue(body['public_url'].endswith(f'verif?lot=PC{self.lot.id}'))
+        entry = next(entry for entry in body['items'] if entry['iid'] == item.iid)
+        self.assertEqual(entry['iid_short'], 'PC' + compact_iid(item.iid))
+        self.assertTrue(entry['url'].endswith('item?id=PC' + compact_iid(item.iid)))
+        self.assertTrue(entry['task_url'].endswith('task?id=PC' + compact_iid(item.iid)))
+        self.assertIn(f'verif?lot=PC{self.lot.id}&key=', ser.lot_dict(self.lot, local=True)['private_url'])
+        pack = models.SealedPacks.objects.create(item_type=self.compresses, count=3, created_by='test')
+        self.assertTrue(ser.sealed_pack_dict(pack)['url'].endswith(f'pack?id=PC{pack.id}'))
+        self.assertEqual(self.call('GET', '/api/health/')[1]['code_prefix'], 'PC')
+        # pages web : le code est ecrit dedans (lecture des etiquettes, meme hors connexion)
+        for url in ('/', '/scanner?s=x&k=y'):
+            self.assertIn(b'<meta name="qrprotec-code-prefix" content="PC">', self.client.get(url).content, url)
 
     def test_decoder_served_with_encoder_table(self) -> None:
         """Le decodeur JS est servi aux deux pages et sa table est celle de l'encodeur du poste (code128.cpp)."""

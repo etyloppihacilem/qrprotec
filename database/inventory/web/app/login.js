@@ -132,7 +132,7 @@ window.addEventListener('popstate', () => {
   // editeur de liste ouvert : le retour arriere le ferme (comme « ← Toutes les listes »), la page sous lui revient
   listEditorPopped();
   const route = location.pathname.replace(/\/+$/, '').split('/').pop();
-  const params = new URLSearchParams(location.search);
+  const { params } = labelParams(route, location.search);  // ids sans le code de l'antenne
   if (route === 'verif' && params.get('lot')) { openFiche('lot', params.get('lot'), { push: false }); return; }
   if (route === 'seal' && params.get('lot') && params.get('s')) {
     openFiche('lot', params.get('lot'), { seal: params.get('s'), push: false });

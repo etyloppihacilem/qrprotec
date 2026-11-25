@@ -100,6 +100,10 @@ QRPROTEC = {
     # Domaine des passkeys du front web (RP ID WebAuthn) : vide, le nom d'hote de PUBLIC_BASE_URL (localhost en
     # developpement). Le changer rend inutilisables les passkeys deja creees (voir inventory/passkeys.py).
     'PASSKEY_RP_ID': os.environ.get('QRPROTEC_PASSKEY_RP_ID', ''),
+    # Code de l'antenne (2 lettres majuscules ou chiffres, ex : PC, 12), devant les iid et les id de lots et de paquets
+    # dans les codes imprimes : enregistre en base au premier demarrage (`manage.py code_prefix --sync`, lance avant
+    # le serveur), puis fige. Les etiquettes d'une autre antenne sont refusees. Voir models.code_prefix.
+    'CODE_PREFIX': os.environ.get('QRPROTEC_CODE_PREFIX', '').strip(),
     # Certificats de Caddy (/etc/qrprotec/qrprotec.conf) : avec « internal », le fichier de configuration d'un
     # front cree au poste contient l'autorite interne de Caddy (voir inventory.front_config.server_ca_pem).
     # QRPROTEC_FRONT_CA_FILE : un autre certificat PEM a y mettre a la place.

@@ -28,7 +28,7 @@ from typing import TYPE_CHECKING, Any
 
 from django.utils import timezone
 
-from .models import name_key
+from .models import lot_code, name_key
 from .qr import qr_matrix
 from .serializers import public_url
 from .services import lot_requirements
@@ -342,7 +342,7 @@ class SheetWriter:
     @staticmethod
     def corner(page: Page, lot: Lots) -> None:
         right = PAGE_WIDTH - MARGIN
-        page.qr(right - QR_SIZE, MARGIN, QR_SIZE, public_url('verif', lot=lot.id))
+        page.qr(right - QR_SIZE, MARGIN, QR_SIZE, public_url('verif', lot=lot_code(lot.id)))
         page.text(right - QR_SIZE / 2, MARGIN + QR_SIZE + 9, 'Étiquette publique', size=7, grey=GREY_TEXT,
                   align='center')
         x = right - CORNER_WIDTH

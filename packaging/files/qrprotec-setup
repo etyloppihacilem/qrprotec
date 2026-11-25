@@ -29,6 +29,7 @@ readonly CADDY_CA=/var/lib/caddy/.local/share/caddy/pki/authorities/local/root.c
 
 domain=""
 tls=""
+antenna=""
 keyboard=""
 blank=""
 backup_dir=""
@@ -65,6 +66,9 @@ installees sont configurees : back (qrprotec-server) et/ou kiosk (qrprotec-kiosk
 Back :
   --domain NOM          nom d'hote public de la borne (DNS ou adresse IP)
   --tls MODE            "internal" (autorite locale de Caddy) ou adresse e-mail (Let's Encrypt)
+  --antenne CODE        code de l'antenne (2 lettres majuscules ou chiffres, ex. PC), devant les iid et les
+                        id de lots et de paquets des etiquettes : celles d'une autre antenne sont refusees.
+                        Fige au premier demarrage du serveur (ensuite : qrprotec-manage code_prefix CODE --force)
   --front-key NOM       cree la cle API d'un front d'une autre machine et l'affiche
                         (liste : sudo qrprotec-manage frontkey list)
   --front-config FICHIER  avec --front-key : ecrit plutot un fichier chiffre (AES, mot de passe demande)
@@ -121,6 +125,7 @@ while (($#)); do
     case $1 in
         --domain) domain=${2:?}; shift ;;
         --tls) tls=${2:?}; shift ;;
+        --antenne) antenna=${2:?code de l antenne attendu}; shift ;;
         --keyboard) keyboard=${2:?}; shift ;;
         --screen-blank) blank=${2:?}; shift ;;
         --api-url) api_url=${2:?}; shift ;;
@@ -478,8 +483,14 @@ if [[ $has_server == yes ]]; then
         die "$domain est une adresse IP ou un nom local : Let's Encrypt ne peut pas le certifier. Utilisez --tls internal (ou un nom de domaine public)."
     fi
 
+    # code de l'antenne : distingue ses etiquettes de celles des autres antennes (memes types, memes dates)
+    ask antenna "Code de l'antenne sur les etiquettes (2 lettres majuscules ou chiffres, ex. PC ; fige au 1er demarrage)" \
+        "$(get_conf "$CONF_FILE" QRPROTEC_CODE_PREFIX)"
+    [[ -z $antenna || $antenna =~ ^[A-Z0-9]{2}$ ]] || die "code d'antenne invalide : $antenna (2 lettres majuscules ou chiffres)"
+
     set_conf "$CONF_FILE" QRPROTEC_DOMAIN "$domain"
     set_conf "$CONF_FILE" QRPROTEC_TLS "$tls"
+    [[ -n $antenna ]] && set_conf "$CONF_FILE" QRPROTEC_CODE_PREFIX "$antenna"
     echo "Configuration ecrite dans $CONF_FILE"
 fi
 

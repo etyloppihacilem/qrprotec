@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING, Any
 
 from .common import *  # noqa: F401,F403
 from .common import _checklist_call
+from ..models import code_prefix
 from ..version import release_version
 
 if TYPE_CHECKING:
@@ -54,6 +55,9 @@ def health(request: Request) -> Response:
         'web_barcodes': ServerSettings.get().web_barcodes,
         # nom de l'antenne (case « Certifié par le TECH ... » des rapports d'etat de lot)
         'antenna_name': ServerSettings.get().antenna_name,
+        # code de l'antenne devant les iid et les id de lots et de paquets des codes imprimes (vide : aucun) : le
+        # poste le garde pour lire les etiquettes hors connexion (models.code_prefix)
+        'code_prefix': code_prefix(),
         # reassort : le lot passe en verif recommandee (reglage du serveur, coche par defaut)
         'restock_verif_recommended': ServerSettings.get().restock_verif_recommended,
         # version de release du serveur (tag du RPM), vide hors paquet : affichee dans les Reglages

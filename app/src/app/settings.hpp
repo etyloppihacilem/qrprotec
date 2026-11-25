@@ -68,6 +68,8 @@ struct AppSettings {
     std::string                          label_title = "PROTECTION CIVILE\nPARIS CENTRE"; // {{titre}}
     std::map< std::string, std::string > label_templates; // id de categorie -> fichier .qr
     std::string                          templates_dir; // vide = app/templates du depot (voir core/paths.hpp)
+    // code de l'antenne du serveur (/api/health/ code_prefix), garde pour lire les etiquettes hors connexion
+    std::string                          code_prefix;
 
     // Signal de mauvais scan
     bool               sound_enabled = true;

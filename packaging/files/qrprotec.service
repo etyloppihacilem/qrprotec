@@ -17,6 +17,8 @@ StateDirectoryMode=0750
 WorkingDirectory=/var/lib/qrprotec
 UMask=0027
 ExecStartPre=/usr/bin/qrprotec-manage migrate --noinput
+# code de l'antenne des etiquettes (QRPROTEC_CODE_PREFIX) : enregistre au premier demarrage, puis fige
+ExecStartPre=/usr/bin/qrprotec-manage code_prefix --sync
 # Les trois API n'ecoutent que sur la boucle locale : seul Caddy est expose (80/443). L'API distante
 # (fronts d'autres machines, cle API obligatoire) n'est joignable que via Caddy.
 ExecStart=/usr/bin/qrprotec-manage serve --public 127.0.0.1:${QRPROTEC_PUBLIC_API_PORT} --local 127.0.0.1:${QRPROTEC_LOCAL_API_PORT} --remote 127.0.0.1:${QRPROTEC_REMOTE_API_PORT}

@@ -17,13 +17,18 @@ async function boot() {
     if (fiche.lot) renderFiche(); // encadre de l'etiquette cle
   }).catch(() => {});
   const route = location.pathname.replace(/\/+$/, '').split('/').pop();
-  const params = new URLSearchParams(location.search);
+  // id de l'etiquette sans le code de l'antenne ; etiquette d'une autre antenne : ecran de scan, sans rien ouvrir
+  const { params, foreign } = labelParams(route, location.search);
   // on retire la cle de la barre d'adresse (historique, partage d'ecran)
   const cleanUrl = (lot) => history.replaceState(null, '', lot ? `verif?lot=${encodeURIComponent(lot)}` : 'verif');
   // etiquette scannee avec l'appareil photo : ecran de scan (sans demarrer la camera, il faut un geste)
   const qrRoute = ['verif', 'seal', 'unseal', 'pinreset', 'item', 'task', 'pack'].includes(route) && [...params.keys()].length > 0;
   if (qrRoute) { document.body.classList.remove('home-mode'); state.homePage = 'scan'; }
-  if (route === 'verif' && params.get('lot')) {
+  if (foreign) {
+    cleanUrl(state.lotId);
+    if (state.lotId) await loadLot(state.lotId);
+    showForeign(foreign);
+  } else if (route === 'verif' && params.get('lot')) {
     // etiquette publique ou privee d'un lot : fiche du lot, « Lancer une vérif » ouvre le lecteur (la cle est
     // gardee pour cet onglet, retiree de l'adresse)
     const id = params.get('lot');

@@ -304,7 +304,10 @@ std::string compact_iid(const std::string &iid) {
   return compact + counter;
 }
 
-std::string expand_iid(const std::string &code) {
+namespace {
+
+// iid complet d'un iid sans code d'antenne, complet ou en forme courte ; vide sinon
+std::string expand_plain_iid(const std::string &code) {
   if (is_iid(code))
     return code;
   if (code.size() < kTypeLength + 2)
@@ -329,6 +332,58 @@ std::string expand_iid(const std::string &code) {
   else if (counter.size() != kCounterLength)
     return {};
   return code.substr(0, kTypeLength) + date + counter;
+}
+
+std::string &own_prefix() {
+  static std::string prefix;
+  return prefix;
+}
+
+bool is_prefix(const std::string &text) {
+  if (text.size() != kCodePrefixLength)
+    return false;
+  for (const char character : text)
+    if (!std::isdigit(static_cast< unsigned char >(character)) && !std::isupper(static_cast< unsigned char >(character)))
+      return false;
+  return true;
+}
+
+} // namespace
+
+void set_code_prefix(const std::string &prefix) {
+  own_prefix() = is_prefix(prefix) ? prefix : std::string();
+}
+
+const std::string &code_prefix() {
+  return own_prefix();
+}
+
+std::string item_code(const std::string &iid) {
+  return own_prefix() + compact_iid(iid);
+}
+
+std::string expand_iid(const std::string &code, std::string *foreign) {
+  const std::string &own = own_prefix();
+  if (!own.empty() && code.compare(0, own.size(), own) == 0)
+    if (std::string iid = expand_plain_iid(code.substr(own.size())); !iid.empty())
+      return iid;
+  if (std::string iid = expand_plain_iid(code); !iid.empty())
+    return iid;
+  if (foreign && code.size() > kCodePrefixLength && is_prefix(code.substr(0, kCodePrefixLength))
+      && !expand_plain_iid(code.substr(kCodePrefixLength)).empty())
+    *foreign = code.substr(0, kCodePrefixLength);
+  return {};
+}
+
+std::string read_id(const std::string &code, std::size_t length, std::string *foreign) {
+  if (code.size() == length + kCodePrefixLength && is_prefix(code.substr(0, kCodePrefixLength))) {
+    if (code.compare(0, kCodePrefixLength, own_prefix()) == 0)
+      return code.substr(kCodePrefixLength);
+    if (foreign)
+      *foreign = code.substr(0, kCodePrefixLength);
+    return {};
+  }
+  return code;
 }
 
 std::string url_decode(const std::string &value) {
@@ -472,8 +527,9 @@ ParsedScan parse_scan(const std::string &input) {
   }
   // etiquette d'item : l'iid seul (ancien format, code-barres et petit QR, eventuellement en forme courte) ou
   // l'URL <base>/item?id=IID
-  if (const std::string iid = expand_iid(code); !iid.empty()) {
-    set_item(scan, iid);
+  if (const std::string iid = expand_iid(code, &scan.foreign); !iid.empty() || !scan.foreign.empty()) {
+    if (!iid.empty())
+      set_item(scan, iid); // sinon : item d'une autre antenne, refuse (Unknown, foreign)
     return scan;
   }
   const std::size_t question = code.find('?');
@@ -490,6 +546,15 @@ ParsedScan parse_scan(const std::string &input) {
     path.pop_back();
   const std::string route  = path.substr(path.find_last_of('/') + 1);
   auto              params = parse_query(code.substr(question + 1));
+  // id de l'etiquette sans le code de l'antenne ; etiquette d'une autre antenne : refusee (Unknown, foreign)
+  if (route == "verif" || route == "seal" || route == "unseal")
+    params["lot"] = read_id(params["lot"], kLotIdLength, &scan.foreign);
+  else if (route == "pack")
+    params["id"] = read_id(params["id"], kPackIdLength, &scan.foreign);
+  else if (route == "item" || route == "task")
+    expand_iid(params["id"], &scan.foreign);
+  if (!scan.foreign.empty())
+    return scan;
   if (route == "item" && !expand_iid(params["id"]).empty()) {
     set_item(scan, expand_iid(params["id"]));
   } else if (route == "task" && !expand_iid(params["id"]).empty()) {
@@ -556,6 +621,8 @@ std::string describe_scan(const ParsedScan &scan) {
     }
     case ScanKind::Unknown: break;
   }
+  if (!scan.foreign.empty())
+    return "Étiquette d'une autre antenne (" + scan.foreign + ")";
   const std::string &code   = scan.raw;
   const std::size_t  scheme = code.find("://");
   if (scheme == std::string::npos) {

@@ -158,6 +158,7 @@ App::App(Inateck &inateck_ref) : feedback(inateck_ref), inateck(inateck_ref) {
   });
   settings = AppSettings::defaults();
   settings.load();
+  set_code_prefix(settings.code_prefix); // etiquettes lues hors connexion : code de l'antenne vu en dernier
   // envois de verif faits hors connexion avant un redemarrage : renvoyes au retour du reseau
   outbox.load(AppSettings::file_path().parent_path() / "verif-outbox.json");
   // etiquettes imprimees pas encore comptees par le serveur (hors connexion, redemarrage)

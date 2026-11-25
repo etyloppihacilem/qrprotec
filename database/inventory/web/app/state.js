@@ -16,17 +16,48 @@
 'use strict';
 
 const API = new URL('api/', document.baseURI);
-// iid complet d'un iid eventuellement en forme courte (D : sans date, N : zeros de tete du compteur), '' sinon.
-// serphy20261029N7 = serphy2026102900000007, lecglyDN6 = lecgly0000000000000006 (meme regle que expand_iid de
-// app/src/core/codes.cpp et de models.py)
 // matricule seul accepte comme badge (meme format que MATRICULE_RE de views/common.py et is_matricule de codes.cpp)
 const MATRICULE_RE = /^[A-Za-z0-9_-]{1,16}$/;
 
-function expandIid(code) {
+// Code de l'antenne (2 lettres majuscules ou chiffres, ex : PC) devant l'iid et l'id du lot ou du paquet dans chaque
+// code imprime, ecrit dans la page par le serveur (vide : aucun). A la lecture : notre code est retire, un code sans
+// prefixe (etiquette imprimee avant) est a nous, celui d'une autre antenne est refuse. Meme regle que read_iid /
+// read_id de models.py et codes.cpp.
+const CODE_PREFIX = (document.querySelector('meta[name="qrprotec-code-prefix"]') || {}).content || '';
+const CODE_PREFIX_RE = /^[A-Z0-9]{2}$/;
+const LOT_ID_LENGTH = 14;  // type de lot (6) + compteur base62 (8)
+const PACK_ID_LENGTH = 8;  // compteur base62 des paquets fermes
+
+// iid complet d'un iid sans prefixe, eventuellement en forme courte (D : sans date, N : zeros de tete du compteur),
+// '' sinon. serphy20261029N7 = serphy2026102900000007, lecglyDN6 = lecgly0000000000000006
+function expandPlainIid(code) {
   const match = /^([A-Za-z0-9]{6})(\d{8}|D)(N[A-Za-z0-9]{1,6}|[A-Za-z0-9]{8})$/.exec(code || '');
   if (!match) return '';
   const counter = match[3].length < 8 ? match[3].slice(1).padStart(8, '0') : match[3];
   return match[1] + (match[2] === 'D' ? '00000000' : match[2]) + counter;
+}
+// { iid, foreign } d'un code d'item : iid complet local (prefixe retire), ou foreign = code de l'autre antenne
+function readIid(code) {
+  code = code || '';
+  if (CODE_PREFIX && code.startsWith(CODE_PREFIX)) {
+    const iid = expandPlainIid(code.slice(CODE_PREFIX.length));
+    if (iid) return { iid, foreign: '' };
+  }
+  if (expandPlainIid(code)) return { iid: expandPlainIid(code), foreign: '' };
+  const prefix = code.slice(0, 2);
+  return { iid: '', foreign: CODE_PREFIX_RE.test(prefix) && expandPlainIid(code.slice(2)) ? prefix : '' };
+}
+// iid complet d'un item de cette antenne, '' sinon (pas un iid, ou iid d'une autre antenne)
+function expandIid(code) { return readIid(code).iid; }
+// { id, foreign } d'un id de lot (LOT_ID_LENGTH) ou de paquet (PACK_ID_LENGTH) lu dans un code ; un id d'une autre
+// longueur est rendu tel quel (ancienne etiquette)
+function readId(code, length) {
+  code = code || '';
+  const prefix = code.slice(0, 2);
+  if (code.length === length + 2 && CODE_PREFIX_RE.test(prefix)) {
+    return prefix === CODE_PREFIX ? { id: code.slice(2), foreign: '' } : { id: '', foreign: prefix };
+  }
+  return { id: code, foreign: '' };
 }
 const REPEAT_DELAY_MS = 2500; // un meme code vu en continu par la camera n'est traite qu'une fois
 const STORAGE_USER = 'qrprotec.user';
