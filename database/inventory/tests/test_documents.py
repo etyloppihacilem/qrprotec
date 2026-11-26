@@ -274,6 +274,15 @@ class LotStateReportTests(ApiTestCase):  # meme base que LotSheetTests, sans ses
         self.assertEqual(response['Content-Type'], 'application/pdf')
         return '\n'.join(LotSheetTests.page_texts(self, response.content))
 
+    def words(self, response: HttpResponse) -> str:
+        """Texte des lignes mis bout a bout : le retour a la ligne depend de la longueur des dates."""
+        return ' '.join(re.findall(r'\(((?:\\.|[^\\)])*)\) Tj', self.text(response)))
+
+    def noon(self, days: int) -> datetime:
+        """Midi (heure locale) il y a `days` jours : une vérif finie juste avant ne passe pas minuit, quelle que
+        soit l'heure à laquelle les tests tournent (sinon « terminée le <date> à » au lieu de « terminée à »)."""
+        return timezone.localtime(self.ago(days)).replace(hour=12, minute=0, second=0, microsecond=0)
+
     def test_state_at_past_date(self) -> None:
         i1, i2, i3 = self.items
         text = self.text(self.report(5, antenna='  Paris   15 '))
@@ -301,8 +310,7 @@ class LotStateReportTests(ApiTestCase):  # meme base que LotSheetTests, sans ses
         Verifs.objects.filter(lot=self.lot).update(received=self.ago(6))
         # texte des lignes mis bout a bout : le retour a la ligne depend de la longueur de la date (jour de la
         # semaine, heure du jour) et peut tomber dans « faite hors connexion »
-        words = ' '.join(re.findall(r'\(((?:\\.|[^\\)])*)\) Tj', self.text(self.report(5))))
-        self.assertIn('faite hors connexion, re\xe7ue par le serveur le', words)
+        self.assertIn('faite hors connexion, re\xe7ue par le serveur le', self.words(self.report(5)))
 
     def test_absent_and_moved_items(self) -> None:
         i1, i2, i3 = self.items
@@ -332,7 +340,9 @@ class LotStateReportTests(ApiTestCase):  # meme base que LotSheetTests, sans ses
     def test_scan_times_duration_tasks_and_extra(self) -> None:
         i1, i2, i3 = self.items
         verif = Verifs.objects.get(lot=self.lot)
-        Verifs.objects.filter(id=verif.id).update(started=verif.datetime - timedelta(minutes=12, seconds=30))
+        Verifs.objects.filter(id=verif.id).update(datetime=self.noon(7), received=self.noon(7),
+                                                  started=self.noon(7) - timedelta(minutes=12, seconds=30))
+        verif.refresh_from_db()
         VerifItem.objects.create(verif=verif, item=i2, scanned_at=verif.datetime - timedelta(minutes=3, seconds=7),
                                  tasks=['Sachet intact', 'Rangé à plat'])
         # 2 compresses attendues : la 3e (ajoutee il y a 1 jour) est en plus
@@ -342,9 +352,10 @@ class LotStateReportTests(ApiTestCase):  # meme base que LotSheetTests, sans ses
         Operation.objects.create(kind=OperationKind.CATALOG, by='M:P001', at=self.ago(20),
                                  summary=f'contenu attendu modifié : {self.lot.lot_type}',
                                  details={'type': self.lot.lot_type_id})
-        text = self.text(self.report())
+        response = self.report()
+        text, words = self.text(response), self.words(response)
         local = timezone.localtime(verif.datetime)
-        self.assertIn(f"terminée à {local.strftime('%H:%M:%S')} \\(durée 12 min 30 s\\)", text)
+        self.assertIn(f"terminée à {local.strftime('%H:%M:%S')} \\(durée 12 min 30 s\\)", words)
         scan = timezone.localtime(verif.datetime - timedelta(minutes=3, seconds=7)).strftime('%d/%m/%Y %H:%M:%S')
         self.assertIn(f'({scan})', text)
         self.assertIn('(Tâches cochées au dernier scan : Sachet intact · Rangé à plat)', text)
@@ -358,7 +369,7 @@ class LotStateReportTests(ApiTestCase):  # meme base que LotSheetTests, sans ses
 
     def test_cascade_duration_on_parent(self) -> None:
         # vérif en cascade : Sac A (12:00 -> 12:05), Sac O2 1 (12:05 -> 12:07), puis B+ 1 valide a 12:07:02
-        end = self.ago(1)
+        end = self.noon(2) + timedelta(minutes=7, seconds=2)  # avant le rapport a -12 h, a toute heure
         sac_a = Verifs.objects.get(lot=self.lot)
         Verifs.objects.filter(id=sac_a.id).update(started=end - timedelta(minutes=7, seconds=2),
                                                   datetime=end - timedelta(minutes=2, seconds=2))
@@ -369,7 +380,7 @@ class LotStateReportTests(ApiTestCase):  # meme base que LotSheetTests, sans ses
         # vérif plus ancienne du Sac O2, hors de cette cascade : ne compte pas
         Verifs.objects.create(lot=self.o2, by='M:M001', datetime=end - timedelta(hours=3),
                               started=end - timedelta(hours=4), complete=True)
-        text = ' '.join(self.text(self.report(0.5)).split())
+        text = self.words(self.report(0.5))
         self.assertIn('\\(dur\xe9e 7 min 02 s, sous-lots compris\\)', text)  # B+ 1 : toute la cascade
         self.assertIn('\\(dur\xe9e 2 min 00 s\\)', text)  # Sac O2 1 : son etape seule
 
