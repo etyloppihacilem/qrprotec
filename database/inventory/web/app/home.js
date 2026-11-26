@@ -7,10 +7,10 @@
 
 const badge = credentials;
 const HOME_PAGES = { menu: '', lots: 'lots', live: 'suivi', stock: 'stock', reports: 'signalements', lists: 'listes',
-  depart: 'depart', debug: 'debug', stats: 'stats', settings: 'reglages' };
+  depart: 'depart', debug: 'debug', stats: 'stats', dashboard: 'tableau-de-bord', settings: 'reglages' };
 const HOME_TITLES = { menu: 'QRProtec', lots: 'État des lots', live: 'Suivi des vérifs', stock: 'Gestion de la TECH',
   reports: 'Signalements', lists: 'Listes de matériel', depart: 'Départ', debug: 'Debug des codes',
-  stats: 'Stats de l\'année', settings: 'Réglages' };
+  stats: 'Stats de l\'année', dashboard: 'Tableau de bord', settings: 'Réglages' };
 // reglages des notifications : seulement pour les utilisateurs qui peuvent en recevoir (gestion et admin)
 const hasNotifications = () => !!state.user && (state.user.notifications !== undefined ? !!state.user.notifications : canSeeStock());
 
@@ -42,6 +42,7 @@ function showHome(page = 'menu', push = true) {
   refreshHome(page);
   if (page === 'debug' && isAdmin() && !debug.data) loadDebug();
   if (page === 'stats' && canSeeStock() && !fun.data) loadFunStats();
+  if (page === 'dashboard' && canSeeStock()) loadDashboard();
   if (page === 'live') watchStart(); else watchStop();
   if (page === 'lists') listsShown(); else { clearInterval(lists.timer); lists.timer = 0; }
   if (page === 'depart') departShown();

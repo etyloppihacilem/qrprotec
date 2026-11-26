@@ -286,6 +286,7 @@ add_executable(${PROJECT_NAME}
     src/ui/windows/reports_window.cpp
     src/ui/windows/print_counts_window.cpp
     src/ui/windows/purchases_window.cpp
+    src/ui/windows/dashboard_window.cpp
     src/ui/windows/lists_window.cpp
     src/ui/windows/lot_admin_window.cpp
     src/ui/windows/lots_window.cpp

@@ -223,6 +223,9 @@ class StockWindow final : public AppWindow {
     void draw(App &app) override {
       if (button("Rafraîchir"))
         on_open(app);
+      ImGui::SameLine();
+      if (primary_button("Tableau de bord")) // scores, depenses, consommation, reassorts (comme le web)
+        app.open_window("dashboard");
       if (app.catalog.loading_tasks || app.catalog.loading_events) {
         ImGui::SameLine();
         ImGui::TextDisabled("chargement...");

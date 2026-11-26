@@ -65,6 +65,7 @@ AppSettings AppSettings::defaults() {
   settings.layout["editor"]    = { false, 0.0f, 0.0f, kWorkWidth, 1.0f };
   settings.layout["print_counts"] = { false, 0.0f, 0.0f, kWorkWidth, 1.0f };
   settings.layout["purchases"] = { false, 0.0f, 0.0f, kWorkWidth, 1.0f };
+  settings.layout["dashboard"] = { false, 0.0f, 0.0f, kWorkWidth, 1.0f };
   settings.layout["docs"]      = { false, 0.0f, 0.0f, kWorkWidth, 1.0f };
   return settings;
 }

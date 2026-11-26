@@ -272,6 +272,26 @@ livraison » (qui l'a cochée, quand, ce qui est déjà reçu). Elle se clôt to
 du type a été réceptionnée. Pas livrée au bout de 30 jours, elle redevient une tâche (relancer le fournisseur).
 Décochez-la si elle ne viendra pas : la suggestion revient si elle tient toujours.
 
+## Tableau de bord de la TECH
+
+Sur le web, le gros bouton **Tableau de bord de la TECH** en haut de la Gestion de la TECH ; au poste, menu
+**TECH > Tableau de bord** (ou le bouton « Tableau de bord » de la fenêtre Gestion de la TECH). Les deux montrent la
+même chose, sur les 12 derniers mois :
+
+- **Scores sur 100** de chaque activité (vert à partir de 75, orange de 50 à 75, rouge en dessous) et leur moyenne :
+  - *Vérifs* : moyenne des lots valides aujourd'hui, des lots vérifiés (ou scellés) dans les 90 jours et des vérifs
+    complètes ;
+  - *Réassorts* : réassorts qui laissent le lot complet à la vérif suivante, moins les items réassortis introuvables
+    à cette vérif ;
+  - *Péremptions* : part de ce qui sort des lots qui est utilisé plutôt que jeté périmé ;
+  - *Signalements* : signalements qui ont eu une réponse du TECH en moins de 48 h ;
+  - *Listes* : listes sorties rentrées (retour scanné) dans les 2 jours.
+- **À surveiller** : ce qui mérite l'attention, toutes sections confondues.
+- Une section par sujet : lots et vérifs (lots qui attendent leur vérif depuis le plus longtemps), réassorts (lots
+  où ils suffisent le moins, items en plus qui s'accumulent), consommation et péremptions, dépenses et commandes
+  (commandes saisies au poste), signalements, listes et départs, étiquettes et consommables, utilisation du
+  logiciel, et les fun facts de l'AG (la page complète reste sur le web, 5 appuis sur « Prévisions »).
+
 ## Évènements à venir
 
 La Gestion de la TECH a une partie à part des tâches : **À venir** (vue du téléphone, onglet du poste). Elle

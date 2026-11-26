@@ -177,6 +177,7 @@ App::App(Inateck &inateck_ref) : feedback(inateck_ref), inateck(inateck_ref) {
   windows.push_back(make_lots_window());
   windows.push_back(make_verif_window());
   windows.push_back(make_stock_window());
+  windows.push_back(make_dashboard_window());
   windows.push_back(make_inventory_window()); // Stock
   windows.push_back(make_items_window());
   windows.push_back(make_lot_types_window());
@@ -908,6 +909,8 @@ void App::draw_gestion_menus(bool dark_bar) {
       show_tech_tab("tasks");
     if (tab_menu_item(*this, "À venir (péremptions, révisions, commandes...)", "stock"))
       show_tech_tab("events");
+    if (tab_menu_item(*this, "Tableau de bord (scores, dépenses, consommation...)", "dashboard"))
+      open_window("dashboard");
     const int         fresh   = report_counts["new"].integer();
     const std::string reports = "Signalements" + (fresh > 0 ? " (" + nb(fresh, "nouveau", "nouveaux") + ")" : std::string());
     if (tab_menu_item(*this, reports.c_str(), "reports", true))

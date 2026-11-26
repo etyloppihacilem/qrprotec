@@ -106,6 +106,7 @@ void App::draw_hub() {
     // fenetres
     static const std::pair< const char *, const char * > kWords[] = {
       { "stock", "TECH taches a faire a venir evenements" },
+      { "dashboard", "tableau de bord TECH scores statistiques depenses consommation reassort fun" },
       { "inventory", "inventaire etat du stock projection commandes transferts" },
       { "items", "types d'items paquets entretien revisions desinfections materiel" },
       { "lot_types", "types de lots referentiel contenu emplacements" },

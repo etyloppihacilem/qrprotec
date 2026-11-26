@@ -549,7 +549,11 @@ function stockParts(view) {
       canSeeStock() ? el('button', { type: 'button', onclick: openLabelPrints, title: 'Nouvelles étiquettes d\'items' },
         icon('plus'), 'Étiquettes') : null,
       el('button', { type: 'button', onclick: loadStock }, icon('refresh'), state.loading === 'stock' ? 'Chargement…' : 'Actualiser')));
-  const parts = [toggle, head];
+  // tableau de bord : bien visible en haut de la page (pas caché comme les stats de l'AG)
+  const board = el('button', { type: 'button', class: 'dash-open', onclick: () => showHome('dashboard') },
+    el('span', { class: 'tile-icon' }, '📊'), el('span', {}, el('b', {}, 'Tableau de bord de la TECH'),
+      el('small', {}, 'Scores, dépenses, consommation, réassorts, signalements, listes, fun facts')));
+  const parts = [board, toggle, head];
   if (view === 'tasks') {
     renderTasks(parts);
     return parts;

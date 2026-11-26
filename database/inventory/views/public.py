@@ -1401,6 +1401,15 @@ def debug_codes_list(request: Request) -> Response:
 
 @api_view(['POST'])
 @handle_errors
+def dashboard_summary(request: Request) -> Response:
+    """Tableau de bord de la TECH du front web (bouton de la Gestion de la TECH) : {"user"}. Roles gestion et admin,
+    verifie ici. Noms courts seulement (API publique)."""
+    connected_user(request, GESTION)
+    return Response(dashboard.compute())
+
+
+@api_view(['POST'])
+@handle_errors
 def fun_stats_view(request: Request) -> Response:
     """Stats fun de l'annee (front web, cache derriere 5 appuis sur « Prévisions ») : {"user", "period"?: "last12" ou
     une annee}. Roles gestion et admin, verifie ici et pas seulement par le front."""
@@ -1473,6 +1482,14 @@ def debug_guest_cards(request: Request) -> Response:
     elif action != 'list':
         raise ApiError('action : list, create, disable, enable, reuse ou reactivate')
     return Response({'cards': guests.cards(public=True)})
+
+
+@api_view(['GET'])
+@handle_errors
+def dashboard_view(request: Request) -> Response:
+    """Tableau de bord de la TECH du poste (menu TECH), roles gestion et admin."""
+    require_front(request, GESTION)
+    return Response(dashboard.compute())
 
 
 @api_view(['GET'])

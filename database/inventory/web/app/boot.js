@@ -78,7 +78,7 @@ async function boot() {
     const page = pageFromHash(location.hash);
     if (page === 'scan') enterScanner(false, false);
     else showHome((page === 'stock' && !canSeeStock()) || (['reports', 'lists'].includes(page) && !state.user)
-      || (page === 'debug' && !isAdmin()) || (page === 'stats' && !canSeeStock()) ? 'menu' : page, false);
+      || (page === 'debug' && !isAdmin()) || (['stats', 'dashboard'].includes(page) && !canSeeStock()) ? 'menu' : page, false);
   }
   if (state.expiredSession && !state.lot) toast('Vérif précédente oubliée : plus de 20 minutes sans activité.');
   render();
