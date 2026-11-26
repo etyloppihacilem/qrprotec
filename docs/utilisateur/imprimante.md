@@ -141,6 +141,9 @@ les étiquettes en attente, même quand la file est arrêtée sur une erreur.
 Pour ne pas perdre les étiquettes avancées par le calibrage, ouvrez le capot, réenroulez-les à la
 main sur la bobine jusqu'à la sortie, puis refermez. L'imprimante en avance au plus une pour se
 recaler.
+Les étiquettes perdues quand même (calibrage, ratées, bourrage) ne sont pas comptées comme
+impressions : notez-les dans **Impression > Noter des étiquettes perdues...** pour garder le stock des
+consommables juste (voir [Gérer le stock](gerer-le-stock.md#compteur-dimpressions-et-consommables)).
 
 ## Changer de rouleau
 

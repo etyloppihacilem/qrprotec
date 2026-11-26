@@ -2,14 +2,18 @@
 // l'imprimante a la fin (reglages d'usine si demande, calibrage si le format change, lecture de l'etat) et le
 // rouleau declare en place. Ouvert depuis les Reglages, la fenetre « Changez de rouleau » de la file en pause,
 // le menu de l'impression dans la barre du haut et la fenetre Impressions et consommables.
+// Ici aussi, la saisie des etiquettes perdues du rouleau (calibrage, etiquettes ratees...), pas comptees comme
+// impressions : envoyees au serveur, elles baissent le stock estime des consommables (inventory/consumables.py).
 
 #include "../core/paths.hpp"
 #include "../core/template_io.hpp"
 #include "../printer/label_languages.hpp"
 #include "../render/label_types.hpp"
+#include "../core/plural.hpp"
 #include "../ui/widgets.hpp"
 #include "app.hpp"
 
+#include <algorithm>
 #include <cmath>
 
 namespace qrprotec {
@@ -35,6 +39,36 @@ void bullet(const char *text) {
   ImGui::Bullet();
   ImGui::TextWrapped("%s", text);
 }
+
+std::vector< LabelType > template_label_types() {
+  std::vector< TemplateDocument > documents;
+  for (const auto &path : glob_templates("*.qr")) {
+    TemplateDocument document;
+    std::string      error;
+    if (load_template(document, path.string(), error))
+      documents.push_back(std::move(document));
+  }
+  return collect_label_types(documents);
+}
+
+constexpr const char *kLossTitle = "Étiquettes perdues###label_loss";
+constexpr int         kMaxLoss   = 10000; // comme consumables.MAX_LOSS
+
+// raisons d'une perte (models.LabelLossReason) : identifiant, libelle, explication
+struct LossReason {
+    const char *id;
+    const char *label;
+    const char *help;
+};
+constexpr LossReason kLossReasons[] = {
+  { "calibration", "Calibrage", "Étiquettes avancées par l'imprimante pour mesurer le rouleau (changement de rouleau, "
+                                "calibrage). Comptées dans le rythme de consommation : cela revient à chaque rouleau." },
+  { "misprint", "Étiquettes ratées", "Mal imprimées, décalées, blanches, à jeter. Comptées dans le rythme de "
+                                     "consommation." },
+  { "accident", "Accident", "Bourrage, rouleau abîmé ou tombé, fin de bobine inutilisable : ponctuel. Le stock baisse, "
+                            "mais pas le rythme de consommation (on ne commande pas plus tôt pour autant)." },
+  { "other", "Autre", "Toute autre étiquette sortie sans être comptée. Comptée dans le rythme de consommation." },
+};
 } // namespace
 
 labels::RawJob printer_media_job(const PrintSettings &print, double width_mm, double height_mm, bool ribbon,
@@ -55,14 +89,7 @@ labels::RawJob printer_media_job(const PrintSettings &print, double width_mm, do
 
 void App::open_roll_wizard(const std::string &type_name) {
   RollWizard wizard;
-  std::vector< TemplateDocument > documents;
-  for (const auto &path : glob_templates("*.qr")) {
-    TemplateDocument document;
-    std::string      error;
-    if (load_template(document, path.string(), error))
-      documents.push_back(std::move(document));
-  }
-  wizard.types        = collect_label_types(documents);
+  wizard.types        = template_label_types();
   wizard.chosen       = !type_name.empty() ? type_name : settings.print.loaded_label_type;
   wizard.open_pending = true;
   const LabelType *chosen = find_type(wizard.types, wizard.chosen);
@@ -215,7 +242,8 @@ void App::draw_roll_wizard() {
         bullet("Réglez ce qui est indiqué, puis Relire l'état.");
       if (wizard.calibrate)
         bullet("Attendez que l'imprimante s'arrête. Pour garder les étiquettes sorties pendant le calibrage, "
-               "ouvrez le capot, réenroulez-les à la main jusqu'à la sortie et refermez.");
+               "ouvrez le capot, réenroulez-les à la main jusqu'à la sortie et refermez. Sinon, notez-les "
+               "(bouton Étiquettes perdues) : elles ne sont pas comptées comme impressions.");
       if (wizard.calibrate)
         bullet("Imprimez l'étiquette d'étalonnage : les quatre cadres pleins doivent apparaître. Sinon, réglez les "
                "décalages dans Réglages > Étiquettes et impression.");
@@ -243,6 +271,12 @@ void App::draw_roll_wizard() {
         job.document    = calibration_document(*chosen, true);
         job.image       = calibration_image(job.document, chosen->design_margins());
         print_documents({ job });
+      }
+      ImGui::SameLine();
+      if (privileged() && button("Étiquettes perdues...")) {
+        // la fenetre s'ouvre une fois l'assistant ferme (une seule fenetre modale a la fois)
+        open_label_loss(wizard.chosen, wizard.calibrate ? 3 : 1);
+        ImGui::CloseCurrentPopup();
       }
       ImGui::SameLine();
     }
@@ -290,6 +324,101 @@ void App::draw_roll_wizard() {
   }
   ImGui::SameLine();
   if (button("Annuler") || escape_pressed())
+    ImGui::CloseCurrentPopup();
+  ImGui::EndPopup();
+}
+
+void App::open_label_loss(const std::string &type_name, int count) {
+  LabelLossForm form;
+  form.types        = template_label_types();
+  form.chosen       = !type_name.empty() ? type_name : settings.print.loaded_label_type;
+  form.count        = std::clamp(count, 1, kMaxLoss);
+  form.open_pending = true;
+  label_loss_       = std::move(form);
+}
+
+void App::draw_label_loss() {
+  LabelLossForm &form = label_loss_;
+  if (form.open_pending && !ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopupId)) {
+    form.open_pending = false;
+    ImGui::OpenPopup(kLossTitle);
+  }
+  const ImGuiViewport *viewport = ImGui::GetMainViewport();
+  ImGui::SetNextWindowPos(viewport->GetCenter(), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+  if (!ImGui::BeginPopupModal(kLossTitle, nullptr, ImGuiWindowFlags_AlwaysAutoResize))
+    return;
+  const float width = ImGui::GetFontSize() * 30.0f;
+  ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + width);
+  ImGui::TextWrapped("Étiquettes sorties du rouleau sans être imprimées : elles ne sont pas comptées comme "
+                     "impressions. Notées ici, elles sont retirées du stock estimé des bobines (et du ruban pour "
+                     "le transfert thermique).");
+  ImGui::Spacing();
+
+  const LabelType *chosen = nullptr;
+  for (const LabelType &type : form.types)
+    if (type.name == form.chosen)
+      chosen = &type;
+  ImGui::AlignTextToFramePadding();
+  ImGui::TextUnformatted("Rouleau :");
+  ImGui::SameLine();
+  ImGui::SetNextItemWidth(width * 0.6f);
+  if (ImGui::BeginCombo("##loss_roll", chosen != nullptr ? chosen->name.c_str() : "choisir le rouleau")) {
+    for (const LabelType &type : form.types) {
+      if (ImGui::Selectable(type.name.c_str(), type.name == form.chosen))
+        form.chosen = type.name;
+      if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("%s", type.summary().c_str());
+    }
+    ImGui::EndCombo();
+  }
+  if (chosen != nullptr)
+    ImGui::TextDisabled("%s%s", chosen->summary().c_str(),
+                        chosen->name == settings.print.loaded_label_type ? " (rouleau en place)" : "");
+
+  ImGui::AlignTextToFramePadding();
+  ImGui::TextUnformatted("Étiquettes perdues :");
+  ImGui::SameLine();
+  ImGui::SetNextItemWidth(ImGui::GetFontSize() * 7.0f);
+  ImGui::InputInt("##loss_count", &form.count);
+  form.count = std::clamp(form.count, 1, kMaxLoss);
+
+  ImGui::TextUnformatted("Pourquoi :");
+  for (const LossReason &reason : kLossReasons) {
+    if (ImGui::RadioButton(reason.label, form.reason == reason.id))
+      form.reason = reason.id;
+    ImGui::SameLine();
+    help_marker(reason.help);
+  }
+  ImGui::PopTextWrapPos();
+
+  ImGui::Spacing();
+  ImGui::Separator();
+  // pas de validation par Entree : la douchette en mode clavier en envoie une a chaque scan
+  ImGui::BeginDisabled(chosen == nullptr || form.sending);
+  if (primary_button(form.sending ? "Envoi..." : "Enregistrer") && chosen != nullptr) {
+    Json body;
+    body["width_mm"]  = chosen->width_mm;
+    body["height_mm"] = chosen->height_mm;
+    body["support"]   = label_support_id(chosen->support);
+    body["count"]     = form.count;
+    body["reason"]    = form.reason;
+    form.sending      = true;
+    const int count   = form.count;
+    api.post("/api/consumables/losses/", body, [this, count](const ApiResult &result) {
+      label_loss_.sending = false;
+      if (!result.ok) {
+        notify("Étiquettes perdues non enregistrées : " + result.error, true);
+        return;
+      }
+      notify(nb(count, "étiquette perdue notée", "étiquettes perdues notées") + " : stock des consommables mis à jour.");
+      if (AppWindow *counts = window("print_counts"); counts != nullptr && counts->open)
+        counts->on_open(*this);
+    });
+    ImGui::CloseCurrentPopup();
+  }
+  ImGui::EndDisabled();
+  ImGui::SameLine();
+  if (button("Annuler##label_loss") || escape_pressed())
     ImGui::CloseCurrentPopup();
   ImGui::EndPopup();
 }

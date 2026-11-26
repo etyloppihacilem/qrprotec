@@ -26,7 +26,7 @@ from django.db.models import F, Sum
 from django.db.models.functions import ExtractMonth, ExtractYear
 from django.utils import timezone
 
-from .models import LabelSupport, PrintCount, PrintCountBatch
+from .models import LabelLoss, LabelSupport, PrintCount, PrintCountBatch
 
 MAX_ROWS = 400           # lignes par envoi (jour x categorie)
 MAX_COUNT = 100000       # etiquettes par ligne
@@ -120,7 +120,8 @@ def category_label(width: Decimal, height: Decimal, support: str) -> str:
 
 def summary(year: int | None = None) -> dict[str, Any]:
     """Tableau d'une annee : une ligne par categorie avec ses 12 mois et son total, plus les totaux par mois.
-    `years` : annees qui ont des impressions (et l'annee en cours), pour choisir."""
+    `years` : annees qui ont des impressions (et l'annee en cours), pour choisir. `lost` : etiquettes perdues notees
+    au poste (calibrage...), a part : ce ne sont pas des impressions, mais elles sortent du rouleau."""
     current = timezone.localdate().year
     year = year or current
     rows = (PrintCount.objects.filter(day__year=year)
@@ -133,6 +134,12 @@ def summary(year: int | None = None) -> dict[str, Any]:
         category = categories.setdefault(key, [0] * 12)
         category[row['month'] - 1] += row['total']
     result = []
+    lost: dict[Any, int] = {}
+    for row in (LabelLoss.objects.filter(day__year=year).values('width_mm', 'height_mm', 'support')
+                .annotate(total=Sum('count'))):
+        key = (row['width_mm'], row['height_mm'], row['support'])
+        lost[key] = row['total']
+        categories.setdefault(key, [0] * 12)  # categorie sans impression mais avec des pertes
     for (width, height, support), months in categories.items():
         result.append({
             'key': f'{_number(width)}x{_number(height)}-{support}',
@@ -142,6 +149,7 @@ def summary(year: int | None = None) -> dict[str, Any]:
             'support': support,
             'months': months,
             'total': sum(months),
+            'lost': lost.get((width, height, support), 0),
         })
     # les plus imprimees d'abord
     result.sort(key=lambda category: (-category['total'], category['label']))
@@ -155,4 +163,5 @@ def summary(year: int | None = None) -> dict[str, Any]:
         'categories': result,
         'months_total': months_total,
         'total': sum(months_total),
+        'lost_total': sum(lost.values()),
     }

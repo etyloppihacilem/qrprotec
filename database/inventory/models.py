@@ -1602,6 +1602,33 @@ class ConsumableMove(models.Model):
         ordering = ['created']
 
 
+class LabelLossReason(models.TextChoices):
+    CALIBRATION = 'calibration', 'Calibrage'
+    MISPRINT = 'misprint', 'Étiquettes ratées'
+    ACCIDENT = 'accident', 'Accident (bourrage, rouleau abîmé)'
+    OTHER = 'other', 'Autre'
+
+
+class LabelLoss(models.Model):
+    """Etiquettes perdues du rouleau, notees a la main au poste : sorties de l'imprimante sans etre comptees comme
+    impressions (calibrage, etiquettes ratees ou blanches, bourrage, rouleau abime). Meme categorie que PrintCount
+    (largeur x hauteur de l'etiquette physique, support). Elles baissent le stock estime des bobines (et du ruban pour
+    le transfert) et comptent dans le rythme de consommation, sauf les accidents ponctuels (voir consumables.py).
+    `front` : nom de la cle du front, vide pour le poste local ; `by` : identite de la personne connectee."""
+    day = models.DateField(db_index=True)
+    width_mm = models.DecimalField(max_digits=5, decimal_places=1)
+    height_mm = models.DecimalField(max_digits=5, decimal_places=1)
+    support = models.CharField(max_length=8, choices=LabelSupport.choices)
+    count = models.PositiveIntegerField()
+    reason = models.CharField(max_length=12, choices=LabelLossReason.choices, default=LabelLossReason.CALIBRATION)
+    front = models.CharField(max_length=64, blank=True, default='')
+    by = models.CharField(max_length=64, blank=True, default='')
+    created = models.DateTimeField(default=timezone.now, db_index=True)
+
+    class Meta:
+        ordering = ['created']
+
+
 class NotificationSettings(models.Model):
     """Reglages des notifications (une seule ligne, pk=1).
 

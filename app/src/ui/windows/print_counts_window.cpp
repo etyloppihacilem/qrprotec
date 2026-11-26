@@ -64,7 +64,7 @@ void right_aligned(const std::string &text, bool disabled = false) {
 // - Impressions : etiquettes envoyees a l'imprimante par tous les fronts, par mois calendaire et par categorie
 //   d'etiquette (taille et support), total de l'annee ;
 // - Consommables : stock estime des bobines et rubans (inventory/consumables.py), autonomie, couts, receptions et
-//   inventaires ;
+//   inventaires, etiquettes perdues du rouleau (calibrage, ratees : pas des impressions, notees a la main) ;
 // - References : bobines et rubans achetes (boites de X bobines de Y etiquettes, rouleaux de ruban de N metres).
 // En haut, le rouleau en place sur cet ordinateur, choisi sans passer par l'avertissement de changement de rouleau.
 class PrintCountsWindow final : public AppWindow {
@@ -297,6 +297,24 @@ class PrintCountsWindow final : public AppWindow {
         ImGui::TableNextColumn();
         right_aligned(thousands(data_["total"].integer()));
       }
+      // etiquettes perdues (calibrage, ratees) : pas des impressions, mais sorties du rouleau
+      if (data_["lost_total"].integer() > 0) {
+        ImGui::TableNextRow();
+        ImGui::TableNextColumn();
+        ImGui::TextDisabled("Perdues en plus");
+        if (ImGui::IsItemHovered())
+          ImGui::SetTooltip("Étiquettes perdues notées à la main (calibrage, ratées, bourrage) : pas des "
+                            "impressions, mais comptées dans le stock des consommables.");
+        for (const Json &category : categories.items()) {
+          ImGui::TableNextColumn();
+          const int lost = category["lost"].integer();
+          right_aligned(lost > 0 ? thousands(lost) : "–", true);
+        }
+        if (with_total) {
+          ImGui::TableNextColumn();
+          right_aligned(thousands(data_["lost_total"].integer()), true);
+        }
+      }
       ImGui::TableNextRow();
       ImGui::TableNextColumn();
       ImGui::TextDisabled("Moyenne par mois");
@@ -377,12 +395,13 @@ class PrintCountsWindow final : public AppWindow {
       draw_item_label_pool(app);
       ImGui::PushTextWrapPos(0.0f);
       ImGui::TextDisabled("Stock estimé : dernier inventaire (ou première réception) + réceptions − étiquettes "
-                          "imprimées depuis le lendemain. Le ruban s'use de la hauteur de chaque étiquette de "
+                          "imprimées depuis le lendemain − étiquettes perdues notées depuis. Le ruban s'use de la hauteur de chaque étiquette de "
                           "transfert + %g mm. Consommation : moyenne des %d derniers jours, sans les 8 premières "
                           "semaines du compteur (mise en place : on étiquette tout le matériel d'un coup). Pour les "
                           "étiquettes d'items, au moins une étiquette par item utilisé ou jeté (consommation "
                           "d'items des 6 derniers mois) : le rythme retenu est le plus haut des deux. Pendant la "
-                          "mise en place, alerte seulement sous 2 bobines.",
+                          "mise en place, alerte seulement sous 2 bobines. Les étiquettes perdues comptent dans la "
+                          "consommation, sauf les accidents ponctuels.",
                           consumables_["ribbon_gap_mm"].num(3.0), consumables_["rate_days"].integer(90));
       ImGui::PopTextWrapPos();
       if (!consumables_error_.empty())
@@ -425,6 +444,9 @@ class PrintCountsWindow final : public AppWindow {
           ImGui::TextUnformatted(euros(pool["monthly_cost"]).c_str());
           ImGui::TableNextColumn();
           ImGui::TextWrapped("%s", pool["year_used_text"].str().c_str());
+          if (!pool["year_lost_text"].str().empty())
+            ImGui::TextDisabled("dont %s perdu%s", pool["year_lost_text"].str().c_str(),
+                                pool["kind"].str() == "ribbon" ? "s" : pool["year_lost"].integer() > 1 ? "es" : "e");
           if (!pool["year_cost"].is_null())
             ImGui::TextDisabled("%s", euros(pool["year_cost"]).c_str());
         }
@@ -434,6 +456,10 @@ class PrintCountsWindow final : public AppWindow {
       ImGui::Spacing();
       ImGui::SeparatorText("Réception ou inventaire");
       draw_move_form(app);
+
+      ImGui::Spacing();
+      ImGui::SeparatorText("Étiquettes perdues");
+      draw_losses(app);
 
       ImGui::Spacing();
       ImGui::SeparatorText("Derniers mouvements");
@@ -466,6 +492,50 @@ class PrintCountsWindow final : public AppWindow {
                            "cancel_move"))
           send(app, "POST", "/api/consumables/moves/" + std::to_string(move["id"].integer()) + "/delete/",
                Json::object(), "Mouvement annulé.");
+        ImGui::PopID();
+      }
+      ImGui::EndTable();
+    }
+
+    // Etiquettes perdues du rouleau (calibrage, ratees...) : saisie (fenetre commune avec le menu Impression) et
+    // dernieres pertes notees, annulables
+    void draw_losses(App &app) {
+      if (button("Noter des étiquettes perdues..."))
+        app.open_label_loss();
+      ImGui::SameLine();
+      help_marker("Étiquettes sorties du rouleau sans être imprimées (calibrage, étiquettes ratées, bourrage) : "
+                  "l'imprimante ne les compte pas. Aussi dans le menu Impression.");
+      const Json &losses = consumables_["losses"];
+      if (losses.size() == 0) {
+        ImGui::TextDisabled("Aucune étiquette perdue notée.");
+        return;
+      }
+      if (!ImGui::BeginTable("label_losses", 5, ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerH))
+        return;
+      ImGui::TableSetupColumn("Date", ImGuiTableColumnFlags_WidthFixed, ImGui::GetFontSize() * 9.0f);
+      ImGui::TableSetupColumn("Étiquettes", ImGuiTableColumnFlags_WidthStretch, 2.0f);
+      ImGui::TableSetupColumn("Pourquoi", ImGuiTableColumnFlags_WidthStretch, 2.0f);
+      ImGui::TableSetupColumn("Par", ImGuiTableColumnFlags_WidthStretch, 1.0f);
+      ImGui::TableSetupColumn("", ImGuiTableColumnFlags_WidthFixed, ImGui::GetFontSize() * 5.0f);
+      ImGui::TableHeadersRow();
+      for (const Json &loss : losses.items()) {
+        ImGui::TableNextRow();
+        ImGui::PushID(("loss" + std::to_string(loss["id"].integer())).c_str());
+        ImGui::TableNextColumn();
+        ImGui::TextUnformatted(display_datetime(loss["created"]).c_str());
+        ImGui::TableNextColumn();
+        ImGui::TextWrapped("%s (%s)", loss["count_text"].str().c_str(), loss["pool_label"].str().c_str());
+        ImGui::TableNextColumn();
+        ImGui::TextWrapped("%s", loss["reason_label"].str().c_str());
+        if (!loss["paced"].boolean() && ImGui::IsItemHovered())
+          ImGui::SetTooltip("Ponctuel : baisse le stock, pas le rythme de consommation.");
+        ImGui::TableNextColumn();
+        ImGui::TextUnformatted(loss["by"].str().c_str());
+        ImGui::TableNextColumn();
+        if (confirm_button("Annuler", "Annuler cette perte ? Le stock estimé sera recalculé sans elle.",
+                           "cancel_loss"))
+          send(app, "POST", "/api/consumables/losses/" + std::to_string(loss["id"].integer()) + "/delete/",
+               Json::object(), "Perte annulée.");
         ImGui::PopID();
       }
       ImGui::EndTable();

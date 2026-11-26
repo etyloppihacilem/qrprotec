@@ -355,6 +355,11 @@ PrintQueue (thread) ── AnyPrinter ─┬─ RawLabelPrinter ── TSPL (BIT
 - **Consommables** (onglets Consommables et Références de la même fenêtre) : `GET/PATCH
   /api/consumables/`, `POST /api/consumables/refs/`, `PATCH /api/consumables/refs/<id>/`,
   `POST /api/consumables/moves/` (réception ou inventaire), `POST /api/consumables/moves/<id>/delete/`.
+  Étiquettes perdues du rouleau (`LabelLoss`, calibrage, ratées, accident, autre) : fenêtre modale
+  `App::draw_label_loss` (`roll_change.cpp`), ouverte du menu Impression, de l'onglet Consommables et de la
+  fin de l'assistant Changer de rouleau, `POST /api/consumables/losses/` (en ligne, gestion et admin),
+  `POST /api/consumables/losses/<id>/delete/`. Retirées du stock (et du ruban) si notées après le dernier
+  inventaire, dans le rythme sauf `accident`, à part dans `GET /api/print-counts/` (`lost`, `lost_total`).
   Stock estimé, autonomie et coûts calculés par `database/inventory/consumables.py`. La tâche
   « Commander » (lien `consumables`) n'est ajoutée qu'à `GET /api/tasks/` (poste), pas au web.
   Rythme : impressions hors mise en place (`SETUP_DAYS`), et pour la catégorie des étiquettes d'items

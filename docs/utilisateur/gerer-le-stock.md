@@ -249,6 +249,19 @@ sinon la plus imprimée) a aussi un rythme **prévu** d'après la consommation d
 étiquettes de lots, de listes ou de paquets, ni les réimpressions. Le rythme retenu est le plus haut
 des deux ; le détail s'affiche au survol de la colonne « Par mois ».
 
+**Étiquettes perdues** : les étiquettes sorties du rouleau sans être imprimées (avancées par le
+calibrage, ratées ou blanches, bourrage, rouleau abîmé) ne sont pas comptées par l'imprimante. Notez-les
+dans **Impression > Noter des étiquettes perdues...** (gestion et admin), dans l'onglet **Consommables**,
+ou depuis la fin de l'assistant **Changer de rouleau** (bouton **Étiquettes perdues...**, 3 proposées
+après un calibrage) : rouleau (le rouleau en place par défaut), nombre et raison. Elles sont retirées
+du stock estimé (et du ruban, de leur hauteur + 3 mm, pour le transfert thermique), comptées dans
+« depuis janvier » et son coût, et montrées à part dans le tableau des impressions (ligne **Perdues en
+plus**, ce ne sont pas des impressions). Dans le rythme de consommation, calibrages, étiquettes ratées et
+« autre » comptent comme des impressions (cela revient à chaque rouleau) ; un **accident** ponctuel
+(bourrage, rouleau abîmé) baisse le stock mais pas le rythme, pour ne pas faire commander trop tôt. Une
+perte notée par erreur s'annule dans l'onglet **Consommables** ; un inventaire fait après une perte
+l'inclut déjà.
+
 - **Références** : ajoutez chaque produit acheté : bobines (taille, direct ou transfert, étiquettes
   par bobine, bobines par boîte) ou rubans (mètres par rouleau, rouleaux par boîte), avec le prix d'une
   boîte pour les coûts. Plusieurs fournisseurs d'une même taille remplissent le même stock.
