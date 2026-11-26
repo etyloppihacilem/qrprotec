@@ -182,7 +182,7 @@ coup à tous les fronts, y compris les téléphones, sans redémarrer le serveur
 ## Badge + PIN, pas de comptes Django
 
 **Choix.** Le badge (QR avec clé, valable un an) identifie ; le PIN (obligatoire pour les admins)
-authentifie ; un jeton signé de 12 h évite de redemander le PIN sur le téléphone.
+authentifie ; un jeton signé de 12h évite de redemander le PIN sur le téléphone.
 **Raison.** Sur une borne, on scanne son badge : pas de clavier, pas de mot de passe à retenir. Le
 PIN empêche qu'un badge d'admin perdu suffise à tout faire.
 

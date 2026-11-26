@@ -247,7 +247,7 @@ function renderSharedSettings() {
   box.replaceChildren(el('h3', {}, 'Appareil'),
     el('label', { class: 'settings-check' }, input, el('span', {}, 'Web partagé', el('br'),
       el('small', { class: 'hint' }, 'Pour les tablettes de l\'antenne : la connexion n\'est pas gardée comme sur un '
-        + 'téléphone personnel (elle s\'arrête à la fermeture de l\'appli) et finit après 1 h sans activité. '
+        + 'téléphone personnel (elle s\'arrête à la fermeture de l\'appli) et finit après 1h sans activité. '
         + 'Réglage de cet appareil seulement.'
         + (editable ? '' : ' Modifiable par la gestion ou le TECH.')))));
 }

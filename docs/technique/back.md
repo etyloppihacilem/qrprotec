@@ -55,7 +55,7 @@ Chacun enveloppe l'application dans `RoleWSGIHandler(app, 'public'|'local'|'remo
 
 **Utilisateur connecté.** Ni le localhost ni la clé de front ne donnent de droits de gestion :
 ils identifient la machine. Après le badge (et le PIN), `POST /api/auth/` renvoie un jeton de session
-signé (12 h) que le front renvoie dans l'en-tête `X-QRProtec-Session`. Le serveur en déduit
+signé (12h) que le front renvoie dans l'en-tête `X-QRProtec-Session`. Le serveur en déduit
 l'utilisateur et son rôle (`views.front_user`, `views.require_front`) :
 
 | Qui | Droits sur l'API locale ou distante |
@@ -203,7 +203,7 @@ compte rendu et `lots/<id>/verifs/` (« 📶 Faite hors connexion · reçue par 
 
 Les fronts joignent aussi le début de la vérif (`started_at` : étiquette du lot scannée, ou fin de l'étape précédente
 d'une vérif en cascade) et l'heure de chaque scan (`scanned_at` : `{iid: heure}`). `views.device_times` les recale de
-la même façon (*réception − (sent_at − heure)*), jamais après la vérif ni plus de 12 h avant. Ils sont gardés dans
+la même façon (*réception − (sent_at − heure)*), jamais après la vérif ni plus de 12h avant. Ils sont gardés dans
 `Verifs.started` et `VerifItem.scanned_at` (vides pour un front d'avant ces champs ou le scan d'un autre participant) :
 durée de la vérif et dernier scan de chaque item dans le rapport d'état, et de quoi faire des statistiques (durée des
 vérifs, items scannés par minute). Un item à tâches scanné garde ses tâches cochées dans `VerifItem.tasks`.
@@ -235,7 +235,7 @@ scellés des lots parents sont ouverts avec. La notification web ouvre la fiche 
 **Une alerte par passage sous le seuil** : `ItemType.low_notified` passe à `True` à l'envoi et ne
 revient à `False` que quand le stock remonte au minimum. Même principe pour `empty_notified`.
 `check_stock_levels(types)` est appelée après chaque mouvement ; la commande `check_alerts`
-(timer systemd quotidien à 7 h 45) la lance pour tous les types, parce que les péremptions font
+(timer systemd quotidien à 7h45) la lance pour tous les types, parce que les péremptions font
 baisser le stock sans aucune action.
 
 **Commande à passer** (`order_due`, web) : `check_orders`, lancée par `check_alerts`, calcule
@@ -266,7 +266,7 @@ téléphone vers le poste et les retours d'erreur du poste vers le téléphone.
   et un serveur ASGI auraient été démesurés pour un relais de quelques messages).
 - `QRProtecRequestHandler` intercepte les requêtes `Upgrade: websocket` sur `/ws/` avant WSGI.
 - Les sessions sont en mémoire dans `hub` ; un thread « faucheur » ferme celles dont un côté est
-  déconnecté depuis plus que le délai choisi (1 min à 24 h, 5 min par défaut).
+  déconnecté depuis plus que le délai choisi (1 min à 24h, 5 min par défaut).
 - Le protocole des messages est documenté en tête de `remote_scanner.py`.
 
 ## Impressions en attente en direct

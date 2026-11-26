@@ -110,7 +110,7 @@ def server_settings(request: Request) -> Response:
                 settings_row.guest_hours = guests.parse_guest_hours(request.data['guest_hours'])
             except ValueError as exc:
                 return Response({'error': str(exc)}, status=400)
-            changes.append(f"cartes d'invités valables {settings_row.guest_hours} h après leur première connexion")
+            changes.append(f"cartes d'invités valables {settings_row.guest_hours}h après leur première connexion")
         if 'antenna_name' in request.data:
             settings_row.antenna_name = ' '.join(str(request.data['antenna_name'] or '').split())[:64]
             changes.append(f"nom de l'antenne : {settings_row.antenna_name or '(vide)'}")

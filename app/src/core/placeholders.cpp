@@ -278,7 +278,7 @@ std::vector< CategoryInfo > build_categories() {
     { "prenom", "Prénom de l'invité (vide sur une carte neuve)", "Léa" },
     { "nom", "Nom de l'invité (vide sur une carte neuve)", "Martin" },
     { "antenne", "Antenne de l'invité (vide sur une carte neuve)", "Lyon 3" },
-    { "validite", "« Valable 48 h après la 1re connexion » sur une carte neuve, l'antenne et la fin de validité sur une "
+    { "validite", "« Valable 48h après la 1re connexion » sur une carte neuve, l'antenne et la fin de validité sur une "
                   "carte réimprimée", "Antenne Lyon 3 · fin le 21/11 à 10:45" },
   };
   categories.push_back(guest);

@@ -501,7 +501,7 @@ class BadgeKeyTests(ApiTestCase):
 
 
 class TempLoginTests(ApiTestCase):
-    """QR code de connexion temporaire (outil de debug) : cree par un admin, valable 1 h, session de 24 h."""
+    """QR code de connexion temporaire (outil de debug) : cree par un admin, valable 1h, session de 24h."""
 
     def admin(self) -> dict[str, str]:
         return {'matricule': 'P001', 'key': self.operator.new_key, 'session': self.operator_session}
@@ -533,7 +533,7 @@ class TempLoginTests(ApiTestCase):
         self.assertTrue(user['temporary'])
         self.assertEqual(user['session_hours'], 24)
         self.assertNotIn('nom', user)
-        # la session sert d'identifiant (comme apres une connexion par nom et PIN), pendant 24 h et pas plus
+        # la session sert d'identifiant (comme apres une connexion par nom et PIN), pendant 24h et pas plus
         credentials = {'matricule': 'M001', 'session': user['session']}
         code, _ = self.call('POST', '/api/me/prefs/', {'user': credentials, 'web_prefs': {'scan_bubble': True}},
                             local=False)
@@ -566,8 +566,8 @@ class TempLoginTests(ApiTestCase):
 
 
 class GuestCardTests(ApiTestCase):
-    """Cartes d'invites : sans nom ni matricule, nom et prenom a la premiere connexion, 48 h ensuite (modifiable),
-    desactivables meme activees ; creees au poste (impression) ou depuis l'outil de debug du web (24 h pour l'activer)."""
+    """Cartes d'invites : sans nom ni matricule, nom et prenom a la premiere connexion, 48h ensuite (modifiable),
+    desactivables meme activees ; creees au poste (impression) ou depuis l'outil de debug du web (24h pour l'activer)."""
 
     def key_of(self, url: str) -> tuple[str, str]:
         from urllib.parse import parse_qs, urlparse
@@ -614,7 +614,7 @@ class GuestCardTests(ApiTestCase):
         code, _ = self.call('POST', '/api/me/pin/', {'user': {'matricule': matricule, 'session': session},
                                                     'pin': '123400'}, local=False)
         self.assertEqual(code, 403)
-        # 48 h plus tard : carte et session expirees
+        # 48h plus tard : carte et session expirees
         later = timezone.now() + timedelta(hours=48, minutes=1)
         with mock.patch('django.utils.timezone.now', return_value=later):
             code, body = self.auth(matricule, key)
@@ -680,7 +680,7 @@ class GuestCardTests(ApiTestCase):
         with mock.patch('django.utils.timezone.now', return_value=soon):
             code, body = self.auth(matricule, key, guest_nom='Martin', guest_prenom='Léa', guest_antenne='Lyon 3')
             self.assertEqual(code, 200)
-        # activee : 48 h a partir de l'activation, plus la limite de 24 h
+        # activee : 48h a partir de l'activation, plus la limite de 24h
         with mock.patch('django.utils.timezone.now', return_value=soon + timedelta(hours=47)):
             self.assertEqual(self.auth(matricule, key)[0], 200)
         code, body = self.call('POST', '/api/debug/guest-cards/', {'user': self.admin()}, local=False)

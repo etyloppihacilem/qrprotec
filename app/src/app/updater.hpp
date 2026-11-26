@@ -21,7 +21,7 @@
 namespace qrprotec {
 
 // Mise a jour automatique de QRProtec.app (macOS) depuis les releases GitHub :
-//   - au demarrage (apres une minute) puis toutes les 6 h, GET api.github.com/.../releases/latest ;
+//   - au demarrage (apres une minute) puis toutes les 6h, GET api.github.com/.../releases/latest ;
 //   - version plus recente : le .dmg est telecharge en tache de fond (curl du systeme) dans
 //     ~/Library/Caches/QRProtec/updates et son SHA-256 compare a l'empreinte publiee par GitHub ;
 //   - pret : installe a la fermeture de l'application, ou tout de suite (« Installer et redemarrer ») ;

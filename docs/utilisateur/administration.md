@@ -66,7 +66,7 @@ Laissez-en 2 ou 3 aux équipes qui peuvent recevoir des secouristes non enregist
 - À la première connexion, l'invité scanne la carte et donne son **prénom, son nom et son antenne** :
   ses vérifs sont à son nom (« Léa Martin (invité) »), et son antenne apparaît dans les rapports d'état
   d'un lot à une date donnée. Il n'a pas de matricule, ni de code PIN, et a les droits d'un secouriste.
-- La carte vaut **48 h après cette première connexion** (Réglages > Règles du serveur, « Durée des
+- La carte vaut **48h après cette première connexion** (Réglages > Règles du serveur, « Durée des
   cartes d'invités », et carte par carte avec **Durée…**). Avant, elle reste utilisable un an.
 - **Désactiver** coupe une carte, même déjà activée : l'invité est déconnecté tout de suite.
 - Une carte sert à un seul invité. Le numéro d'une carte **jamais activée** se reprend (**Reprendre le
@@ -77,8 +77,8 @@ Laissez-en 2 ou 3 aux équipes qui peuvent recevoir des secouristes non enregist
 - Dans le Journal, annuler la ligne « carte d'invité activée » (ou réactivée) annule aussi tout ce que
   l'invité a fait ensuite, jusqu'à la réactivation suivante.
 - La liste dit qui a créé chaque carte et quand. Depuis le web, un admin crée aussi une carte à
-  montrer à l'écran (outil de debug des codes, « Créer une carte ») : à activer dans les 24 h, puis
-  valable 48 h.
+  montrer à l'écran (outil de debug des codes, « Créer une carte ») : à activer dans les 24h, puis
+  valable 48h.
 
 ### Ordinateurs connectés
 
@@ -346,7 +346,7 @@ sont plus maintenues et ont été retirées des Réglages.
 
 **Réglages > Notifications** du poste garde le champ **Alerte d'expiration** : nombre de jours
 (30 par défaut) avant l'expiration d'une étiquette clé de lot (sauf les rangements du stock, qui
-n'expirent pas) ou d'un badge pour l'alerte « expire bientôt », contrôlée chaque matin à 7 h 45 ; une
+n'expirent pas) ou d'un badge pour l'alerte « expire bientôt », contrôlée chaque matin à 7h45 ; une
 seconde alerte part à l'expiration. Renouveler l'étiquette ou le badge remet l'alerte à zéro.
 Tant que le nom déclaré sans badge n'est pas autorisé (Réglages > Règles du serveur), les étiquettes
 clés de lot n'expirent pas : le badge suffit, elles ne donnent aucune alerte ni tâche.
@@ -359,7 +359,7 @@ test**. Le même écran liste tous ses appareils abonnés : on y change les aler
 retire (un téléphone perdu, par exemple).
 
 - Gestion : stock bas, stock vide, commande à passer, ouverture d'un lot scellé (le clic ouvre la fiche du lot),
-  résumé quotidien des lots contenant des périmés (7 h 45), vérif incomplète (désactivée par défaut,
+  résumé quotidien des lots contenant des périmés (7h45), vérif incomplète (désactivée par défaut,
   le clic ouvre la fiche du lot), renouvellement et expiration des étiquettes clés de lot.
 - Admin : en plus, PIN bloqué, signalements, renouvellement et expiration des badges, et
   **Problème de serveur** (désactivée par défaut, à cocher) : une sauvegarde ou son envoi sur la
@@ -381,7 +381,7 @@ retire (un téléphone perdu, par exemple).
 Sur une tablette laissée à l'antenne, connectez-vous en gestion ou en admin et cochez **Web partagé**
 tout en bas des réglages ⚙ (décoché par défaut). Le réglage vaut pour cet appareil seulement et reste
 enregistré dans les données du site. Sur cet appareil, une connexion n'est plus gardée comme sur un
-téléphone personnel : elle s'arrête à la fermeture de l'appli et après **1 h sans activité**. Les
+téléphone personnel : elle s'arrête à la fermeture de l'appli et après **1h sans activité**. Les
 secouristes voient la case grisée ; seuls la gestion et les admins peuvent la décocher.
 
 ## Documentation au poste

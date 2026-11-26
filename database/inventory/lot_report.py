@@ -94,12 +94,12 @@ def scan_time(value: datetime | None) -> str:
 
 
 def duration(delta: timedelta) -> str:
-    """« 45 s », « 12 min 05 s », « 1 h 07 min »."""
+    """« 45 s », « 12 min 05 s », « 1h07 min »."""
     total = max(0, int(delta.total_seconds()))
     hours, rest = divmod(total, 3600)
     minutes, seconds = divmod(rest, 60)
     if hours:
-        return f'{hours} h {minutes:02d} min'
+        return f'{hours}h{minutes:02d} min'
     if minutes:
         return f'{minutes} min {seconds:02d} s'
     return f'{seconds} s'

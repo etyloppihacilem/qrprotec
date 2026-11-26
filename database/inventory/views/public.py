@@ -179,7 +179,7 @@ def verify_pin(user: Secouristes, data: dict[str, Any]) -> None:
 def auth(request: Request) -> Response:
     """Confirme l'identite d'un secouriste : cle du badge (valable un an), puis PIN si besoin.
 
-    La reponse contient un jeton `session` (12 h) que le front web renvoie pour les lectures reservees
+    La reponse contient un jeton `session` (12h) que le front web renvoie pour les lectures reservees
     (etat des stocks) au lieu de redemander le PIN.
     """
     matricule = str(request.data.get('matricule', ''))
@@ -228,7 +228,7 @@ def guest_card_action(card: Secouristes, action: str, data: dict[str, Any], admi
                       web: bool = False) -> None:
     """Reprise du numero d'une carte jamais activee (`reuse`) ou nouvelle periode pour un invite qui revient
     (`reactivate` {"guest_hours", "new_card"}), notees au journal. Depuis le web, toujours une nouvelle cle (QR code a
-    l'ecran) et 24 h pour activer une carte reprise."""
+    l'ecran) et 24h pour activer une carte reprise."""
     try:
         if action == 'reuse':
             guests.reuse(card, guests.WEB_ACTIVATION_HOURS if web else None)
@@ -239,7 +239,7 @@ def guest_card_action(card: Secouristes, action: str, data: dict[str, Any], admi
             guests.reactivate(card, hours, new_card=web or bool(data.get('new_card')))
             # une reactivation ouvre une nouvelle periode : l'annuler annule ce que l'invite a fait depuis
             journal.record(OperationKind.USER, by, f"carte d'invité {card.matricule} ({card}) réactivée par {admin} "
-                           f"pour {card.guest_hours} h" + (', nouvelle carte imprimée' if getattr(card, 'new_key', None)
+                           f"pour {card.guest_hours}h" + (', nouvelle carte imprimée' if getattr(card, 'new_key', None)
                                                            else ''),
                            matricule=card.matricule, guest_activation=True)
     except ValueError as exc:
@@ -265,7 +265,7 @@ def activate_guest_card(request: Request, card: Secouristes) -> None:
         # guest_activation : annuler cette ligne du journal annule aussi tout ce que l'invite a fait ensuite (undo.py)
         journal.record(OperationKind.USER, f'{SOURCE_VERIFIED}:{card.matricule}',
                        f"carte d'invité {card.matricule} activée par {card.prenom} {card.nom} "
-                       f"(antenne {card.guest_antenna}), valable {card.guest_hours} h",
+                       f"(antenne {card.guest_antenna}), valable {card.guest_hours}h",
                        matricule=card.matricule, guest_activation=True)
 
 
@@ -288,7 +288,7 @@ def login_response(request: Request, user: Secouristes, temporary: bool = False,
     # le web propose d'en creer une apres la connexion (jamais pour une carte d'invite)
     data['has_passkey'] = user.passkeys.exists()
     if temporary:
-        data['temporary'] = True  # connexion de depannage : la session du telephone vaut 24 h
+        data['temporary'] = True  # connexion de depannage : la session du telephone vaut 24h
         data['session_hours'] = TEMP_SESSION_MAX_AGE // 3600
     # reglages des notifications web affiches seulement si l'utilisateur peut en recevoir
     data['notifications'] = bool(user.push_types()) and webpush.available()
@@ -389,8 +389,8 @@ def auth_name(request: Request) -> Response:
 @handle_errors
 def auth_temp(request: Request) -> Response:
     """Connexion de depannage : {"matricule", "token"} d'un QR code temporaire montre par un admin (outil de debug)
-    a un secouriste qui a oublie sa carte. Le QR code vaut 1 h ; la session ouverte (sans cle de badge ni PIN, l'admin
-    s'en porte garant) vaut 24 h."""
+    a un secouriste qui a oublie sa carte. Le QR code vaut 1h ; la session ouverte (sans cle de badge ni PIN, l'admin
+    s'en porte garant) vaut 24h."""
     check_login_address(request)
     token = request.data.get('token')
     user = temp_login_user(request.data.get('matricule'), token)
@@ -1424,7 +1424,7 @@ def fun_stats_view(request: Request) -> Response:
 @handle_errors
 def debug_temp_login(request: Request) -> Response:
     """QR code de connexion de depannage d'un secouriste (outil de debug, admins) : {"user", "matricule"} -> lien
-    badge?m=...&t=... valable 1 h, qui ouvre une session de 24 h sur le telephone qui le scanne. Jamais pour un
+    badge?m=...&t=... valable 1h, qui ouvre une session de 24h sur le telephone qui le scanne. Jamais pour un
     admin (son PIN est obligatoire). Chaque QR code cree est note au journal."""
     admin = connected_user(request, ADMIN)
     user = Secouristes.objects.filter(matricule=str(request.data.get('matricule', ''))[:16]).first()
@@ -1448,8 +1448,8 @@ def debug_temp_login(request: Request) -> Response:
 def debug_guest_cards(request: Request) -> Response:
     """Cartes d'invites depuis l'outil de debug du web (admins) : {"user", "action"?}.
     - sans action (ou "list") : toutes les cartes, avec l'admin qui a cree chacune ;
-    - "create" : nouvelle carte montree a l'ecran (lien badge?m=...&key=... en QR code), a activer dans les 24 h,
-      puis valable la duree des cartes d'invites (48 h par defaut) ;
+    - "create" : nouvelle carte montree a l'ecran (lien badge?m=...&key=... en QR code), a activer dans les 24h,
+      puis valable la duree des cartes d'invites (48h par defaut) ;
     - "disable" / "enable" {"matricule"} : desactive une carte (activee ou non, sessions coupees) ou la reactive.
     Chaque carte creee ou modifiee est notee au journal."""
     admin = connected_user(request, ADMIN)
@@ -1459,7 +1459,7 @@ def debug_guest_cards(request: Request) -> Response:
         card = guests.create_guest_card(admin, activate_within_hours=guests.WEB_ACTIVATION_HOURS)
         journal.record(OperationKind.USER, by,
                        f"carte d'invité {card.matricule} créée par {admin} depuis le web : à activer dans les "
-                       f"{guests.WEB_ACTIVATION_HOURS} h, valable {card.guest_hours} h ensuite",
+                       f"{guests.WEB_ACTIVATION_HOURS}h, valable {card.guest_hours}h ensuite",
                        matricule=card.matricule)
         row = guests.card_row(card, public=True)
         row['url'] = ser.public_url('badge', m=card.matricule, key=card.new_key)
@@ -1474,7 +1474,7 @@ def debug_guest_cards(request: Request) -> Response:
             journal.record(OperationKind.USER, by, f"carte d'invité {card.matricule} ({card}) "
                            + ('remise en service' if card.active else 'désactivée') + f' par {admin}',
                            matricule=card.matricule)
-        else:  # nouveau QR code a l'ecran : numero repris (24 h pour l'activer) ou invite qui revient
+        else:  # nouveau QR code a l'ecran : numero repris (24h pour l'activer) ou invite qui revient
             guest_card_action(card, action, request.data, admin, by, web=True)
             row = guests.card_row(card, public=True)
             row['url'] = ser.public_url('badge', m=card.matricule, key=card.new_key)

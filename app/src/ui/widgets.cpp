@@ -886,7 +886,7 @@ void draw_state_badge(ImDrawList *draw, const ImVec2 &center, float radius, Stat
     draw->AddLine(at(-0.32f, -0.32f), at(0.32f, 0.32f), ink, stroke);
     draw->AddLine(at(0.32f, -0.32f), at(-0.32f, 0.32f), ink, stroke);
   } else {
-    // fleche en cercle (partie de 3 h, tour dans le sens des aiguilles, pointe vers 1 h) et horloge au centre
+    // fleche en cercle (partie de 3h, tour dans le sens des aiguilles, pointe vers 1h) et horloge au centre
     const float thin = std::max(1.3f, radius * 0.13f);
     const float r    = radius * 0.56f;
     const float a0 = 0.0f, a1 = 5.35f;

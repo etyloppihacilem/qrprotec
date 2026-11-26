@@ -201,7 +201,7 @@ Parameters guest_card_parameters(const Json &card) {
   // date limite de premiere connexion : seulement sur une carte neuve
   parameters["date_limite"] = parameters["full_name"].empty() ? parameters["key_expires"] : "";
   if (parameters["full_name"].empty())
-    parameters["validite"] = "Valable " + hours + " h après la 1re connexion";
+    parameters["validite"] = "Valable " + hours + "h après la 1re connexion";
   else
     parameters["validite"] = (parameters["antenne"].empty() ? std::string() : "Antenne " + parameters["antenne"])
                            + (!parameters["antenne"].empty() && !until.empty() ? " · " : "") + until;

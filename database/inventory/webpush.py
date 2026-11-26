@@ -52,7 +52,7 @@ logger = logging.getLogger(__name__)
 RECORD_SIZE = 4096
 MAX_PAYLOAD = 3000          # bien en dessous de RECORD_SIZE - 17 (tag + delimiteur)
 TTL = 24 * 3600             # duree de garde par le service si le telephone est hors ligne
-JWT_VALIDITY = 12 * 3600    # au plus 24 h (RFC 8292)
+JWT_VALIDITY = 12 * 3600    # au plus 24h (RFC 8292)
 
 
 def available() -> bool:

@@ -103,7 +103,7 @@ def require_poste(request: Request) -> None:
 @api_view(['GET'])
 @handle_errors
 def label_prints_poste(request: Request) -> Response:
-    """Poste, meme sans personne de connecte : impressions en attente et imprimees dans les dernieres 24 h."""
+    """Poste, meme sans personne de connecte : impressions en attente et imprimees dans les dernieres 24h."""
     require_poste(request)
     return Response(label_prints.poste_list())
 

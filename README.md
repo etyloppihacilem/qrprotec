@@ -26,7 +26,7 @@ le packaging est dans `packaging/`.
 | Configuration | `/etc/qrprotec/qrprotec.conf`, `/etc/qrprotec/kiosk.conf`, `/etc/qrprotec/front-api.conf` (back distant du kiosk, `0600`), `/etc/caddy/Caddyfile.d/qrprotec.caddyfile` |
 | Clé secrète Django | `/etc/qrprotec/secret_key` (générée à l'installation, `0640 root:qrprotec`) |
 | Données (base SQLite) | `/var/lib/qrprotec/db.sqlite3` |
-| Services | `qrprotec.service` (back), `qrprotec-kiosk.service` (Cage), `qrprotec-alerts.timer` (alertes, 7 h 45), `qrprotec-backup.timer` (sauvegardes), `caddy.service` |
+| Services | `qrprotec.service` (back), `qrprotec-kiosk.service` (Cage), `qrprotec-alerts.timer` (alertes, 7h45), `qrprotec-backup.timer` (sauvegardes), `caddy.service` |
 | Sauvegardes | `/var/backups/qrprotec/qrprotec-backup_AAAA-MM-JJ_HHMMSS.tar.xz` (réglages : `/etc/qrprotec/backup.conf`) |
 | Utilisateurs (`sysusers.d`) | `qrprotec` (back, sans shell), `qrprotec-kiosk` (session Cage ; groupes `dialout`, `video`, `render`, `input`, `audio`) |
 | Commandes | `qrprotec-setup` (assistant), `qrprotec-manage` (`manage.py` avec la configuration de la borne), `qrprotec-backup` (sauvegarde / restauration) |
@@ -438,7 +438,7 @@ appareils abonnés), `push/devices/<id>/` (POST badge + alertes, ou `delete`). R
 administrateurs, facultatif pour les autres rôles (défini dans la fenêtre **Utilisateurs** (menu Administration)). Un
 administrateur sans PIN (compte existant, ou créé par `createadmin` sans `--pin`) le choisit à sa
 connexion suivante. Après 5 PIN faux, le PIN est bloqué 5 minutes. Sur le téléphone, `auth/` renvoie
-un jeton de session (12 h) utilisé pour l'état des stocks à la place du PIN.
+un jeton de session (12h) utilisé pour l'état des stocks à la place du PIN.
 
 Le rôle se choisit dans la fenêtre **Utilisateurs** (menu Administration) (admin). La migration `0003_roles` transforme les
 anciens responsables en administrateurs ; `createadmin` crée ou répare un administrateur.

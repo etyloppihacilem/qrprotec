@@ -593,11 +593,11 @@ async function login(matricule, key, extra = {}) {
 }
 
 // Carte d'invite scannee pour la premiere fois (secouriste d'une autre antenne, sans compte) : son prenom et son
-// nom, enregistres sur la carte a cette connexion ; la carte vaut ensuite `hours` heures (48 h par defaut)
+// nom, enregistres sur la carte a cette connexion ; la carte vaut ensuite `hours` heures (48h par defaut)
 function askGuestName(matricule, key, hours, errorMessage) {
   const dialog = $('#guest-name');
   $('#guest-name-text').textContent = 'Bienvenue ! Indiquez votre prénom, votre nom et votre antenne : vos vérifs seront à votre nom. '
-    + `La carte vaut ${hours || 48} h à partir de maintenant.`;
+    + `La carte vaut ${hours || 48}h à partir de maintenant.`;
   $('#guest-name-error').textContent = errorMessage || '';
   $('#guest-name-form').onsubmit = (event) => {
     event.preventDefault();
@@ -648,8 +648,8 @@ keepAboveKeyboard($('#name-login'));
 keepAboveKeyboard($('#pin'));
 keepAboveKeyboard($('#guest-name'));
 
-// Connexion de depannage : QR code temporaire (1 h) montre par un admin depuis l'outil de debug, pour un secouriste
-// qui a oublie sa carte. Pas de PIN (l'admin s'en porte garant) ; la session du telephone vaut 24 h.
+// Connexion de depannage : QR code temporaire (1h) montre par un admin depuis l'outil de debug, pour un secouriste
+// qui a oublie sa carte. Pas de PIN (l'admin s'en porte garant) ; la session du telephone vaut 24h.
 async function tempLogin(matricule, token) {
   try {
     const user = await api('auth/temp/', { matricule, token });

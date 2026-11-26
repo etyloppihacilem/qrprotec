@@ -130,7 +130,7 @@ pas être installée », seulement un raccourci).
 | Commandes | `qrprotec-setup`, `qrprotec-manage`, `qrprotec-backup` |
 
 Services : `qrprotec` (back), `caddy`, `qrprotec-kiosk` (écran), `qrprotec-alerts.timer` (alertes à
-7 h 45), `qrprotec-backup.timer` (sauvegardes). La borne ne se met jamais en veille.
+7h45), `qrprotec-backup.timer` (sauvegardes). La borne ne se met jamais en veille.
 
 Le paquet `qrprotec` installe `qrprotec-server` et `qrprotec-kiosk`. La borne peut en plus accueillir
 des postes distants (autre borne, ordinateur de bureau) : créez-leur une clé avec

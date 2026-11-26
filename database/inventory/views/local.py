@@ -1768,7 +1768,7 @@ def guest_card_patch(request: Request, card: Secouristes) -> Response:
             card.guest_hours = guests.parse_guest_hours(data['guest_hours'])
         except ValueError as exc:
             raise ApiError(str(exc))
-        changes.append(f'durée {card.guest_hours} h')
+        changes.append(f'durée {card.guest_hours}h')
     for field, length, label in (('nom', 32, 'nom'), ('prenom', 32, 'prénom'), ('guest_antenna', 64, 'antenne')):
         if field in data and card.guest_activated is not None:
             value = ' '.join(str(data[field] or '').split())[:length]
@@ -1824,7 +1824,7 @@ def guest_cards(request: Request) -> Response:
         for _ in range(count):
             card = guests.create_guest_card(admin, hours)
             journal.record(OperationKind.USER, front_identity(request),
-                           f"carte d'invité {card.matricule} créée par {admin}, valable {card.guest_hours} h "
+                           f"carte d'invité {card.matricule} créée par {admin}, valable {card.guest_hours}h "
                            "après sa première connexion", matricule=card.matricule)
             row = guests.card_row(card)
             row['badge_url'] = ser.public_url('badge', m=card.matricule, key=card.new_key)

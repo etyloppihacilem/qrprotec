@@ -534,7 +534,7 @@ void App::draw_guest_name() {
   ImGui::TextDisabled("Carte %s", pin_.matricule.c_str());
   ImGui::PushTextWrapPos(ImGui::GetFontSize() * 26.0f);
   ImGui::TextWrapped("Bienvenue ! Indiquez votre prénom, votre nom et votre antenne : vos vérifs seront à votre nom. "
-                     "La carte vaut %d h à partir de maintenant.", pin_.guest_hours);
+                     "La carte vaut %dh à partir de maintenant.", pin_.guest_hours);
   ImGui::PopTextWrapPos();
   ImGui::SetNextItemWidth(260.0f);
   if (pin_.focus) {

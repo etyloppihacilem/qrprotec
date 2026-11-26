@@ -44,7 +44,7 @@ class ApiClient {
     // Jeton de session de l'utilisateur connecte (badge + PIN), envoye avec chaque requete : le serveur
     // en deduit l'utilisateur et son role pour les routes de gestion. Vide a la deconnexion.
     void set_session(const std::string &token);
-    // Appele (thread UI) quand le serveur ne reconnait plus la session : badge renouvele, PIN bloque, 12 h...
+    // Appele (thread UI) quand le serveur ne reconnait plus la session : badge renouvele, PIN bloque, 12h...
     std::function< void() > on_login_required;
 
     void get(const std::string &path, Callback callback);

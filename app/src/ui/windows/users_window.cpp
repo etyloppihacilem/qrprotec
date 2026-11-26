@@ -254,7 +254,7 @@ class UsersWindow final : public AppWindow {
       ImGui::InputInt("Durée (heures)", &guest_hours_, 12, 24);
       guest_hours_ = std::clamp(guest_hours_, 1, 720);
       help_marker("Durée de validité après la première connexion. Par défaut, celle de Réglages > Règles du serveur "
-                  "(48 h) ; elle se change aussi carte par carte ci-dessous.");
+                  "(48h) ; elle se change aussi carte par carte ci-dessous.");
       ImGui::BeginDisabled(guests_creating_);
       if (primary_button("Créer et voir les cartes")) {
         Json body;
@@ -320,7 +320,7 @@ class UsersWindow final : public AppWindow {
         ImGui::TableNextColumn();
         const std::string when = guest_when(card, today);
         ImGui::Text("%s%s%s", card["state_label"].str().c_str(), when.empty() ? "" : ", ", when.c_str());
-        ImGui::TextDisabled("%d h après la 1re connexion", static_cast< int >(card["hours"].integer(48)));
+        ImGui::TextDisabled("%dh après la 1re connexion", static_cast< int >(card["hours"].integer(48)));
         ImGui::TableNextColumn();
         ImGui::TextUnformatted(card["created_by"].str("-").c_str());
         ImGui::TextDisabled("%s", relative_datetime(card["created"].str(), today, false, true).c_str());
@@ -355,7 +355,7 @@ class UsersWindow final : public AppWindow {
             body["action"]      = "reactivate";
             body["guest_hours"] = guest_edit_hours_;
             body["new_card"]    = guest_new_card_;
-            guest_action(app, guest_edit_, body, "Carte réactivée pour " + std::to_string(guest_edit_hours_) + " h.");
+            guest_action(app, guest_edit_, body, "Carte réactivée pour " + std::to_string(guest_edit_hours_) + "h.");
             ImGui::CloseCurrentPopup();
           }
           ImGui::SameLine();
