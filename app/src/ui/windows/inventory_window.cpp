@@ -185,6 +185,7 @@ class InventoryWindow final : public AppWindow {
         case View::Reception:
           app.refresh_lots(true); // rangements du stock ou ranger la reception
           load_receptions(app);
+          order_reception_->reload(app); // commandes fournisseurs en attente de livraison
           break;
       }
     }
@@ -338,11 +339,15 @@ class InventoryWindow final : public AppWindow {
       }
     }
 
-    View view_;
+    View                              view_;
+    std::unique_ptr< OrderReception > order_reception_ = make_order_reception();
 
     // ---------------------------------------------------------------------------------------------------------------
     // Reception : creation des items et impression des etiquettes en serie
     void draw_reception(App &app) {
+      // commandes fournisseurs pas encore recues en premier ; une commande choisie remplace le formulaire libre
+      if (order_reception_->draw(app, storage_places(app)))
+        return;
       ImGui::TextWrapped("Réception d'une commande : choisissez le type, la date de péremption et la quantité. "
                          "Chaque item recoit un identifiant unique et sa propre étiquette.");
       ImGui::TextUnformatted("Type d'item");

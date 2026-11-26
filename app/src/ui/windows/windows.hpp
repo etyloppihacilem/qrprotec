@@ -29,6 +29,7 @@ std::unique_ptr< AppWindow > make_inventory_window(); // Stock : etat, projectio
 std::unique_ptr< AppWindow > make_items_window();     // Items : types d'items, items, entretien, paquets fermes
 std::unique_ptr< AppWindow > make_lot_types_window(); // Types de lots
 std::unique_ptr< AppWindow > make_reception_window(); // Reception : nouvelle, passees
+std::unique_ptr< AppWindow > make_purchases_window(); // Commandes fournisseurs : commandes, saisie, suggestions, stats
 std::unique_ptr< AppWindow > make_pack_window(); // fiche d'un paquet ferme, ouverture
 std::unique_ptr< AppWindow > make_users_window();
 std::unique_ptr< AppWindow > make_journal_window(); // journal des operations (qui fait quoi et quand)
@@ -54,6 +55,19 @@ class LotPanel {
     virtual void        reset()                                       = 0;
 };
 std::unique_ptr< LotPanel > make_lot_panel();
+
+// Reception d'une commande fournisseur, en haut de l'onglet Nouvelle reception : commandes pas encore recues
+// proposees, puis toutes les lignes d'une commande (quantites, peremptions, rangements) et toutes les etiquettes
+// d'un coup. Voir purchases_window.cpp.
+class OrderReception {
+  public:
+    virtual ~OrderReception() = default;
+    virtual void reload(App &app) = 0; // commandes en attente de livraison
+    // true : une commande est en cours de reception (le formulaire de reception libre est cache). `places` : rangements
+    // du stock (id, label).
+    virtual bool draw(App &app, const Json &places) = 0;
+};
+std::unique_ptr< OrderReception > make_order_reception();
 
 // Connexion au back (URL, cle de front, autorite HTTPS, jeton) avec bouton de test : fenetre Reglages, et
 // fenetre « Connexion au serveur » accessible sans badge tant que l'API est injoignable. save_on_success :

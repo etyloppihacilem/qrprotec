@@ -235,7 +235,7 @@ def add_months(day: date, months: int) -> date:
 
 class ItemsPacksManager(models.Manager):
     def add_items(self, item_type: ItemType, peremption: date | None, count: int, user: str, location: Lots | None = None, context: SeenWhile = SeenWhile.CREATE, sealed_pack: SealedPacks | None = None,
-                  now: datetime | None = None) -> list[Items]:
+                  now: datetime | None = None, order_line: StockOrder | None = None) -> list[Items]:
         if count <= 0:
             raise ValueError("La quantite doit etre positive")
         if not item_type.physical:
@@ -267,6 +267,7 @@ class ItemsPacksManager(models.Manager):
                     pack=pack,
                     location=location,
                     sealed_pack=sealed_pack,
+                    order_line=order_line,
                     last_seen=now,
                     last_seen_by=user,
                     last_seen_while=context,
@@ -511,6 +512,8 @@ class Items(models.Model):
     disinfection_due = models.DateField(blank=True, null=True)
     disinfected_at = models.DateTimeField(blank=True, null=True)
     disinfected_by = models.CharField(max_length=64, blank=True, default='')
+    # ligne de commande fournisseur d'ou vient l'item (reception d'une commande, voir purchases.py) : son prix d'achat
+    order_line = models.ForeignKey('StockOrder', on_delete=models.SET_NULL, null=True, blank=True, related_name='items')
 
     @property
     def item_type(self) -> ItemType:
@@ -1459,14 +1462,51 @@ class ItemMovement(models.Model):
         indexes = [models.Index(fields=['item', 'kind', 'cancelled'])]
 
 
+class Supplier(models.Model):
+    """Fournisseur des commandes : son nom est propose a la saisie des commandes suivantes (comme les noms des
+    modeles d'etiquettes). Cree a la premiere commande qui le nomme."""
+    name = models.CharField(max_length=80, unique=True)
+    created = models.DateTimeField(default=timezone.now)
+
+    class Meta:
+        ordering = ['name']
+
+
+class SupplierOrder(models.Model):
+    """Commande fournisseur saisie au poste, identifiee par sa date, son fournisseur et son numero : ses lignes sont
+    des StockOrder (type, quantite en items, prix unitaire), plus les frais de livraison. Les items recus depuis la
+    page de reception sont rattaches a leur ligne (Items.order_line). `closed` : le reste ne viendra pas (reçue en
+    partie) ; `cancelled` : commande annulee, rien recu (hors des statistiques)."""
+    supplier = models.ForeignKey(Supplier, on_delete=models.PROTECT, related_name='orders')
+    number = models.CharField(max_length=64, blank=True, default='')
+    ordered = models.DateField(default=timezone.localdate)
+    shipping = models.DecimalField(max_digits=9, decimal_places=2, default=0)
+    note = models.CharField(max_length=200, blank=True, default='')
+    created = models.DateTimeField(default=timezone.now)
+    created_by = models.CharField(max_length=64, blank=True, default='')
+    closed = models.DateTimeField(blank=True, null=True)
+    closed_by = models.CharField(max_length=64, blank=True, default='')
+    cancelled = models.DateTimeField(blank=True, null=True)
+    cancelled_by = models.CharField(max_length=64, blank=True, default='')
+
+    class Meta:
+        ordering = ['-ordered', '-id']
+
+
 class StockOrder(models.Model):
-    """Commande passee (case « Commandé » d'une commande suggeree dans les taches du TECH).
+    """Commande passee : case « Commandé » d'une commande suggeree dans les taches du TECH, ou ligne d'une commande
+    fournisseur (`supplier_order`, avec son prix unitaire).
 
     Tant qu'elle est en cours, la suggestion de commande de ce type ne revient pas dans les taches : la commande
-    attend sa livraison. Elle se clot toute seule des que `quantity` items de ce type ont ete receptionnes depuis
-    `placed` (`delivered`), ou a la main (`cancelled` : decochee, ou livraison abandonnee).
+    attend sa livraison. Elle se clot toute seule (`delivered`) des que `quantity` items lui ont ete receptionnes : les
+    items de ce type recus depuis `placed` hors commande fournisseur pour une case cochee, les items recus pour elle
+    (Items.order_line) pour une ligne de commande fournisseur. Ou a la main (`cancelled` : decochee, livraison
+    abandonnee, commande fournisseur close ou annulee).
     """
     item_type = models.ForeignKey(ItemType, on_delete=models.CASCADE, related_name='orders')
+    supplier_order = models.ForeignKey(SupplierOrder, on_delete=models.CASCADE, null=True, blank=True,
+                                       related_name='lines')
+    unit_price = models.DecimalField(max_digits=10, decimal_places=4, null=True, blank=True)  # euros par item
     quantity = models.PositiveIntegerField()
     placed = models.DateTimeField(default=timezone.now)
     placed_by = models.CharField(max_length=64, blank=True, default='')

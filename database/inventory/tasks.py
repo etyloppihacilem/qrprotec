@@ -266,16 +266,24 @@ def open_orders() -> dict[str, list[StockOrder]]:
     """Commandes passees en cours (case « Commandé »), par type d'item. Clot au passage celles qui sont livrees : les
     items de ce type receptionnes depuis la commande la remplissent, les plus anciennes commandes d'abord."""
     by_type = defaultdict(list)
-    for order in StockOrder.objects.select_related('item_type').filter(delivered__isnull=True, cancelled__isnull=True):
+    for order in StockOrder.objects.select_related('item_type', 'supplier_order__supplier').filter(delivered__isnull=True,
+                                                                                         cancelled__isnull=True):
         by_type[order.item_type_id].append(order)
     now = timezone.now()
     for type_id, orders in list(by_type.items()):
         orders.sort(key=lambda order: order.placed)
-        received = Items.objects.filter(pack__item_type_id=type_id, added__gt=orders[0].placed).count()
+        # case « Commandé » : remplie par les items de ce type recus hors commande fournisseur ; ligne de commande
+        # fournisseur : par les items recus pour elle (page de reception, Items.order_line)
+        plain = [order for order in orders if order.supplier_order_id is None]
+        received = Items.objects.filter(pack__item_type_id=type_id, added__gt=plain[0].placed,
+                                        order_line__isnull=True).count() if plain else 0
         still = []
         for order in orders:
-            order.received = min(received, order.quantity)
-            received -= order.received
+            if order.supplier_order_id is not None:
+                order.received = min(order.items.count(), order.quantity)
+            else:
+                order.received = min(received, order.quantity)
+                received -= order.received
             if order.received >= order.quantity:
                 order.delivered = now
                 order.save(update_fields=['delivered'])
@@ -285,11 +293,27 @@ def open_orders() -> dict[str, list[StockOrder]]:
     return {type_id: orders for type_id, orders in by_type.items() if orders}
 
 
-def order_dict(order: StockOrder, today: date) -> dict[str, Any]:
+def expected_deliveries(orders: dict[str, list[StockOrder]]) -> dict[int, date]:
+    """Livraison prevue des commandes fournisseurs dont des lignes sont en cours (vide sans commande fournisseur)."""
+    if not any(order.supplier_order_id for type_orders in orders.values() for order in type_orders):
+        return {}
+    from . import purchases  # purchases lit open_orders
+    return purchases.expected_dates()
+
+
+def order_dict(order: StockOrder, today: date, expected: dict[int, date] | None = None) -> dict[str, Any]:
     days = (today - timezone.localtime(order.placed).date()).days
+    late = days >= ORDER_DELIVERY_DAYS
+    supplier = ''
+    if order.supplier_order is not None:
+        # ligne d'une commande fournisseur : en retard apres sa livraison prevue (delai habituel du fournisseur)
+        from . import purchases  # purchases lit open_orders
+        supplier = purchases.order_label(order.supplier_order)
+        due = (expected or {}).get(order.supplier_order.id)
+        late = due is not None and today > due
     return {'id': order.id, 'type': order.item_type_id, 'name': order.item_type.name, 'quantity': order.quantity,
             'received': order.received, 'placed': _iso(order.placed), 'placed_by': identity_name(order.placed_by),
-            'days': days, 'late': days >= ORDER_DELIVERY_DAYS}
+            'days': days, 'late': late, 'supplier': supplier}
 
 
 def _forecast_tasks(today: date, orders: dict[str, list[StockOrder]]) -> list[dict[str, Any]]:
@@ -320,17 +344,21 @@ def _forecast_tasks(today: date, orders: dict[str, list[StockOrder]]) -> list[di
         row_task.update(type=ordered_type, name=ordered_name, quantity=order['quantity'],  # case « Commandé »
                         explain=explained.get(row['type']))  # « Pourquoi cette commande ? »
         tasks.append(row_task)
-    # commandes passees pas livrees au bout de 30 jours : relancer le fournisseur, ou la decocher
+    # commandes passees pas livrees au bout de 30 jours (commande fournisseur : apres sa livraison prevue) :
+    # relancer le fournisseur, ou la decocher
+    expected = expected_deliveries(orders)
     for type_orders in orders.values():
         for order in type_orders:
-            info = order_dict(order, today)
+            info = order_dict(order, today, expected)
             if not info['late']:
                 continue
             got = f" (reçu {order.received}/{order.quantity})" if order.received else ''
+            detail = (f"commande {info['supplier']}{got} : livraison prévue dépassée, relancer le fournisseur, ou "
+                      'clore la commande (Réception > Commandes) si le reste ne viendra pas') if info['supplier'] else \
+                (f"commandée le {_day(order.placed)} par {info['placed_by'] or '?'}{got} : relancer le "
+                 'fournisseur, ou la décocher si elle ne viendra pas')
             row_task = task('orders', 'warn', f'Commande pas livrée : {order.quantity} × {order.item_type.name}',
-                            f"commandée le {_day(order.placed)} par {info['placed_by'] or '?'}{got} : relancer le "
-                            'fournisseur, ou la décocher si elle ne viendra pas', order.placed, 'forecast',
-                            sort=order.placed.toordinal() - 10 ** 6)
+                            detail, order.placed, 'forecast', sort=order.placed.toordinal() - 10 ** 6)
             row_task.update(type=order.item_type_id, order=order.id)
             tasks.append(row_task)
     for group in data['transfers']:
@@ -471,7 +499,8 @@ def todo(today: date | None = None, consumables_tasks: bool = False) -> dict[str
         categories.append({'key': key, 'title': title, 'help': help_text, 'count': len(rows_of), 'level': level})
     # peremptions a venir : plus ici, dans les evenements a venir (events)
     # commandes passees en attente de livraison : sous les commandes, hors du compte (sauf en retard : tache)
-    placed = sorted((order_dict(order, today) for type_orders in orders.values() for order in type_orders),
+    expected = expected_deliveries(orders)
+    placed = sorted((order_dict(order, today, expected) for type_orders in orders.values() for order in type_orders),
                     key=lambda row: row['placed'])
     return {'today': today, 'count': len(tasks), 'categories': categories, 'tasks': tasks, 'orders_placed': placed}
 

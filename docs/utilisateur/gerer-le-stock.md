@@ -21,6 +21,7 @@ barre (ou `Ctrl+G`) :
 | **Items** | `F7` | **Items** | **Types d'items**, **Items** (recherche, fiche, réimpression), **Entretien** (révisions et désinfections du matériel et des lots), **Paquets fermés**. |
 | **Stock** | `F6` | **Stock** | **État du stock** (aujourd'hui ou projection), **Commandes**, **Transferts**. |
 | **Réception** | `F9` | **Réception** | **Nouvelle réception** d'une commande, **Réceptions passées**. |
+| **Réception** | | **Commandes fournisseurs** | **Commandes** passées et leur état, **Nouvelle commande**, **Suggestions** groupées par fournisseur, **Statistiques** des achats. |
 | **Étiquettes** | `F10` | **Éditeur d'étiquettes** (admin) | Modèles et types d'étiquettes ; étiquettes demandées depuis le web. |
 | **Impression** | | | Imprimante, rouleau, files d'impression, consommables, réglages d'impression. |
 
@@ -29,7 +30,67 @@ un type, un item (son iid), une fenêtre ou une action : tapez quelques lettres 
 réception, « rouleau » pour changer de rouleau), flèches pour choisir, `Entrée` pour ouvrir ; `Échap` ou un clic à
 côté ferme. Les fenêtres communes (Lots, pile de scans…) gardent leur place dans chaque mode.
 
+## Suivre les commandes fournisseurs
+
+Fenêtre **Commandes fournisseurs** (menu **Réception › Commandes fournisseurs**), au poste seulement, rôles gestion et
+admin. On y saisit chaque commande **au moment où elle est passée** : c'est ce qui donne ensuite les prix, les délais
+de livraison et les statistiques.
+
+**Nouvelle commande** :
+
+1. **Fournisseur** : tapez le nom, les fournisseurs déjà enregistrés sont proposés (flèches, `Tab` pour compléter),
+   comme les noms des modèles d'étiquettes. Un nom nouveau crée le fournisseur ; « medisafe » et « Médisafe » sont le
+   même fournisseur.
+2. **Numéro de commande** et **date de commande** (aujourd'hui par défaut) : une commande est identifiée par sa date,
+   son fournisseur et son numéro (« 20/11/2026 · Medisafe · n° MS-2026-131 »). La même commande ne peut pas être
+   saisie deux fois.
+3. **Frais de livraison** (0 si offerts) et une **note** facultative.
+4. Une ligne par article : **type d'item**, **quantité** (en items, comme à la réception ; la taille de paquet du type
+   est proposée) et **prix unitaire**, ou le **total de la ligne** si la facture le donne (le prix unitaire est alors
+   calculé). Le dernier prix connu et le meilleur prix de l'année s'affichent sous le type. Virgule ou point.
+5. **Enregistrer la commande**.
+
+Tant qu'une commande attend sa livraison, la commande recommandée de ces types ne revient plus dans les tâches du
+TECH (comme la case « Commandé »).
+
+Onglet **Commandes** : toutes les commandes, ce qui mérite l'attention en haut (**En retard**, **Reçue en partie**,
+**En attente**), puis les commandes reçues. Cliquez une commande pour son détail : lignes, quantités reçues, prix,
+livraison prévue. **Réceptionner** ouvre sa réception, **Modifier** corrige une erreur de saisie, **Clore la
+commande** quand le reste ne viendra pas, **Annuler la commande** si rien n'a été reçu (saisie par erreur).
+
+**Livraison prévue** : la date de commande plus le délai habituel du fournisseur, en **jours ouvrés** (sans les
+week-ends ni les jours fériés français : Pâques, Ascension et Pentecôte compris). Le délai d'un fournisseur est le
+délai médian de ses dernières commandes, de la date de commande à la première réception ; sans historique, celui de
+tous les fournisseurs, puis 5 jours ouvrés. Une commande pas arrivée à cette date passe **En retard** (rouge) et
+devient une tâche du TECH « Commande pas livrée » : relancer le fournisseur.
+
+Onglet **Suggestions** : les commandes recommandées par les prévisions à passer dans les 30 jours, chacune chez le
+fournisseur le moins cher de l'année (ou le dernier), **groupées par fournisseur**. Les commandes du même fournisseur
+à passer dans les 90 jours sont ajoutées (« à grouper ») pour ne payer qu'une livraison : décochez ce qui peut
+attendre. **Préparer cette commande** remplit le formulaire (fournisseur, lignes, prix, livraison habituelle) : il
+reste à la passer chez le fournisseur et à l'enregistrer.
+
+Onglet **Statistiques** (12 derniers mois) : dépenses et part de la livraison, dépenses par mois, délai médian ;
+estimations (coût des commandes suggérées, coût annuel de la consommation au dernier prix, économies en achetant au
+meilleur prix) ; valeur du stock (prix d'achat de chaque item reçu par une commande, sinon dernier prix de son type),
+matériel utilisé et jeté périmé ; fournisseurs (dépenses, livraison moyenne, délai médian) ; prix par type (dernier,
+meilleur, évolution, coût par an, économie possible), un clic sur un type trace l'évolution de son prix.
+
 ## Recevoir une commande
+
+Une commande saisie dans **Commandes fournisseurs** et pas encore reçue est proposée en haut de la fenêtre
+**Réception** (**Commandes à réceptionner**, les plus en retard d'abord). **Réceptionner** affiche toutes ses lignes
+avec ce qui reste attendu :
+
+- la **quantité** arrivée (0 pour ce qui n'est pas encore là : la commande reste attendue pour le reste) ;
+- la **date de péremption**, demandée pour chaque type périssable ; **+ Autre date** si le colis mélange plusieurs
+  dates (80 sérums au 03/2027, 40 au 06/2027) ;
+- **Paquets fermés** et le nombre d'items par paquet, pour des boîtes que l'on n'ouvre pas tout de suite ;
+- le **rangement du stock**, proposé comme pour une réception ordinaire.
+
+**Créer N items et voir toutes les étiquettes** crée tout d'un coup et ouvre l'aperçu de **toutes** les étiquettes
+(paquets fermés et items), à imprimer en une fois. Les items gardent leur ligne de commande, donc leur prix d'achat.
+**Revoir les étiquettes** les réaffiche. Une réception sans commande se fait dessous, comme avant.
 
 Exemple : la commande du mois arrive avec 200 compresses (8 boîtes de 25, péremption 03/2029),
 40 sérums phy (péremption 31/12/2027) et 2 garrots.

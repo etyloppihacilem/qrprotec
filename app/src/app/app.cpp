@@ -181,6 +181,7 @@ App::App(Inateck &inateck_ref) : feedback(inateck_ref), inateck(inateck_ref) {
   windows.push_back(make_items_window());
   windows.push_back(make_lot_types_window());
   windows.push_back(make_reception_window());
+  windows.push_back(make_purchases_window());
   windows.push_back(make_pack_window());
   windows.push_back(make_journal_window());
   windows.push_back(make_users_window());
@@ -486,6 +487,8 @@ void App::show_stock_tab(const std::string &tab) {
   stock_tab_to_show_ = tab;
   if (tab == "reception" || tab == "past_receptions")
     open_window("reception");
+  else if (tab.rfind("purchase", 0) == 0) // purchases, purchase_new, purchase_suggestions, purchase_stats
+    open_window("purchases");
   else if (tab == "types" || tab == "items" || tab == "equipment" || tab == "packs")
     open_window("items");
   else
@@ -964,6 +967,15 @@ void App::draw_gestion_menus(bool dark_bar) {
       show_stock_tab("reception");
     if (tab_menu_item(*this, "Réceptions passées", "reception"))
       show_stock_tab("past_receptions");
+    ImGui::Separator();
+    if (tab_menu_item(*this, "Commandes fournisseurs", "purchases", true))
+      show_stock_tab("purchases");
+    if (tab_menu_item(*this, "Nouvelle commande", "purchases"))
+      show_stock_tab("purchase_new");
+    if (tab_menu_item(*this, "Suggestions de commande (par fournisseur)", "purchases"))
+      show_stock_tab("purchase_suggestions");
+    if (tab_menu_item(*this, "Statistiques des achats", "purchases"))
+      show_stock_tab("purchase_stats");
     ImGui::EndMenu();
   }
   if (bar_menu(bar, "Étiquettes")) {
