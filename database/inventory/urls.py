@@ -160,6 +160,8 @@ local_patterns = [
     path('consumables/refs/<int:ref_id>/', views.consumable_ref_detail),
     path('consumables/moves/', views.consumable_moves),
     path('consumables/moves/<int:move_id>/delete/', views.consumable_move_delete),
+    path('consumables/losses/', views.consumable_losses),  # etiquettes perdues du rouleau
+    path('consumables/losses/<int:loss_id>/delete/', views.consumable_loss_delete),
     path('me/scanner-volume/', views.my_scanner_volume),
     path('notifications/', views.notification_settings),
     # API SMS plus maintenue (voir notifications.py)

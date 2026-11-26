@@ -231,6 +231,27 @@ def consumable_moves(request: Request) -> Response:
 
 @api_view(['POST'])
 @handle_errors
+def consumable_losses(request: Request) -> Response:
+    """Etiquettes perdues du rouleau (calibrage, ratees, accident), pas comptees comme impressions :
+    {"width_mm", "height_mm", "support": "direct" | "transfer", "count", "reason": "calibration" | "misprint" |
+    "accident" | "other"}. Elles baissent le stock estime (voir consumables.py)."""
+    require_front(request, GESTION)
+    _consumables_call(consumables.add_loss, request.data, front_identity(request),
+                      getattr(request, 'qrprotec_front', ''))
+    return Response(consumables.summary(), status=status.HTTP_201_CREATED)
+
+
+@api_view(['POST'])
+@handle_errors
+def consumable_loss_delete(request: Request, loss_id: int) -> Response:
+    """Annuler une perte notee par erreur."""
+    require_front(request, GESTION)
+    _consumables_call(consumables.delete_loss, loss_id)
+    return Response(consumables.summary())
+
+
+@api_view(['POST'])
+@handle_errors
 def consumable_move_delete(request: Request, move_id: int) -> Response:
     """Annuler une reception ou un inventaire saisi par erreur."""
     require_front(request, GESTION)

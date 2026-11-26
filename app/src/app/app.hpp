@@ -643,6 +643,9 @@ class App {
     // Assistant « Changer de rouleau » : gestes pas a pas puis commandes a l'imprimante (calibrage...) ;
     // type_name : rouleau attendu (vide = rouleau en place)
     void open_roll_wizard(const std::string &type_name = "");
+    // Etiquettes perdues du rouleau (calibrage, ratees...), pas comptees comme impressions : fenetre de saisie,
+    // envoyee au serveur (consommables). type_name vide : rouleau en place.
+    void open_label_loss(const std::string &type_name = "", int count = 1);
     TemplateDocument qr_only_template(TemplateCategory category) const;
 
     // Interface
@@ -839,6 +842,17 @@ class App {
     };
     RollWizard roll_wizard_;
     void       draw_roll_wizard();
+    // saisie des etiquettes perdues (roll_change.cpp)
+    struct LabelLossForm {
+      bool                     open_pending = false;
+      std::vector< LabelType > types;
+      std::string              chosen;
+      int                      count   = 1;
+      std::string              reason  = "calibration";
+      bool                     sending = false;
+    };
+    LabelLossForm label_loss_;
+    void          draw_label_loss();
     void launch_label_prints(std::vector< int > ids);
     void label_queue_action(const std::string &queue, const std::string &action); // admins : launch ou cancel
     void draw_label_queue(const Json &queue);

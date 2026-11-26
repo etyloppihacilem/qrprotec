@@ -15,6 +15,12 @@ etiquettes, et les rubans un stock en millimetres. Le stock part du dernier inve
 augmente a chaque reception et baisse avec les impressions comptees (print_counts) a partir du lendemain. Un ruban
 s'use de (hauteur + espace) par etiquette de transfert imprimee, toutes categories de transfert confondues.
 
+Etiquettes perdues (models.LabelLoss, notees au poste : calibrage, etiquettes ratees, accident) : sorties du rouleau
+sans etre des impressions. Elles baissent le stock (et le ruban pour le transfert, qui avance avec le papier) des
+qu'elles sont notees apres le dernier inventaire. Dans le rythme, calibrages et etiquettes ratees comptent comme des
+impressions (ils reviennent a chaque rouleau) ; un accident ponctuel (bourrage, rouleau abime) ne compte pas, pour ne
+pas faire commander trop tot pendant 90 jours.
+
 Autonomie : stock / consommation par jour. Sous ServerSettings.consumable_alert_days jours, une tache « Commander »
 apparait dans la Gestion de la TECH du poste.
 
@@ -40,13 +46,15 @@ from django.utils import timezone
 
 from .idendity import identity_name
 from .models import (
-    ConsumableKind, ConsumableMove, ConsumableMoveKind, ConsumableRef, ItemMovement, LabelSupport, MovementKind,
-    PrintCount, ServerSettings, Verifs,
+    ConsumableKind, ConsumableMove, ConsumableMoveKind, ConsumableRef, ItemMovement, LabelLoss, LabelLossReason,
+    LabelSupport, MovementKind, PrintCount, ServerSettings, Verifs,
 )
 from .print_counts import category_label, parse_decimal, _number
 
 if TYPE_CHECKING:
-    from datetime import date
+    from datetime import date, datetime
+
+    from django.db.models import QuerySet
 
 RIBBON_GAP_MM = Decimal(3)  # espace entre deux etiquettes sur le ruban (etiquettes pre-decoupees)
 RATE_DAYS = 90              # consommation moyenne sur les 90 derniers jours
@@ -57,6 +65,7 @@ ITEM_RATE_DAYS = 182        # rythme prevu : items utilises ou jetes des 6 derni
 DAYS_PER_MONTH = Decimal('30.44')
 RIBBON_KEY = 'ribbon'
 RECENT_MOVES = 30
+MAX_LOSS = 10000            # etiquettes perdues notees d'un coup
 
 
 class ConsumableError(Exception):
@@ -236,15 +245,43 @@ def _units_text(kind: str, units: int) -> str:
 
 
 # ---------------------------------------------------------------------------------------------------------------------
-# Stock estime, consommation, autonomie
+# Etiquettes perdues
 
-def _consumption(key: str, since: date | None = None, until: date | None = None) -> int:
-    """Etiquettes (categorie) ou millimetres de ruban imprimes, jours `since` exclu a `until` inclus."""
-    rows = PrintCount.objects.all()
-    if since is not None:
-        rows = rows.filter(day__gt=since)
-    if until is not None:
-        rows = rows.filter(day__lte=until)
+def add_loss(data: dict[str, Any], by: str, front: str) -> LabelLoss:
+    """Etiquettes perdues du rouleau : {"width_mm", "height_mm", "support", "count", "reason"}."""
+    width = _decimal(data.get('width_mm'), 'Largeur', 5, 300)
+    height = _decimal(data.get('height_mm'), 'Hauteur', 5, 300)
+    support = data.get('support')
+    if support not in LabelSupport.values:
+        raise ConsumableError('support : direct ou transfer attendu')
+    count = _int(data.get('count'), 'Étiquettes perdues', 1, MAX_LOSS)
+    reason = data.get('reason') or LabelLossReason.CALIBRATION
+    if reason not in LabelLossReason.values:
+        raise ConsumableError('reason : ' + ', '.join(LabelLossReason.values) + ' attendu')
+    return LabelLoss.objects.create(day=timezone.localdate(), width_mm=width, height_mm=height, support=support,
+                                    count=count, reason=reason, by=by[:64], front=(front or '')[:64])
+
+
+def delete_loss(loss_id: int) -> None:
+    deleted, _ = LabelLoss.objects.filter(id=loss_id).delete()
+    if not deleted:
+        raise ConsumableError('Perte inconnue')
+
+
+def loss_dict(loss: LabelLoss) -> dict[str, Any]:
+    return {
+        'id': loss.id, 'reason': loss.reason, 'reason_label': LabelLossReason(loss.reason).label,
+        'pool': f'{_number(loss.width_mm)}x{_number(loss.height_mm)}-{loss.support}',
+        'pool_label': category_label(loss.width_mm, loss.height_mm, loss.support),
+        'count': loss.count, 'count_text': _units_text(ConsumableKind.LABELS, loss.count),
+        'paced': loss.reason != LabelLossReason.ACCIDENT,
+        'created': timezone.localtime(loss.created).isoformat(timespec='seconds'),
+        'by': identity_name(loss.by) if loss.by else '', 'front': loss.front,
+    }
+
+
+def _category_total(key: str, rows: QuerySet[PrintCount] | QuerySet[LabelLoss]) -> int:
+    """Etiquettes de la categorie `key` parmi `rows` (impressions ou pertes), ou millimetres de ruban."""
     if key == RIBBON_KEY:
         total = Decimal(0)
         for row in rows.filter(support=LabelSupport.TRANSFER).values('height_mm').annotate(count=Sum('count')):
@@ -254,6 +291,35 @@ def _consumption(key: str, since: date | None = None, until: date | None = None)
     height, support = rest.rsplit('-', 1)
     return rows.filter(width_mm=parse_decimal(width), height_mm=parse_decimal(height),
                        support=support).aggregate(total=Sum('count'))['total'] or 0
+
+
+def _lost(key: str, since: date | None = None, until: date | None = None, after: datetime | None = None,
+          paced: bool = False) -> int:
+    """Pertes notees les jours `since` exclu a `until` inclus, ou apres l'instant `after` (stock : une perte notee
+    le jour d'un inventaire compte si elle vient apres). `paced` : sans les accidents ponctuels (rythme)."""
+    rows = LabelLoss.objects.all()
+    if since is not None:
+        rows = rows.filter(day__gt=since)
+    if until is not None:
+        rows = rows.filter(day__lte=until)
+    if after is not None:
+        rows = rows.filter(created__gt=after)
+    if paced:
+        rows = rows.exclude(reason=LabelLossReason.ACCIDENT)
+    return _category_total(key, rows)
+
+
+# ---------------------------------------------------------------------------------------------------------------------
+# Stock estime, consommation, autonomie
+
+def _consumption(key: str, since: date | None = None, until: date | None = None) -> int:
+    """Etiquettes (categorie) ou millimetres de ruban imprimes, jours `since` exclu a `until` inclus."""
+    rows = PrintCount.objects.all()
+    if since is not None:
+        rows = rows.filter(day__gt=since)
+    if until is not None:
+        rows = rows.filter(day__lte=until)
+    return _category_total(key, rows)
 
 
 def _stock(key: str, moves: list[ConsumableMove]) -> tuple[int | None, date | None]:
@@ -266,12 +332,13 @@ def _stock(key: str, moves: list[ConsumableMove]) -> tuple[int | None, date | No
     received = sum(move.units for move in moves
                    if move.kind == ConsumableMoveKind.RECEPTION and move.created >= start.created)
     since = timezone.localtime(start.created).date()
-    return base + received - _consumption(key, since=since), since
+    return base + received - _consumption(key, since=since) - _lost(key, after=start.created), since
 
 
 def _measured_rate(key: str, today: date) -> tuple[Decimal | None, date | None]:
     """(consommation mesuree par jour, fin de la mise en place) : impressions des RATE_DAYS derniers jours, hors des
-    SETUP_DAYS premiers jours du compteur. None : pas encore assez de jours apres la mise en place (ou rien imprime)."""
+    SETUP_DAYS premiers jours du compteur, plus les pertes qui reviennent (calibrages, etiquettes ratees, pas les
+    accidents). None : pas encore assez de jours apres la mise en place (ou rien imprime)."""
     first = PrintCount.objects.aggregate(first=Min('day'))['first']
     if first is None:
         return None, None
@@ -280,7 +347,8 @@ def _measured_rate(key: str, today: date) -> tuple[Decimal | None, date | None]:
     days = (today - start).days
     if days < MEASURE_MIN_DAYS:
         return None, setup_end
-    return Decimal(_consumption(key, since=start, until=today)) / days, setup_end
+    used = _consumption(key, since=start, until=today) + _lost(key, since=start, until=today, paced=True)
+    return Decimal(used) / days, setup_end
 
 
 def item_rate(today: date) -> Decimal:
@@ -399,7 +467,8 @@ def pools(today: date | None = None, settings_row: ServerSettings | None = None)
             state += (f" (mise en place : les impressions comptent dans le rythme à partir du "
                       f"{end.strftime('%d/%m/%Y')} ; d'ici là, alerte sous {SETUP_FLOOR_ROLLS} "
                       f"{'rouleaux' if pool['kind'] == ConsumableKind.RIBBON else 'bobines'})")
-        year_used = _consumption(key, since=year_start, until=today)
+        year_lost = _lost(key, since=year_start, until=today)
+        year_used = _consumption(key, since=year_start, until=today) + year_lost
         monthly = rate * DAYS_PER_MONTH
         result.append({
             'key': key, 'kind': pool['kind'], 'label': pool['label'],
@@ -410,6 +479,8 @@ def pools(today: date | None = None, settings_row: ServerSettings | None = None)
             'monthly_cost': float(round(monthly * price, 2)) if price is not None and rate > 0 else None,
             'year_cost': float(round(year_used * price, 2)) if price is not None else None,
             'year_used': year_used, 'year_used_text': _units_text(pool['kind'], year_used),
+            # dont etiquettes perdues (ou mm de ruban) : comptees dans year_used et dans le cout
+            'year_lost': year_lost, 'year_lost_text': _units_text(pool['kind'], year_lost) if year_lost else '',
             'level': level, 'state': state,
             'refs': [ref.id for ref in pool['refs']],
             'item_labels': key == item_key,  # categorie des etiquettes d'items (rythme prevu)
@@ -429,6 +500,8 @@ def summary() -> dict[str, Any]:
         'pools': pools(settings_row=settings_row),
         'refs': [ref_dict(ref) for ref in ConsumableRef.objects.all()],
         'moves': [move_dict(move) for move in moves],
+        'losses': [loss_dict(loss) for loss in LabelLoss.objects.order_by('-created', '-id')[:RECENT_MOVES]],
+        'loss_reasons': [{'id': value, 'label': label} for value, label in LabelLossReason.choices],
         'alert_days': settings_row.consumable_alert_days,
         # categorie des etiquettes d'items choisie au poste (vide : la plus imprimee, voir item_pool_key)
         'item_label_pool': settings_row.item_label_pool,

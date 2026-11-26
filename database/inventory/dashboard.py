@@ -632,6 +632,10 @@ def _labels_section(today: date) -> dict[str, Any]:
     month = counts['months_total'][today.month - 1]
     part['tiles'].append(tile(counts['total'], pl(counts['total'], 'étiquette imprimée', 'étiquettes imprimées')
                               + f" en {today.year}", f"{month} ce mois-ci"))
+    if counts['lost_total']:
+        part['tiles'].append(tile(counts['lost_total'], pl(counts['lost_total'], 'étiquette perdue', 'étiquettes perdues')
+                                  + f" en {today.year}", 'calibrage, ratées : sorties du rouleau sans impression',
+                                  'warn' if counts['lost_total'] * 10 > counts['total'] else ''))
     pools = consumables.pools(today)
     cost = sum(pool['year_cost'] or 0 for pool in pools)
     if cost:
@@ -646,7 +650,7 @@ def _labels_section(today: date) -> dict[str, Any]:
     if counts['categories']:
         part['tables'].append({'title': f"Étiquettes imprimées en {today.year}", 'columns': ['Étiquette', 'Imprimées'],
                                'rows': [{'cells': [row['label'], row['total']], 'level': '', 'lot': ''}
-                                        for row in counts['categories'][:TOP]]})
+                                        for row in [row for row in counts['categories'] if row['total']][:TOP]]})
     return part
 
 

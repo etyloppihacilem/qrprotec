@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Any
 from .base import *  # noqa: F401,F403
 from .base import setUpModule, tearDownModule  # noqa: F401 (PIN facultatif pendant ces tests)
 from .. import tasks
-from ..models import StockOrder
+from ..models import LabelLoss, StockOrder
 
 if TYPE_CHECKING:
     from datetime import datetime
@@ -847,6 +847,60 @@ class ConsumableTests(ApiTestCase):
         self.call('PATCH', f"/api/consumables/refs/{self.vellum['id']}/", {'archived': True})
         self.assertEqual(self.call('POST', '/api/consumables/moves/', {'ref': self.vellum['id'], 'kind': 'reception',
                                                                        'boxes': 1})[0], 400)
+
+    def loss(self, count: int, reason: str = 'calibration', width: int = 40, height: int = 30, support: str = 'direct',
+             days_ago: int = 0) -> dict[str, Any]:
+        code, body = self.call('POST', '/api/consumables/losses/', {'width_mm': width, 'height_mm': height,
+                                                                    'support': support, 'count': count,
+                                                                    'reason': reason})
+        self.assertEqual(code, 201, body)
+        if days_ago:
+            LabelLoss.objects.filter(id=body['losses'][0]['id']).update(
+                day=self.today - timedelta(days=days_ago), created=timezone.now() - timedelta(days=days_ago))
+        return body
+
+    def test_lost_labels_lower_stock_and_count_in_pace(self) -> None:
+        self.move(self.vellum, 'reception', boxes=1, days_ago=30)  # 24 000 etiquettes
+        self.move(self.ribbon, 'reception', rolls=1, days_ago=30)  # 74 m
+        self.loss(50, days_ago=31)  # avant la reception : ne baisse pas le stock
+        body = self.loss(4)
+        self.assertEqual(body['losses'][0]['reason_label'], 'Calibrage')
+        self.assertEqual(body['losses'][0]['pool'], '40x30-direct')
+        self.assertTrue(body['losses'][0]['by'])
+        self.loss(10, 'misprint', 60, 40, 'transfer')  # ruban : 10 x (40 + 3) mm
+        pool = self.pool('40x30-direct')
+        self.assertEqual(pool['stock'], 24000 - 4)
+        self.assertEqual(pool['year_lost'], 4 + (50 if (self.today - timedelta(days=31)).year == self.today.year
+                                                 else 0))
+        self.assertEqual(self.pool('ribbon')['stock'], 74000 - 430)
+        # pas des impressions : le compteur les montre a part
+        counts = self.call('GET', '/api/print-counts/')[1]
+        self.assertEqual(counts['total'], 0)
+        self.assertGreaterEqual(counts['lost_total'], 14)
+        # rythme : calibrages et etiquettes ratees comptent, pas un accident ponctuel
+        self.printed(120, 10)  # compteur ancien : fin de la mise en place
+        self.printed(10, 3000)
+        self.loss(2000, 'accident', days_ago=5)  # rouleau abime
+        rate = Decimal(3000 + 50 + 4) / 65  # pertes de calibrage de j-31 et du jour comprises
+        pool = self.pool('40x30-direct')
+        self.assertEqual(pool['monthly'], int(rate * Decimal('30.44')))
+        self.assertEqual(pool['stock'], 24000 - 4 - 3000 - 2000)
+        # perte notee par erreur : annulee
+        loss_id = next(loss['id'] for loss in self.call('GET', '/api/consumables/')[1]['losses']
+                       if loss['reason'] == 'accident')
+        self.assertEqual(self.call('POST', f'/api/consumables/losses/{loss_id}/delete/')[0], 200)
+        self.assertEqual(self.pool('40x30-direct')['stock'], 24000 - 4 - 3000)
+        self.assertEqual(self.call('POST', f'/api/consumables/losses/{loss_id}/delete/')[0], 400)
+
+    def test_lost_labels_errors_and_inventory(self) -> None:
+        for bad in ({'count': 0}, {'count': 20000}, {'support': 'x'}, {'width_mm': 'abc'}, {'reason': 'x'}):
+            data = {'width_mm': 40, 'height_mm': 30, 'support': 'direct', 'count': 3, 'reason': 'other', **bad}
+            self.assertEqual(self.call('POST', '/api/consumables/losses/', data)[0], 400, bad)
+        self.move(self.vellum, 'reception', boxes=1, days_ago=10)
+        self.loss(30, days_ago=5)
+        self.move(self.vellum, 'inventory', rolls=2)  # 4 000 comptees apres la perte : elle est dedans
+        self.loss(3)
+        self.assertEqual(self.pool('40x30-direct')['stock'], 4000 - 3)
 
     def test_decimal_comma_or_point(self) -> None:
         # « 2,5 » comme « 2.5 » : virgule ou point dans tous les champs a virgule

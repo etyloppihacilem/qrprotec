@@ -671,6 +671,7 @@ void App::draw() {
   draw_label_prints();
   draw_roll_change_modal();
   draw_roll_wizard();
+  draw_label_loss();
   inateck.draw_window();
   draw_setup_modal();
   draw_server_modal();
@@ -1071,6 +1072,11 @@ void App::draw_print_menu(bool dark_bar, const PrintQueueStatus &print) {
     if (const AppWindow *counts = window("print_counts"); counts && can_open(*counts)
         && ImGui::MenuItem("Impressions et consommables...", nullptr, counts->open))
       open_window("print_counts");
+    if (ImGui::MenuItem("Noter des étiquettes perdues..."))
+      open_label_loss();
+    if (ImGui::IsItemHovered())
+      ImGui::SetTooltip("Étiquettes sorties du rouleau sans être imprimées (calibrage, étiquettes ratées, "
+                        "bourrage) : elles ne sont pas comptées, notez-les pour garder le stock juste.");
   }
   if (admin() && ImGui::MenuItem("Réglages d'impression..."))
     open_settings_section("Étiquettes et impression");
