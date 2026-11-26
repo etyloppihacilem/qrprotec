@@ -141,7 +141,7 @@ function renderFunStats() {
           '▶ Présenter') : null,
         el('button', { type: 'button', onclick: loadFunStats }, icon('refresh'),
           fun.loading ? 'Chargement…' : 'Actualiser'))),
-    el('p', { class: 'hint' }, 'Les records de l\'équipe, à présenter à l\'AG. « Présenter » les affiche en grand, '
+    el('p', { class: 'hint' }, 'Les records de l\'équipe. « Présenter » les affiche en grand, '
       + 'une carte à la fois : touchez l\'écran ou la flèche → pour passer à la suivante.'),
     el('div', { class: 'segmented', role: 'group', 'aria-label': 'Période' }, ...periods.map((value) =>
       el('button', { type: 'button', class: String(value) === String(fun.period) ? 'active' : '',

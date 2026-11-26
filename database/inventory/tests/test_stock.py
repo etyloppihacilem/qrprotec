@@ -759,11 +759,20 @@ class ConsumableTests(ApiTestCase):
         self.assertEqual(pool['stock'], 21000)
         self.assertEqual(pool['level'], 'ok')
         self.assertIn('21 000 étiquettes', pool['stock_text'])
-        # 3 600 etiquettes sur 32 jours de compteur (depuis le premier jour imprime)
-        self.assertEqual(pool['monthly'], int(Decimal(3600) / 32 * Decimal('30.44')))
-        self.assertEqual(pool['autonomy_days'], int(21000 / (Decimal(3600) / 32)))
-        self.assertAlmostEqual(pool['monthly_cost'], round(float(Decimal(3600) / 32 * Decimal('30.44')) * 57 / 24000, 2),
-                               places=2)
+        # compteur de 32 jours : mise en place, les impressions ne font pas encore le rythme
+        self.assertTrue(pool['setup'])
+        self.assertEqual(pool['monthly'], 0)
+        self.assertIsNone(pool['measured_monthly'])
+        self.assertIn('mise en place', pool['state'])
+        # compteur commence il y a 120 jours : rythme des 90 derniers jours, hors des 56 premiers jours (pic de la
+        # mise en place) -> 3 000 etiquettes (j-10) + 500 + 100 sur les 65 derniers jours
+        self.printed(120, 50000)
+        pool = self.pool('40x30-direct')
+        self.assertFalse(pool['setup'])
+        rate = Decimal(3600) / 65
+        self.assertEqual(pool['monthly'], int(rate * Decimal('30.44')))
+        self.assertEqual(pool['autonomy_days'], int(21000 / rate))
+        self.assertAlmostEqual(pool['monthly_cost'], round(float(rate * Decimal('30.44')) * 57 / 24000, 2), places=2)
 
     def test_inventory_resets_stock_and_alert_task(self) -> None:
         self.move(self.vellum, 'reception', boxes=2, days_ago=60)
@@ -771,7 +780,14 @@ class ConsumableTests(ApiTestCase):
         self.printed(3, 900)
         pool = self.pool('40x30-direct')
         self.assertEqual(pool['stock'], 1600)
-        self.assertEqual(pool['level'], 'warn')  # 1 600 / (900 / 4 jours) = 7 jours < 60
+        # mise en place : pas de rythme mesure, mais moins de 2 bobines en stock -> a commander quand meme
+        self.assertEqual(pool['level'], 'warn')
+        self.assertIn('moins de 2 bobines', pool['state'])
+        self.printed(150, 10)  # compteur plus ancien : fin de la mise en place
+        self.printed(40, 20000)  # avant l'inventaire : compte dans le rythme, pas dans le stock
+        pool = self.pool('40x30-direct')
+        self.assertEqual(pool['stock'], 1600)
+        self.assertEqual(pool['level'], 'warn')  # 1 600 / (20 910 / 90 jours) = 6 jours < 60
         poste = self.call('GET', '/api/tasks/')[1]
         titles = [task['title'] for task in poste['tasks']]
         self.assertIn('Commander : 40 × 30 mm, thermique direct', titles)
@@ -783,6 +799,28 @@ class ConsumableTests(ApiTestCase):
         # seuil abaisse : plus d'alerte
         self.assertEqual(self.call('PATCH', '/api/consumables/', {'alert_days': 5})[0], 200)
         self.assertEqual(self.pool('40x30-direct')['level'], 'ok')
+
+    def test_item_labels_rate_from_items_consumption(self) -> None:
+        # mise en place (compteur de 3 jours, gros pic) : le rythme vient des items utilises ou jetes
+        self.move(self.vellum, 'reception', boxes=1, days_ago=10)  # 24 000 etiquettes
+        self.printed(3, 8000)
+        self.assertEqual(self.pool('40x30-direct')['monthly'], 0)
+        items = self.create(self.compresses, self.today + timedelta(days=200), 60)
+        Verifs.objects.create(lot=self.lot, by='M:M001', datetime=timezone.now() - timedelta(days=60))
+        for item in items:
+            ItemMovement.objects.create(item=item, item_type=self.compresses, kind=MovementKind.USED,
+                                        at=timezone.now() - timedelta(days=5))
+        pool = self.pool('40x30-direct')
+        self.assertTrue(pool['item_labels'])  # seule categorie d'etiquettes : celle des items
+        self.assertEqual(pool['planned_monthly'], int(Decimal(60) / 60 * Decimal('30.44')))
+        self.assertEqual(pool['monthly'], pool['planned_monthly'])
+        self.assertIn("consommation d'items", pool['rate_source'])
+        # autre categorie choisie pour les items : plus de rythme prevu ici
+        self.ref({'kind': 'labels', 'name': 'PP 60x40', 'width_mm': 60, 'height_mm': 40, 'support': 'transfer',
+                  'per_roll': 1000})
+        self.assertEqual(self.call('PATCH', '/api/consumables/', {'item_label_pool': '60x40-transfer'})[0], 200)
+        self.assertFalse(self.pool('40x30-direct')['item_labels'])
+        self.assertEqual(self.call('PATCH', '/api/consumables/', {'item_label_pool': 'ribbon'})[0], 400)
 
     def test_ribbon_used_by_transfer_labels_length(self) -> None:
         self.move(self.ribbon, 'reception', rolls=2, days_ago=20)  # 148 m

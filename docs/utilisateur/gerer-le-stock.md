@@ -238,10 +238,23 @@ donne la consommation par mois (moyenne des 90 derniers jours), l'autonomie, le 
 depuis janvier. Sous le seuil d'alerte (60 jours par défaut, réglable), une tâche **Commander** apparaît
 dans la Gestion de la TECH du poste (pas sur le téléphone).
 
+**Mise en place** : au début, on étiquette tout le matériel d'un coup, et ce pic ne doit pas faire
+commander trop tôt. Les 8 premières semaines du compteur ne comptent donc pas dans le rythme, qui
+n'est mesuré qu'avec 4 semaines d'impressions après. D'ici là, l'alerte **Commander** vient seulement
+quand il reste moins de 2 bobines (ou rouleaux) : pas de commande trop tôt, mais pas de rupture.
+
+**Étiquettes d'items** : la catégorie des étiquettes collées sur les items (choisie en haut de l'onglet,
+sinon la plus imprimée) a aussi un rythme **prévu** d'après la consommation d'items des 6 derniers mois
+(une étiquette par item utilisé ou jeté, donc à remplacer). C'est un plancher : il ne compte ni les
+étiquettes de lots, de listes ou de paquets, ni les réimpressions. Le rythme retenu est le plus haut
+des deux ; le détail s'affiche au survol de la colonne « Par mois ».
+
 - **Références** : ajoutez chaque produit acheté : bobines (taille, direct ou transfert, étiquettes
   par bobine, bobines par boîte) ou rubans (mètres par rouleau, rouleaux par boîte), avec le prix d'une
   boîte pour les coûts. Plusieurs fournisseurs d'une même taille remplissent le même stock.
-- **Réception** : à l'arrivée d'une commande, la référence et le nombre de boîtes ou de bobines.
+- **Réception** : à l'arrivée d'une commande, la référence et le nombre de boîtes ou de bobines. Elle
+  se saisit aussi dans la fenêtre **Réception** du poste, sous le formulaire des items (« Réception
+  d'étiquettes ou de ruban »).
 - **Inventaire** : de temps en temps, comptez ce qui reste de la catégorie (boîtes, bobines, et
   à peu près ce qui reste sur la bobine entamée) : le stock estimé repart de ce compte.
 - Un mouvement saisi par erreur s'annule dans **Derniers mouvements**.
@@ -290,7 +303,7 @@ même chose, sur les 12 derniers mois :
 - Une section par sujet : lots et vérifs (lots qui attendent leur vérif depuis le plus longtemps), réassorts (lots
   où ils suffisent le moins, items en plus qui s'accumulent), consommation et péremptions, dépenses et commandes
   (commandes saisies au poste), signalements, listes et départs, étiquettes et consommables, utilisation du
-  logiciel, et les fun facts de l'AG (la page complète reste sur le web, 5 appuis sur « Prévisions »).
+  logiciel, et les fun facts de l'année (la page complète reste sur le web, 5 appuis sur « Prévisions »).
 
 ## Évènements à venir
 

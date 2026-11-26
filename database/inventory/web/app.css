@@ -1260,3 +1260,8 @@ button.dash-head .fold { width: 1.4em; height: 1.4em; border: 1px solid var(--li
 .dash-table tr.warn td:first-child { border-left: 3px solid var(--orange); }
 .dash-table tr.bad td:first-child { border-left: 3px solid var(--red); }
 .dash-table tr.clickable { cursor: pointer; }
+.dash-info { color: var(--muted); font-size: .85em; }
+.dash-table tr.dash-help td { border-bottom: 0; padding: 0 6px 6px; }
+.dash-bubble { position: relative; background: var(--navy-bg); color: var(--text); border-radius: 8px; padding: 6px 10px; font-size: .82rem; }
+.dash-bubble::before { content: ''; position: absolute; top: -6px; left: 18px; border: 6px solid transparent; border-top: 0;
+  border-bottom-color: var(--navy-bg); }

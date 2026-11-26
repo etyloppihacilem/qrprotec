@@ -189,10 +189,14 @@ def _consumables_call(function: Callable[..., Any], *args: Any) -> Any:
 @handle_errors
 def consumables_view(request: Request) -> Response:
     """Consommables d'etiquettes (fronts, roles gestion et admin) : stock estime par categorie, references, derniers
-    mouvements. PATCH {"alert_days"} : seuil de la tache « Commander »."""
+    mouvements. PATCH {"alert_days"} : seuil de la tache « Commander » ; {"item_label_pool"} : categorie des
+    etiquettes d'items (vide : automatique)."""
     require_front(request, GESTION)
     if request.method == 'PATCH':
-        _consumables_call(consumables.set_alert_days, request.data.get('alert_days'))
+        if 'alert_days' in request.data:
+            _consumables_call(consumables.set_alert_days, request.data.get('alert_days'))
+        if 'item_label_pool' in request.data:
+            _consumables_call(consumables.set_item_label_pool, request.data.get('item_label_pool'))
     return Response(consumables.summary())
 
 

@@ -343,6 +343,12 @@ class DashboardWindow final : public AppWindow {
         for (int k = 0; k < count; ++k) {
           ImGui::TableNextColumn();
           ImGui::TextUnformatted(cell_text(row["cells"][k]).c_str());
+          // explication de la ligne (genres d'operations du journal) : (?) et info-bulle au survol
+          if (k == 0 && !row["help"].str().empty()) {
+            if (ImGui::IsItemHovered())
+              ImGui::SetTooltip("%s", row["help"].str().c_str());
+            help_marker(row["help"].str().c_str());
+          }
         }
         ImGui::TableNextColumn();
         const std::string lot = row["lot"].str();

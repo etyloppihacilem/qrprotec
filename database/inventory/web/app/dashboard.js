@@ -8,7 +8,7 @@
 
 const dash = { data: null, loading: false, error: '', open: {} };
 const DASH_LINKS = { lots: 'État des lots', reports: 'Signalements', lists: 'Listes de matériel', forecast: 'Prévisions',
-  stats: 'Stats de l\'année (AG)', purchases: 'Au poste : Réception > Commandes fournisseurs',
+  stats: 'Stats de l\'année', purchases: 'Au poste : Réception > Commandes fournisseurs',
   consumables: 'Au poste : Étiquettes > Consommables' };
 
 async function loadDashboard() {
@@ -117,13 +117,25 @@ function dashChart(chart) {
   return el('div', { class: 'chart-box' }, el('h5', {}, chart.title), svg, legend, detail);
 }
 
+// Tableau : une ligne d'un lot ouvre sa fiche ; une ligne avec une explication (help, ex : genres d'opérations)
+// l'affiche dans une bulle sous la ligne quand on la touche
 function dashTable(table) {
+  const rows = [];
+  for (const row of table.rows) {
+    const bubble = row.help ? el('tr', { class: 'dash-help', hidden: '' },
+      el('td', { colspan: String(table.columns.length) }, el('div', { class: 'dash-bubble' }, row.help))) : null;
+    const cells = row.cells.map((cell, index) => el('td', {}, String(cell),
+      index === 0 && row.help ? el('span', { class: 'dash-info', 'aria-hidden': 'true' }, ' ⓘ') : null));
+    rows.push(el('tr', {
+      class: (row.level || '') + (row.lot || row.help ? ' clickable' : ''),
+      title: row.help || null,
+      onclick: row.lot ? () => openFiche('lot', row.lot) : bubble ? () => { bubble.hidden = !bubble.hidden; } : null,
+    }, ...cells));
+    if (bubble) rows.push(bubble);
+  }
   return el('div', { class: 'dash-table' }, el('h5', {}, table.title),
     el('table', {}, el('thead', {}, el('tr', {}, ...table.columns.map((name) => el('th', {}, name)))),
-      el('tbody', {}, ...table.rows.map((row) => el('tr', {
-        class: (row.level || '') + (row.lot ? ' clickable' : ''),
-        onclick: row.lot ? () => openFiche('lot', row.lot) : null,
-      }, ...row.cells.map((cell) => el('td', {}, String(cell))))))));
+      el('tbody', {}, ...rows)));
 }
 
 function dashSection(part) {

@@ -374,10 +374,15 @@ class PrintCountsWindow final : public AppWindow {
           send(app, "PATCH", "/api/consumables/", body, "Seuil d'alerte enregistré.");
         }
       }
+      draw_item_label_pool(app);
       ImGui::PushTextWrapPos(0.0f);
       ImGui::TextDisabled("Stock estimé : dernier inventaire (ou première réception) + réceptions − étiquettes "
                           "imprimées depuis le lendemain. Le ruban s'use de la hauteur de chaque étiquette de "
-                          "transfert + %g mm. Consommation : moyenne des %d derniers jours.",
+                          "transfert + %g mm. Consommation : moyenne des %d derniers jours, sans les 8 premières "
+                          "semaines du compteur (mise en place : on étiquette tout le matériel d'un coup). Pour les "
+                          "étiquettes d'items, au moins une étiquette par item utilisé ou jeté (consommation "
+                          "d'items des 6 derniers mois) : le rythme retenu est le plus haut des deux. Pendant la "
+                          "mise en place, alerte seulement sous 2 bobines.",
                           consumables_["ribbon_gap_mm"].num(3.0), consumables_["rate_days"].integer(90));
       ImGui::PopTextWrapPos();
       if (!consumables_error_.empty())
@@ -412,6 +417,10 @@ class PrintCountsWindow final : public AppWindow {
           ImGui::TextWrapped("%s", pool["stock_text"].str().empty() ? "?" : pool["stock_text"].str().c_str());
           ImGui::TableNextColumn();
           ImGui::TextWrapped("%s", pool["monthly_text"].str().empty() ? "–" : pool["monthly_text"].str().c_str());
+          if (!pool["rate_source"].str().empty() && ImGui::IsItemHovered())
+            ImGui::SetTooltip("%s", rate_tooltip(pool).c_str());
+          if (pool["item_labels"].boolean())
+            ImGui::TextDisabled("étiquettes d'items");
           ImGui::TableNextColumn();
           ImGui::TextUnformatted(euros(pool["monthly_cost"]).c_str());
           ImGui::TableNextColumn();
@@ -460,6 +469,49 @@ class PrintCountsWindow final : public AppWindow {
         ImGui::PopID();
       }
       ImGui::EndTable();
+    }
+
+    // Categorie des etiquettes collees sur les items : son rythme ne descend jamais sous la consommation d'items
+    // (une etiquette par item a remplacer). Vide : la categorie la plus imprimee.
+    void draw_item_label_pool(App &app) {
+      const std::string current = consumables_["item_label_pool"].str();
+      std::string       shown   = "automatique (la plus imprimée)";
+      for (const Json &pool : consumables_["pools"].items())
+        if (pool["kind"].str() != "ribbon" && pool["key"].str() == current)
+          shown = pool["label"].str();
+      ImGui::AlignTextToFramePadding();
+      ImGui::TextUnformatted("Étiquettes collées sur les items :");
+      ImGui::SameLine();
+      ImGui::SetNextItemWidth(ImGui::GetFontSize() * 18.0f);
+      if (ImGui::BeginCombo("##item_label_pool", shown.c_str())) {
+        std::string chosen = current;
+        if (ImGui::Selectable("automatique (la plus imprimée)", current.empty()))
+          chosen = "";
+        for (const Json &pool : consumables_["pools"].items()) {
+          if (pool["kind"].str() == "ribbon")
+            continue;
+          if (ImGui::Selectable(pool["label"].str().c_str(), pool["key"].str() == current))
+            chosen = pool["key"].str();
+        }
+        ImGui::EndCombo();
+        if (chosen != current) {
+          Json body;
+          body["item_label_pool"] = chosen;
+          send(app, "PATCH", "/api/consumables/", body, "Catégorie des étiquettes d'items enregistrée.");
+        }
+      }
+      if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Le rythme de cette catégorie ne descend jamais sous la consommation d'items "
+                          "(une étiquette par item à remplacer).");
+    }
+
+    static std::string rate_tooltip(const Json &pool) {
+      std::string text = pool["rate_source"].str();
+      if (!pool["measured_monthly"].is_null())
+        text += "\nMesuré : " + std::to_string(pool["measured_monthly"].integer()) + " par mois";
+      if (!pool["planned_monthly"].is_null())
+        text += "\nD'après les items : " + std::to_string(pool["planned_monthly"].integer()) + " par mois";
+      return text;
     }
 
     void draw_move_form(App &app) {

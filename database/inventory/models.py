@@ -1688,6 +1688,10 @@ class ServerSettings(models.Model):
     # Consommables d'etiquettes (bobines, rubans) : tache « Commander » au poste quand le stock estime tient moins de
     # ce nombre de jours au rythme des impressions (delai de commande et de livraison compris)
     consumable_alert_days = models.PositiveSmallIntegerField(default=60)
+    # Categorie des etiquettes d'items (cle de consumables.pool_key, ex : 40x30-direct) : son rythme ne descend jamais
+    # sous la consommation d'items (un item utilise ou jete = une etiquette a imprimer pour le remplacer). Vide :
+    # la categorie d'etiquettes la plus imprimee.
+    item_label_pool = models.CharField(max_length=32, blank=True, default='')
     # Message « objet perdu », le meme pour tous les types d'items coches ItemType.lost_object : affiche sur la fiche
     # ouverte par le scan de l'etiquette (appareil photo de la personne qui l'a trouve). Modifiable par la gestion.
     lost_object_message = models.TextField(blank=True, default=DEFAULT_LOST_OBJECT_MESSAGE)
