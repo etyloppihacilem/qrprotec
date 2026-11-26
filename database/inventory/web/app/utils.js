@@ -53,14 +53,14 @@ function fmtDateTime(value, { long = false, on = false } = {}) {
   return (on ? 'le ' : '') + date + time;
 }
 
-// Duree à la seconde : « 45 s », « 12 min 05 s », « 1 h 07 min 05 s »
+// Duree à la seconde : « 45 s », « 12 min 05 s », « 1h07 min 05 s »
 function fmtDuration(seconds) {
   const total = Math.max(0, Math.round(seconds));
   const h = Math.floor(total / 3600);
   const m = Math.floor((total % 3600) / 60);
   const s = total % 60;
   const two = (n) => String(n).padStart(2, '0');
-  if (h) return `${h} h ${two(m)} min ${two(s)} s`;
+  if (h) return `${h}h${two(m)} min ${two(s)} s`;
   if (m) return `${m} min ${two(s)} s`;
   return `${s} s`;
 }

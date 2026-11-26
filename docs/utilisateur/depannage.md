@@ -161,4 +161,4 @@ USB wifi suffit) ; sinon le poste affiche pourquoi il ne démarre pas.
 **J'ai oublié ma carte.**
 Demandez au TECH (un administrateur) : dans l'outil de debug des codes, il touche votre nom sous
 « Cartes des secouristes » et vous montre un QR code. Scannez-le avec votre téléphone (dans QRprotec ou avec
-l'appareil photo) : vous êtes connecté pour 24 h, sans carte ni code PIN. Le QR code ne vaut qu'une heure.
+l'appareil photo) : vous êtes connecté pour 24h, sans carte ni code PIN. Le QR code ne vaut qu'une heure.

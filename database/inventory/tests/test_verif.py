@@ -234,7 +234,7 @@ class RecentVerifsTests(ApiTestCase):
         items = self.create(self.compresses, self.today + timedelta(days=200), 2)
         self.call('POST', f'/api/lots/{self.lot.id}/add/', {'items': [item.iid for item in items]})
         badge = {'matricule': self.user.matricule, 'key': self.user.new_key}
-        # faite hors connexion il y a 3 h d'apres l'appareil, dont l'horloge avance d'un jour : seul compte l'ecart
+        # faite hors connexion il y a 3h d'apres l'appareil, dont l'horloge avance d'un jour : seul compte l'ecart
         # entre la validation et l'envoi
         skew = timedelta(days=1)
         device_now = timezone.now() + skew

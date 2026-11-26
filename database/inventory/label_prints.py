@@ -20,7 +20,7 @@ models.LabelPrint).
   poste imprime telles quelles. Le poste est le poste principal : front de l'API locale du
   serveur, ou kiosk d'une autre machine dont la cle est marquee poste (FrontKey.poste, back sans kiosk).
 
-La fenetre du poste s'ouvre d'elle-meme, meme sans personne de connecte. Une demande pas imprimee expire en 24 h.
+La fenetre du poste s'ouvre d'elle-meme, meme sans personne de connecte. Une demande pas imprimee expire en 24h.
 
 Files d'impression : une par personne qui demande (LabelPrint.queue), pour que chacun retrouve son ruban quand plusieurs
 portables envoient en meme temps. Au poste, on choisit la file (ou on scanne son badge) et on n'imprime qu'elle. Les
@@ -72,7 +72,7 @@ def _expiry() -> datetime:
 
 
 def pending_rows() -> QuerySet:
-    """Demandes a imprimer : ni imprimees, ni annulees, ni expirees (plus de 24 h)."""
+    """Demandes a imprimer : ni imprimees, ni annulees, ni expirees (plus de 24h)."""
     return LabelPrint.objects.select_related('item_type').filter(printed__isnull=True, cancelled__isnull=True,
                                                                  created__gte=_expiry())
 
@@ -280,7 +280,7 @@ def cancel(print_id: int, by: str) -> LabelPrint:
 
 def poste_list() -> dict[str, Any]:
     """Fenetre du poste (interrogee toutes les 20 s, donc sans les images ni les items) : demandes en attente (les
-    plus anciennes d'abord) et impressions des dernieres 24 h."""
+    plus anciennes d'abord) et impressions des dernieres 24h."""
     since = timezone.now() - timedelta(hours=RECENT_HOURS)
     recent = LabelPrint.objects.select_related('item_type').filter(printed__gte=since).order_by('-printed')
     pending = list(pending_rows().order_by('created'))
@@ -352,7 +352,7 @@ def print_now(print_id: int, front_name: str = '') -> dict[str, Any]:
         if row.printed is not None:
             raise PrintError('Déjà imprimée' + (f' sur {row.printed_on}' if row.printed_on else ''), 409)
         if row.expired:
-            raise PrintError(f'Demande expirée (pas imprimée en {LabelPrint.EXPIRY_HOURS} h) : refaites-la', 410)
+            raise PrintError(f'Demande expirée (pas imprimée en {LabelPrint.EXPIRY_HOURS}h) : refaites-la', 410)
         row.printed = timezone.now()
         row.printed_on = front_name[:64]
         if row.kind == LabelPrintKind.ITEMS:

@@ -28,7 +28,7 @@ if TYPE_CHECKING:
 SESSION_SALT = 'qrprotec.session'
 SESSION_MAX_AGE = 12 * 3600  # jeton de session apres verification du PIN
 # Connexion de depannage (QR code temporaire montre par un admin a un secouriste qui a oublie sa carte) : le QR code
-# vaut 1 h apres sa creation, la session qu'il ouvre sur le telephone 24 h
+# vaut 1h apres sa creation, la session qu'il ouvre sur le telephone 24h
 TEMP_LOGIN_SALT = 'qrprotec.temp-login'
 TEMP_LOGIN_MAX_AGE = 3600
 TEMP_SESSION_SALT = 'qrprotec.temp-session'
@@ -104,7 +104,7 @@ def passkey_session(user: Secouristes, token: str) -> bool:
 
 
 def _session_data(token: str | None) -> dict[str, Any] | None:
-    """Contenu d'un jeton de session (normale 12 h, ou de depannage 24 h), None s'il est invalide ou expire."""
+    """Contenu d'un jeton de session (normale 12h, ou de depannage 24h), None s'il est invalide ou expire."""
     for salt, max_age in ((SESSION_SALT, SESSION_MAX_AGE), (TEMP_SESSION_SALT, TEMP_SESSION_MAX_AGE)):
         try:
             return signing.loads(str(token or ''), salt=salt, max_age=max_age)
@@ -114,7 +114,7 @@ def _session_data(token: str | None) -> dict[str, Any] | None:
 
 
 def temp_login_token(user: Secouristes, passkey: bool = False) -> str:
-    """Jeton du QR code de connexion de depannage (1 h), lie au badge courant comme les sessions. `passkey` : QR code
+    """Jeton du QR code de connexion de depannage (1h), lie au badge courant comme les sessions. `passkey` : QR code
     de connexion au poste montre par le secouriste lui-meme, connecte avec sa passkey (5 min)."""
     data = {'m': user.matricule, 'k': user.key_hash[-8:]}
     if passkey:
@@ -123,7 +123,7 @@ def temp_login_token(user: Secouristes, passkey: bool = False) -> str:
 
 
 def temp_login_data(token: str) -> dict[str, Any] | None:
-    """Contenu d'un jeton de QR code de connexion valide (1 h, 5 min s'il vient d'une passkey), None sinon."""
+    """Contenu d'un jeton de QR code de connexion valide (1h, 5 min s'il vient d'une passkey), None sinon."""
     try:
         data = signing.loads(str(token or ''), salt=TEMP_LOGIN_SALT, max_age=TEMP_LOGIN_MAX_AGE)
         if data.get('pk') == 1:
@@ -134,7 +134,7 @@ def temp_login_data(token: str) -> dict[str, Any] | None:
 
 
 def temp_login_user(matricule: str, token: str) -> Secouristes | None:
-    """Secouriste d'un QR code de depannage valide (moins d'1 h, meme badge, PIN non bloque), None sinon."""
+    """Secouriste d'un QR code de depannage valide (moins d'1h, meme badge, PIN non bloque), None sinon."""
     data = temp_login_data(token)
     if data is None:
         return None

@@ -522,7 +522,7 @@ Calculées par `inventory/forecast.py` à chaque appel (`GET /api/stock/forecast
   blocage** : `pin_reset_notified` est pris avant l'envoi et ne revient à `False` qu'à la
   réinitialisation du PIN, donc répéter les demandes ou les essais n'envoie rien de plus. S'il n'y
   avait aucun destinataire, la tentative suivante réessaie.
-- Sur le téléphone, `POST /api/auth/` renvoie un **jeton de session** signé (12 h), lié à la fin de
+- Sur le téléphone, `POST /api/auth/` renvoie un **jeton de session** signé (12h), lié à la fin de
   l'empreinte de la clé du badge : renouveler le badge invalide les sessions. Il remplace le PIN pour
   les lectures réservées (état des stocks).
 - Première installation : tant qu'aucun admin n'a de badge valide (`GET /api/setup/`), le poste

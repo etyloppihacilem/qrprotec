@@ -15,7 +15,7 @@
 // - etiquettes d'un front sur un autre ordinateur (cle de front, sans imprimante) : « Imprimer » y rend chaque
 //   etiquette en image 1 bit et l'envoie (send_to_poste) ; le poste l'imprime telle quelle.
 // Sur le poste (le seul front branche sur l'API locale), la fenetre « Impressions en attente » s'ouvre d'elle-meme a
-// chaque nouvelle demande, meme sans personne de connecte. Une demande pas imprimee expire en 24 h (serveur).
+// chaque nouvelle demande, meme sans personne de connecte. Une demande pas imprimee expire en 24h (serveur).
 // Le poste interroge la file toutes les 20 s. Des qu'il y voit une nouvelle demande, il ouvre un WebSocket
 // (/ws/label-prints, database/inventory/print_live.py) : chaque changement de la file lui est signale et il la relit
 // aussitot, sans attendre. 15 min sans nouvelle impression : le WebSocket se ferme, l'interrogation reprend.
@@ -437,7 +437,7 @@ void App::draw_label_prints() {
   else
     ImGui::TextUnformatted("Étiquettes demandées depuis le web ou un autre ordinateur, une file par personne. "
                            "Pour de nouvelles étiquettes d'items, collez chacune sur un item de ce type : les items "
-                           "sont ajoutés au stock. Une demande pas imprimée en 24 h disparaît.");
+                           "sont ajoutés au stock. Une demande pas imprimée en 24h disparaît.");
   ImGui::PopTextWrapPos();
   // nouvelles demandes : vues aussitot en direct, sinon au prochain tour (20 s) ou a la main
   ImGui::BeginDisabled(state.loading);
@@ -604,9 +604,9 @@ void App::draw_label_prints() {
     }
   }
 
-  // imprimees dans les dernieres 24 h : reimpression si une etiquette a ete abimee ou le rouleau a coince
+  // imprimees dans les dernieres 24h : reimpression si une etiquette a ete abimee ou le rouleau a coince
   if (!state.remote && recent.size() > 0) {
-    ImGui::SeparatorText("Imprimées dans les dernières 24 h");
+    ImGui::SeparatorText("Imprimées dans les dernières 24h");
     for (const Json &request : recent.items()) {
       ImGui::PushID(request["id"].integer());
       // demande complete (items ou images) lue a la demande : la liste, interrogee toutes les 20 s, ne les a pas

@@ -460,7 +460,7 @@ class FunStatsTests(ApiTestCase):
         for second in range(0, 50, 5):  # 10 scans en 45 s
             models.VerifItem.objects.create(verif=fast, item=self.create(self.garrot, None, 1)[0],
                                             scanned_at=at(8, 1) + timedelta(seconds=second))
-        # Sac B : a deux en 3 min 30 s ; incomplete ; sans duree (avant le chronometrage) ; oubliee (5 h)
+        # Sac B : a deux en 3 min 30 s ; incomplete ; sans duree (avant le chronometrage) ; oubliee (5h)
         self.verif('M:M001', at(7, 3.5), lot=sac_b, participants=['M:M002'], present=15, started=at(7))
         self.verif('M:M001', at(6, 1), lot=sac_b, present=4, started=at(6), complete=False)
         self.verif('M:M002', at(5, 1), lot=sac_b, present=4)
@@ -470,7 +470,7 @@ class FunStatsTests(ApiTestCase):
         code, body = self.call('POST', '/api/stats/fun/', {}, session=views.session_token(self.user))
         self.assertEqual(code, 200)
         tiles = {tile['label']: tile['value'] for tile in body['time_totals']}
-        # 10 + 20 + 5 + 3,5 + 1 min = 39 min 30 s chronometrees (ni la vérif sans debut ni celle de 5 h)
+        # 10 + 20 + 5 + 3,5 + 1 min = 39 min 30 s chronometrees (ni la vérif sans debut ni celle de 5h)
         self.assertEqual(tiles['passées en vérif'], '39 min')
         self.assertEqual(tiles['vérifs chronométrées'], '5')
         self.assertIn('43 min', tiles.values())  # a deux : 3 min 30 s chacun en plus

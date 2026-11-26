@@ -320,7 +320,7 @@ function debugUsersParts(users, title = 'Cartes des secouristes (dépannage)') {
   if (!users.length) return [];
   return [el('h3', {}, title),
     el('p', { class: 'hint' }, 'Un secouriste a oublié sa carte : touchez son nom et faites-lui scanner le QR code. '
-      + 'Il vaut 1 h ; le téléphone qui le scanne reste connecté 24 h. Pas de QR code pour les administrateurs. '
+      + 'Il vaut 1h ; le téléphone qui le scanne reste connecté 24h. Pas de QR code pour les administrateurs. '
       + 'Ses passkeys s\'y affichent aussi, pour les supprimer.'),
     el('div', { class: 'debug-chips' }, ...users.map((user) => el('button', { type: 'button',
       disabled: user.pin_blocked ? '' : null, title: user.pin_blocked ? 'PIN bloqué : réinitialisez-le d\'abord' : '',
@@ -341,7 +341,7 @@ async function showTempLogin(user) {
       el('p', {}, el('b', {}, 'Scannez ce QR code avec le téléphone du secouriste'),
         ' (dans QRprotec, ou avec l\'appareil photo).'),
       el('p', { class: 'hint' }, `Valable jusqu'à ${until.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}`
-        + ' (1 h). Le téléphone reste connecté 24 h, sans carte ni code PIN.'));
+        + ' (1h). Le téléphone reste connecté 24h, sans carte ni code PIN.'));
   } catch (e) {
     body.replaceChildren(el('h2', {}, user.name), el('p', { class: 'pin-error' }, e.message));
   }
@@ -377,7 +377,7 @@ async function debugPasskeysPart(user) {
 $('#temp-login-close').addEventListener('click', () => $('#temp-login').close());
 
 // Cartes d'invites (secouristes d'une autre antenne sans compte) : une carte creee ici s'affiche en QR code a scanner
-// avec le telephone de l'invite, qui donne son nom et son prenom ; a activer dans les 24 h, valable 48 h ensuite.
+// avec le telephone de l'invite, qui donne son nom et son prenom ; a activer dans les 24h, valable 48h ensuite.
 // Chaque carte dit l'admin qui l'a creee ; une carte se desactive, activee ou non.
 const GUEST_STATE_CLASS = { active: 'ok', unused: '', expired: 'muted', expired_unused: 'muted', disabled: 'muted' };
 
@@ -385,7 +385,7 @@ function guestCardLine(card) {
   const name = card.name || 'Pas encore utilisée';
   const when = card.state === 'active' ? `valable jusqu'à ${fmtDateTime(card.expires)}`
     : card.state === 'unused' && card.activate_before ? `à activer avant ${fmtDateTime(card.activate_before)}`
-      : card.state === 'unused' ? `valable ${card.hours} h après la première connexion`
+      : card.state === 'unused' ? `valable ${card.hours}h après la première connexion`
         : card.state === 'expired' ? fmtDateTime(card.expires, { on: true }) : '';
   const button = (label, cls, onclick) => el('button', { type: 'button', class: cls, onclick }, label);
   const actions = [];
@@ -408,7 +408,7 @@ function debugGuestParts() {
   const parts = [el('div', { class: 'row-head' }, el('h3', {}, "Cartes d'invités"),
     el('button', { type: 'button', class: 'primary', onclick: createGuestCard }, icon('badge'), 'Créer une carte')),
   el('p', { class: 'hint' }, "Pour un secouriste d'une autre antenne sans compte : il scanne le QR code avec son "
-    + 'téléphone et donne son nom, son prénom et son antenne. La carte est à activer dans les 24 h, puis vaut 48 h. '
+    + 'téléphone et donne son nom, son prénom et son antenne. La carte est à activer dans les 24h, puis vaut 48h. '
     + "Le numéro d'une carte jamais activée se reprend ; un invité qui revient se réactive.")];
   if (!live.length) parts.push(el('p', { class: 'hint' }, 'Aucune carte en cours.'));
   live.forEach((card) => parts.push(guestCardLine(card)));
@@ -453,7 +453,7 @@ async function showGuestCard(action, target = null, hours = null) {
       el('p', {}, el('b', {}, "Scannez ce QR code avec le téléphone de l'invité"),
         ' (dans QRprotec, ou avec l\'appareil photo)', back ? '.' : ' : il donne son nom, son prénom et son antenne.'),
       el('p', { class: 'hint' }, (back ? `Valable jusqu'à ${fmtDateTime(card.expires)}. `
-        : `À activer avant ${fmtDateTime(card.activate_before)}, puis valable ${card.hours} h. `)
+        : `À activer avant ${fmtDateTime(card.activate_before)}, puis valable ${card.hours}h. `)
         + 'Vous pouvez la désactiver à tout moment dans cette page.'));
     debug.built = '';
     renderDebugResults();

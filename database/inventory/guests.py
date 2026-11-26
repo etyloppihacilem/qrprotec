@@ -1,8 +1,8 @@
 """Cartes d'invites : secouristes d'une autre antenne, sans compte ni matricule.
 
 Un admin les prepare a l'avance : imprimees au poste (fenetre Utilisateurs, onglet Cartes d'invites), ou montrees a
-l'ecran depuis l'outil de debug du web (a activer dans les 24 h). Une carte n'a pas de nom : le nom et le prenom sont
-demandes a la premiere connexion, qui l'active pour `guest_hours` heures (48 h par defaut, ServerSettings.guest_hours).
+l'ecran depuis l'outil de debug du web (a activer dans les 24h). Une carte n'a pas de nom : le nom et le prenom sont
+demandes a la premiere connexion, qui l'active pour `guest_hours` heures (48h par defaut, ServerSettings.guest_hours).
 Son « matricule » est un numero de carte tire au hasard (INV...), qui ne sert qu'a la reconnaitre. Role secouriste,
 jamais de PIN. Une carte desactivee (activee ou non) ne connecte plus personne et coupe les sessions ouvertes.
 
@@ -29,7 +29,7 @@ GUEST_CODE_ALPHABET = '23456789ABCDEFGHJKLMNPQRSTUVWXYZ'  # sans 0/O ni 1/I : nu
 GUEST_CODE_LENGTH = 5
 GUEST_HOURS_MAX = 24 * 30          # duree de vie : au plus 30 jours
 GUEST_MAX_CARDS = 20               # cartes creees d'un coup
-WEB_ACTIVATION_HOURS = 24          # carte montree a l'ecran (outil de debug) : a activer dans les 24 h
+WEB_ACTIVATION_HOURS = 24          # carte montree a l'ecran (outil de debug) : a activer dans les 24h
 
 GUEST_STATE_LABELS = {
     'unused': 'Pas encore utilisée',
@@ -123,7 +123,7 @@ def reactivate(card: Secouristes, hours: int, new_card: bool = False) -> Secouri
 
 
 def activation_deadline(card: Secouristes) -> date | None:
-    """Date limite de premiere connexion d'une carte jamais activee (24 h des cartes du web, sinon un an)."""
+    """Date limite de premiere connexion d'une carte jamais activee (24h des cartes du web, sinon un an)."""
     if card.guest_activate_before is not None:
         return timezone.localtime(card.guest_activate_before).date()
     return card.key_expires

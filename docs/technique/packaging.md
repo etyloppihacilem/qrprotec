@@ -70,7 +70,7 @@ casser la borne. Les versions embarquées sont exactement celles testées.
 | `caddy.service` + `caddy.service.d/qrprotec.conf` | Caddy de Fedora, avec `/etc/qrprotec/qrprotec.conf` en `EnvironmentFile` ; le fragment `Caddyfile.d/qrprotec.caddyfile` est importé par le Caddyfile de Fedora, non modifié. |
 | `qrprotec-kiosk.service` | Cage sur `tty1` (à la place de getty), utilisateur `qrprotec-kiosk`, session PAM, `Restart=always`. Lance `qrprotec-kiosk-session`. |
 | `qrprotec-hotspot.service` | Wifi de secours (paquet kiosk), `oneshot` lancé à la demande par le poste (règle polkit `50-qrprotec-hotspot.rules` : `qrprotec-kiosk` peut seulement démarrer et arrêter cette unité). `qrprotec-hotspot start` : point d'accès NetworkManager partagé + `dnsmasq-shared.d/qrprotec-hotspot.conf` (nom du site → borne), état lu par le poste dans `/run/qrprotec-hotspot/{state,error}` (groupe `qrprotec-kiosk`). Jamais activé au démarrage. |
-| `qrprotec-alerts.timer` | `check_alerts` chaque jour à 7 h 45, et le lundi `purge_history` (rétention de `QRPROTEC_HISTORY_YEARS` ans, 5 par défaut, puis VACUUM). |
+| `qrprotec-alerts.timer` | `check_alerts` chaque jour à 7h45, et le lundi `purge_history` (rétention de `QRPROTEC_HISTORY_YEARS` ans, 5 par défaut, puis VACUUM). |
 | `qrprotec-backup.timer` | Sauvegarde (quotidienne par défaut, réglable). |
 | `80-qrprotec.preset` | Active les unités à l'installation. |
 | `logind-qrprotec.conf`, `sleep-qrprotec.conf` | Pas de mise en veille de la borne. |
@@ -183,7 +183,7 @@ Les publications dnf et Flatpak d'un même tag passent l'une après l'autre (`co
 `QRProtec-macos-arm64.dmg`, joint aux releases. Sur un tag, l'application est construite avec
 `-DQRPROTEC_VERSION=X.Y.Z` et se met à jour toute seule (`app/src/app/updater.cpp`) :
 
-1. Une minute après le démarrage puis toutes les 6 h, `GET api.github.com/repos/<dépôt>/releases/latest`
+1. Une minute après le démarrage puis toutes les 6h, `GET api.github.com/repos/<dépôt>/releases/latest`
    (curl du système, magasin de certificats de macOS). Les brouillons et pré-releases sont ignorés.
 2. Version plus récente : le `.dmg` est téléchargé dans `~/Library/Caches/QRProtec/updates` et son
    SHA-256 comparé à l'empreinte que GitHub publie pour chaque fichier de release (champ `digest`).

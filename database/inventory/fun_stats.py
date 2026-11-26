@@ -47,7 +47,7 @@ PODIUM = 3
 WEEKDAYS = ['lundi', 'mardi', 'mercredi', 'jeudi', 'vendredi', 'samedi', 'dimanche']
 MONTHS = ['janvier', 'février', 'mars', 'avril', 'mai', 'juin', 'juillet', 'août', 'septembre', 'octobre',
           'novembre', 'décembre']
-# heure « de nuit » : une vérif a 1 h du matin est plus tardive qu'une a 23 h (journee comptee a partir de 5 h)
+# heure « de nuit » : une vérif a 1h du matin est plus tardive qu'une a 23h (journee comptee a partir de 5h)
 DAY_START = 5
 # durees : au-dela, une vérif restee ouverte (oubliee) plutot qu'une vraie duree, ecartee des stats de duree
 MAX_DURATION = timedelta(hours=3)
@@ -152,11 +152,11 @@ def _podium(counter: Mapping[Any, float], unit: str, unit_plural: str | None = N
 
 def _when(dt: datetime) -> str:
     local = timezone.localtime(dt)
-    return f"le {local.day} {MONTHS[local.month - 1]} {local.year} à {local.hour} h {local.minute:02d}"
+    return f"le {local.day} {MONTHS[local.month - 1]} {local.year} à {local.hour}h{local.minute:02d}"
 
 
 def _night_minutes(dt: datetime) -> int:
-    """Minutes depuis DAY_START (5 h) : plus c'est grand, plus c'est tard dans la nuit."""
+    """Minutes depuis DAY_START (5h) : plus c'est grand, plus c'est tard dans la nuit."""
     local = timezone.localtime(dt)
     return ((local.hour - DAY_START) % 24) * 60 + local.minute
 
@@ -203,7 +203,7 @@ def _compute(start: datetime, end: datetime, label: str) -> dict[str, Any]:
             duos[pair] += 1
         if people:
             minutes = _night_minutes(session['at'])
-            # nuit : apres 21 h ou avant 5 h ; matin : de 5 h a 8 h
+            # nuit : apres 21h ou avant 5h ; matin : de 5h a 8h
             if minutes >= 16 * 60 and (night is None or minutes > night[0]):
                 night = (minutes, session)
             if minutes < 3 * 60 and (early is None or minutes < early[0]):
@@ -327,13 +327,13 @@ def _compute(start: datetime, end: datetime, label: str) -> dict[str, Any]:
 
 
 def clock(seconds: float, precise: bool = True) -> str:
-    """« 45 s », « 12 min 05 s », « 1 h 07 min 05 s » ; precise faux : sans les secondes au-dela d'une minute
-    (« 12 h 40 min », temps cumules)."""
+    """« 45 s », « 12 min 05 s », « 1h07 min 05 s » ; precise faux : sans les secondes au-dela d'une minute
+    (« 12h40 min », temps cumules)."""
     total = max(0, round(seconds))
     hours, rest = divmod(total, 3600)
     minutes, secs = divmod(rest, 60)
     if hours:
-        return f"{hours} h {minutes:02d} min" + (f" {secs:02d} s" if precise else '')
+        return f"{hours}h{minutes:02d} min" + (f" {secs:02d} s" if precise else '')
     if minutes:
         return f"{minutes} min" + (f" {secs:02d} s" if precise else '')
     return f"{secs} s"

@@ -91,11 +91,11 @@ function logout(message) {
   render();
 }
 
-// Web partage : deconnexion apres 1 h sans activite, verifiee chaque minute et avant de compter un nouveau geste
+// Web partage : deconnexion apres 1h sans activite, verifiee chaque minute et avant de compter un nouveau geste
 // (la tablette en veille suspend les minuteries : le premier toucher au reveil deconnecte d'abord)
 function checkSharedIdle() {
   if (!state.user || !sharedWeb() || Date.now() - lastActivity() < SHARED_IDLE_MS) return;
-  logout('Déconnecté après 1 h sans activité.');
+  logout('Déconnecté après 1h sans activité.');
 }
 function userActive() {
   checkSharedIdle();

@@ -1060,8 +1060,8 @@ PUSH_TYPES = {
     'order_due': ('Commande à passer (prévisions de stock)', _GESTION_ROLES, True),
     'problem_report': ("Signalement d'un problème sur un item ou un lot", _ADMIN_ROLES, True),
     'seal_broken': ("Ouverture d'un lot scellé (étiquette d'ouverture, vérif, ajout ou retrait)", _GESTION_ROLES, True),
-    'expired_daily': ('Résumé quotidien des lots contenant des périmés (7 h 45)', _GESTION_ROLES, True),
-    'revision_daily': ('Résumé quotidien des révisions et désinfections de matériel à faire (7 h 45)',
+    'expired_daily': ('Résumé quotidien des lots contenant des périmés (7h45)', _GESTION_ROLES, True),
+    'revision_daily': ('Résumé quotidien des révisions et désinfections de matériel à faire (7h45)',
                        _GESTION_ROLES, True),
     'verif_problem': ('Vérif de lot incomplète (manquants, périmés, disparus)', _GESTION_ROLES, False),
     # sauvegarde ou envoi sur la machine distante en echec, erreur 500... : le detail est dans les journaux
@@ -1132,7 +1132,7 @@ class Secouristes(models.Model):
     # tire au hasard, INV...). Imprimee a l'avance (poste) ou montree a l'ecran (outil de debug du web), sans nom :
     # le nom et le prenom sont demandes a la premiere connexion, qui l'active. Role secouriste, jamais de PIN. Elle
     # vaut `guest_hours` heures apres son activation ; une carte du web doit en plus etre activee avant
-    # `guest_activate_before` (24 h). Un admin la desactive (active), activee ou non.
+    # `guest_activate_before` (24h). Un admin la desactive (active), activee ou non.
     guest = models.BooleanField(default=False)
     guest_hours = models.PositiveSmallIntegerField(default=48)
     guest_activated = models.DateTimeField(blank=True, null=True)  # debut de la periode en cours (reactivation)
@@ -2007,7 +2007,7 @@ class LabelPrint(models.Model):
       packs.py). L'impression marque les etiquettes des items comme imprimees (SealedPacks.labels_printed).
 
     Le poste ouvre la fenetre « Impressions en attente » meme sans personne de connecte, une file par personne qui
-    demande (`queue`). Une demande pas imprimee expire au bout de 24 h (EXPIRY_HOURS). `printed_on` : nom du front qui a imprime, vide pour le poste local.
+    demande (`queue`). Une demande pas imprimee expire au bout de 24h (EXPIRY_HOURS). `printed_on` : nom du front qui a imprime, vide pour le poste local.
     """
     EXPIRY_HOURS = 24
 

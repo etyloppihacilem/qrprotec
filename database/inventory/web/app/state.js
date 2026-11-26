@@ -61,11 +61,11 @@ function readId(code, length) {
 }
 const REPEAT_DELAY_MS = 2500; // un meme code vu en continu par la camera n'est traite qu'une fois
 const STORAGE_USER = 'qrprotec.user';
-const NAME_SESSION_MS = 11.5 * 3600 * 1000;  // connexion par nom et PIN : jeton de session valable 12 h
+const NAME_SESSION_MS = 11.5 * 3600 * 1000;  // connexion par nom et PIN : jeton de session valable 12h
 const STORAGE_SESSION = 'qrprotec.session';
 // « Web partagé » (tablettes de l'antenne) : reglage de cet appareil, coche par la gestion ou un admin, garde dans les
 // donnees persistantes du site (localStorage, protege par navigator.storage.persist). Coche : la connexion n'est
-// gardee que dans l'onglet (sessionStorage, perdue a la fermeture de l'appli) et finit apres 1 h sans activite.
+// gardee que dans l'onglet (sessionStorage, perdue a la fermeture de l'appli) et finit apres 1h sans activite.
 const STORAGE_SHARED_WEB = 'qrprotec.shared-web';
 const STORAGE_ACTIVITY = 'qrprotec.activity'; // derniere activite de la personne connectee (web partage)
 const SHARED_IDLE_MS = 60 * 60 * 1000;
@@ -214,10 +214,10 @@ function restore() {
   try {
     const shared = sharedWeb();
     const user = JSON.parse((shared ? sessionStorage : localStorage).getItem(STORAGE_USER) || 'null');
-    // web partage : connexion oubliee apres 1 h sans activite, meme si l'onglet est reste ouvert
+    // web partage : connexion oubliee apres 1h sans activite, meme si l'onglet est reste ouvert
     const idle = shared && user && Date.now() - lastActivity() >= SHARED_IDLE_MS;
-    // connexion par nom et PIN : pas de cle de badge, le jeton de session (12 h) est le seul identifiant
-    // connexion de depannage (QR code temporaire d'un admin) : 24 h (sessionMs donne par le serveur)
+    // connexion par nom et PIN : pas de cle de badge, le jeton de session (12h) est le seul identifiant
+    // connexion de depannage (QR code temporaire d'un admin) : 24h (sessionMs donne par le serveur)
     const sessionOk = user && (user.key || (user.loginAt && Date.now() - user.loginAt < (user.sessionMs || NAME_SESSION_MS)));
     if (user && sessionOk && !idle && user.key_expires && new Date(user.key_expires) >= today()) state.user = user;
     state.declaredName = localStorage.getItem(STORAGE_NAME) || '';

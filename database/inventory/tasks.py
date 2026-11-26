@@ -384,7 +384,7 @@ def _periodic_tasks(today: date) -> list[dict[str, Any]]:
             who = f'{who} sur {row.front}' if who else row.front
         tasks.append(task('periodic', 'info', f'Étiquettes à imprimer : {text}',
                           f'demandées par {who or "?"} le {_day(row.created)} : au poste, fenêtre « Impressions en '
-                          'attente », Lancer l\'impression (expire après 24 h)', row.created,
+                          'attente », Lancer l\'impression (expire après 24h)', row.created,
                           'label_prints' if row.kind == 'items' else '', sort=(-1, row.created.timestamp())))
     warning = timedelta(days=qrprotec_setting('KEY_EXPIRY_WARNING_DAYS'))
     # etiquettes privees des lots (cle) qui expirent : a renouveler et reimprimer (seulement si le nom declare est

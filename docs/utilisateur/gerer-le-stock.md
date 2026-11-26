@@ -297,7 +297,7 @@ même chose, sur les 12 derniers mois :
   - *Réassorts* : réassorts qui laissent le lot complet à la vérif suivante, moins les items réassortis introuvables
     à cette vérif ;
   - *Péremptions* : part de ce qui sort des lots qui est utilisé plutôt que jeté périmé ;
-  - *Signalements* : signalements qui ont eu une réponse du TECH en moins de 48 h ;
+  - *Signalements* : signalements qui ont eu une réponse du TECH en moins de 48h ;
   - *Listes* : listes sorties rentrées (retour scanné) dans les 2 jours.
 - **À surveiller** : ce qui mérite l'attention, toutes sections confondues.
 - Une section par sujet : lots et vérifs (lots qui attendent leur vérif depuis le plus longtemps), réassorts (lots
@@ -548,7 +548,7 @@ dans la pile de scans.
 - Le poste signale un périmé **dès qu'il est scanné**.
 - La fiche de chaque lot indique les items périmés et ceux qui périment dans les 30 jours ;
   l'état des stocks a une colonne « Bientôt périmés ».
-- Chaque matin à 7 h 45, les utilisateurs gestion et admin abonnés reçoivent la liste des lots
+- Chaque matin à 7h45, les utilisateurs gestion et admin abonnés reçoivent la liste des lots
   contenant des périmés (notification web « résumé quotidien des périmés »).
 - Dans un sac, on remplace un périmé **pendant une vérif** : scanner le périmé et le neuf, le
   logiciel sort le périmé du sac. Si le sac a déjà assez de non périmés, le périmé scanné est sorti

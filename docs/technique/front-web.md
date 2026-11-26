@@ -152,7 +152,7 @@ Deux règles :
   pas du compte, dans `localStorage` (`qrprotec.shared-web`, `navigator.storage.persist()` à l'activation),
   coché ou décoché par gestion/admin seulement (grisé et visible des autres quand il est coché). Coché,
   `save()` range l'utilisateur connecté dans `sessionStorage` (perdu à la fermeture de l'appli) et
-  `checkSharedIdle` déconnecte après 1 h sans activité (`SHARED_IDLE_MS`, dernière activité
+  `checkSharedIdle` déconnecte après 1h sans activité (`SHARED_IDLE_MS`, dernière activité
   `qrprotec.activity` : toucher, clavier, douchette, scan caméra), vérifié chaque minute, au retour sur
   la page et avant de compter un nouveau geste. Aucun changement côté serveur.
 - **Stats de l'année** (gestion et admin, pour l'AG) : page cachée `#stats` (`fun-stats.js`), ouverte par
@@ -179,8 +179,8 @@ Deux règles :
   des QR réduits et codes-barres), lots (publique, clé, scellé, ouverture), paquets scellés, listes.
   Jamais les badges ni les liens de déblocage de PIN. En tête, les **cartes des secouristes (dépannage)** :
   un appui sur un nom crée (`POST api/debug/temp-login/`, noté au journal) un QR code `badge?m=…&t=…`
-  valable 1 h, jamais pour un admin. Scanné par le téléphone du secouriste (`POST api/auth/temp/`), il ouvre
-  sans badge ni PIN une session de 24 h (jeton `qrprotec.temp-session`, `sessionMs` dans le stockage local).
+  valable 1h, jamais pour un admin. Scanné par le téléphone du secouriste (`POST api/auth/temp/`), il ouvre
+  sans badge ni PIN une session de 24h (jeton `qrprotec.temp-session`, `sessionMs` dans le stockage local).
   Un nouveau badge invalide le QR code et la session. Un code s'affiche en grand (`#debug-player`), seul
   ou en suite (contenu d'un lot, avec ses sous-lots dans l'ordre d'une vérif en cascade) passée au code
   suivant. Dans la cascade, un sous-lot scellé ne donne que l'étiquette de son scellé (ni clé ni contenu),
