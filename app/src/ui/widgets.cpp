@@ -648,13 +648,23 @@ bool input_suggest(const char *id, std::string &value, const std::vector< std::s
   ImGui::PushID(id);
   SearchState &state = search_states[ImGui::GetID("state")];
   SuggestInput input{ { max_chars, false }, &state };
+  // suggestions qui correspondent au texte tape (toutes si le champ est vide), sauf celle deja tapee
+  const auto matching = [&]() {
+    const std::string          key = name_key(value);
+    std::vector< std::string > found;
+    for (const std::string &suggestion : suggestions)
+      if (name_key(suggestion) != key && (key.empty() || search_matches(value, suggestion)))
+        found.push_back(suggestion);
+    return found;
+  };
+  // Tab ne complete que s'il y a quelque chose a completer (texte tape ou suggestion choisie aux fleches) : sinon il
+  // passe au champ suivant comme ailleurs
+  ImGuiInputTextFlags flags = ImGuiInputTextFlags_EnterReturnsTrue | ImGuiInputTextFlags_CallbackEdit
+                            | ImGuiInputTextFlags_CallbackHistory;
+  if ((!name_key(value).empty() || state.highlighted >= 0) && !matching().empty())
+    flags |= ImGuiInputTextFlags_CallbackCompletion;
   ImGui::SetNextItemWidth(width);
-  const bool entered = ImGui::InputTextWithHint(
-    "##input", hint ? hint : "", &value,
-    ImGuiInputTextFlags_EnterReturnsTrue | ImGuiInputTextFlags_CallbackCompletion | ImGuiInputTextFlags_CallbackEdit
-      | ImGuiInputTextFlags_CallbackHistory,
-    suggest_callback, &input
-  );
+  const bool entered = ImGui::InputTextWithHint("##input", hint ? hint : "", &value, flags, suggest_callback, &input);
   bool         changed = ImGui::IsItemEdited();
   const bool   active  = ImGui::IsItemActive();
   const ImVec2 min     = ImGui::GetItemRectMin();
@@ -662,12 +672,8 @@ bool input_suggest(const char *id, std::string &value, const std::vector< std::s
   if (ImGui::IsItemActivated())
     state.highlighted = -1; // rien de choisi : Entree garde le texte tape
 
-  // suggestions qui correspondent au texte tape (toutes si le champ est vide), sauf celle deja tapee
-  const std::string    key = name_key(value);
-  std::vector< std::string > matches;
-  for (const std::string &suggestion : suggestions)
-    if (name_key(suggestion) != key && (key.empty() || search_matches(value, suggestion)))
-      matches.push_back(suggestion);
+  const std::string                key     = name_key(value);
+  const std::vector< std::string > matches = matching();
   if (active)
     state.highlighted += state.move;
   state.move        = 0;
@@ -680,10 +686,12 @@ bool input_suggest(const char *id, std::string &value, const std::vector< std::s
     accepted = true;
     ImGui::ClearActiveID();
   };
-  // Tab : la suggestion choisie, sinon la premiere ; Entree : la suggestion choisie s'il y en a une
-  if (state.accept && !matches.empty())
+  // Tab : la suggestion choisie, sinon la premiere, puis le champ suivant ; Entree : la suggestion choisie s'il y en a
+  // une
+  if (state.accept && !matches.empty()) {
     accept(matches[static_cast< std::size_t >(std::max(0, state.highlighted))]);
-  else if (entered && state.highlighted >= 0) {
+    ImGui::SetKeyboardFocusHere();
+  } else if (entered && state.highlighted >= 0) {
     accept(matches[static_cast< std::size_t >(state.highlighted)]);
     consume_enter(); // Entree choisit la suggestion, elle ne valide pas le dialogue
   }
