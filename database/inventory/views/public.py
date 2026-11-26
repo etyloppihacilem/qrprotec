@@ -398,7 +398,13 @@ def auth_temp(request: Request) -> Response:
     from_passkey = data.get('pk') == 1
     if from_passkey and user is not None and not is_front(request):
         raise ApiError("Ce QR code se scanne avec la douchette d'un poste", status.HTTP_403_FORBIDDEN)
-    if (user is None or user.role == Role.ADMIN
+    # QR de depannage du TECH : jamais pour un admin ; QR montre depuis une session passkey : admins compris
+    # QR montre depuis une session passkey : une seule fois, et plus aucun code cree avant une connexion reussie
+    # (codes tournants d'un admin encore valables)
+    used_key = f'qrprotec.poste-login-used.{user.matricule}' if user is not None else ''
+    if (user is None or (user.role == Role.ADMIN and not from_passkey)
+            or (from_passkey and not isinstance(data.get('n'), (int, float)))
+            or (from_passkey and data['n'] <= cache.get(used_key, -1))
             or (from_passkey and not cache.add('qrprotec.poste-login.' + hashlib.sha256(str(token).encode()).hexdigest(),
                                                1, PASSKEY_POSTE_LOGIN_MAX_AGE + 60))):
         reserve_login_attempt(login_address_key(request))
@@ -407,6 +413,7 @@ def auth_temp(request: Request) -> Response:
                        status.HTTP_403_FORBIDDEN)
     request.qrprotec_auth = 'passkey_qr' if from_passkey else 'temp_qr'
     if from_passkey:
+        cache.set(used_key, data['n'], PASSKEY_POSTE_LOGIN_MAX_AGE + 60)
         # le secouriste montre lui-meme le QR code depuis sa session passkey : session normale sur le poste
         journal.record(OperationKind.USER, f'{SOURCE_VERIFIED}:{user.matricule}',
                        f'connexion de {user} ({user.matricule}) au poste par le QR code de son téléphone (passkey)',

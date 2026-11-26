@@ -200,28 +200,42 @@ async function deletePasskey(row) {
 
 // QR code de connexion au poste : seulement pour une session ouverte avec une passkey (Hippolyte, 2026-11-20). Le
 // secouriste qui n'a plus de nom + PIN le montre a la douchette du poste ; 5 min, une seule fois.
-const posteQrAllowed = () => !!(state.user && state.user.passkey_session && state.user.role !== 'admin');
+const posteQrAllowed = () => !!(state.user && state.user.passkey_session); // admins compris (2026-11-27)
 let posteQrTimer = null;
 
-async function showPosteQr() {
+// Admin (Hippolyte, 2026-11-27) : code tournant, le serveur donne `refresh` (30 s) et chaque code vaut 40 s ; le
+// telephone en redemande un tant que la fenetre est ouverte, 5 min au plus.
+const POSTE_QR_ROTATION_MS = 5 * 60 * 1000;
+
+async function showPosteQr(rotationStart = 0) {
   const dialog = $('#poste-qr');
   const body = $('#poste-qr-body');
   clearInterval(posteQrTimer);
-  body.replaceChildren(el('h2', {}, 'Connexion au poste'), el('p', { class: 'hint' }, 'Création du QR code…'));
+  const started = typeof rotationStart === 'number' && rotationStart ? rotationStart : Date.now();
+  const expired = () => {
+    clearInterval(posteQrTimer);
+    body.replaceChildren(el('h2', {}, 'Connexion au poste'), el('p', {}, 'QR code expiré.'),
+      el('button', { type: 'button', class: 'primary', onclick: () => showPosteQr() }, icon('refresh'), 'Nouveau QR code'));
+  };
+  if (!body.querySelector('.debug-qr')) body.replaceChildren(el('h2', {}, 'Connexion au poste'), el('p', { class: 'hint' }, 'Création du QR code…'));
   if (!dialog.open) dialog.showModal();
   try {
     const data = await api('me/poste-login/', { user: credentials() });
+    if (!dialog.open) return; // fermee pendant la demande
     const until = Date.now() + data.seconds * 1000;
+    const next = data.refresh ? Date.now() + data.refresh * 1000 : 0;
     const left = el('p', { class: 'hint' });
     const tick = () => {
-      const seconds = Math.max(0, Math.round((until - Date.now()) / 1000));
-      if (!seconds) {
+      if (next && Date.now() >= next) {
+        if (Date.now() - started >= POSTE_QR_ROTATION_MS) { expired(); return; }
         clearInterval(posteQrTimer);
-        body.replaceChildren(el('h2', {}, 'Connexion au poste'), el('p', {}, 'QR code expiré.'),
-          el('button', { type: 'button', class: 'primary', onclick: showPosteQr }, icon('refresh'), 'Nouveau QR code'));
+        showPosteQr(started); // code suivant ; celui-ci reste valable quelques secondes
         return;
       }
-      left.textContent = `Valable encore ${Math.floor(seconds / 60)} min ${String(seconds % 60).padStart(2, '0')} s, une seule fois.`;
+      const seconds = Math.max(0, Math.round(((next || until) - Date.now()) / 1000));
+      if (!next && !seconds) { expired(); return; }
+      left.textContent = next ? `Nouveau code dans ${seconds} s. Une seule connexion.`
+        : `Valable encore ${Math.floor(seconds / 60)} min ${String(seconds % 60).padStart(2, '0')} s, une seule fois.`;
     };
     body.replaceChildren(el('h2', {}, 'Connexion au poste'), debugQr(data.url),
       el('p', {}, el('b', {}, 'Scannez ce QR code avec la douchette du poste.')), left);
@@ -234,7 +248,7 @@ async function showPosteQr() {
 }
 $('#poste-qr-close').addEventListener('click', () => $('#poste-qr').close());
 $('#poste-qr').addEventListener('close', () => clearInterval(posteQrTimer));
-$('#home-poste-qr').addEventListener('click', showPosteQr);
+$('#home-poste-qr').addEventListener('click', () => showPosteQr());
 
 $('#login-gate-passkey').addEventListener('click', () => passkeyLogin());
 $('#name-login-passkey').addEventListener('click', () => passkeyLogin());

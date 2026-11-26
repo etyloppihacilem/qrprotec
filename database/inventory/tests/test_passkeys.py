@@ -19,7 +19,7 @@ from django.test import override_settings
 
 from .. import passkeys as webauthn
 from .. import views
-from ..models import Operation, Passkey
+from ..models import Operation, Passkey, Role
 from .base import ApiTestCase, quiet_stderr
 
 ORIGIN = 'https://example.com'  # PUBLIC_BASE_URL des tests
@@ -245,6 +245,35 @@ class PasskeyTests(ApiTestCase):
                                                           'credential': phone.create(options)},
                                     content_type='application/json', HTTP_HOST='localhost:8000')
         self.assertEqual(response.status_code, 200, response.content)
+
+    def test_poste_login_qr_for_an_admin(self) -> None:
+        # admin connecte avec sa passkey : QR code de connexion au poste aussi (Hippolyte, 2026-11-27)
+        self.user.role = Role.ADMIN
+        self.user.save()
+        self.register()
+        _, user = self.login()
+        credentials = {'matricule': 'M001', 'session': user['session']}
+        # code tournant : nouveau toutes les 30 s, chacun valable 40 s
+        code, body = self.call('POST', '/api/me/poste-login/', {'user': credentials}, local=False)
+        self.assertEqual(code, 200, body)
+        self.assertEqual((body['seconds'], body['refresh']), (40, 30))
+        older = parse_qs(urlparse(body['url']).query)['t'][0]
+        _, body = self.call('POST', '/api/me/poste-login/', {'user': credentials}, local=False)
+        token = parse_qs(urlparse(body['url']).query)['t'][0]
+        with mock.patch('django.core.signing.time.time', return_value=time.time() + 45):
+            code, _ = self.call('POST', '/api/auth/temp/', {'matricule': 'M001', 'token': token}, session=False)
+        self.assertEqual(code, 403)  # plus de 40 s
+        with mock.patch('django.core.signing.time.time', return_value=time.time() + 35):
+            code, poste = self.call('POST', '/api/auth/temp/', {'matricule': 'M001', 'token': token}, session=False)
+        self.assertEqual(code, 200, poste)
+        self.assertEqual(poste['role'], 'admin')
+        # le code d'avant, encore dans ses 40 s, ne sert plus apres une connexion reussie
+        code, _ = self.call('POST', '/api/auth/temp/', {'matricule': 'M001', 'token': older}, session=False)
+        self.assertEqual(code, 403)
+        # le QR code de depannage du TECH, lui, n'est jamais pour un admin
+        code, _ = self.call('POST', '/api/auth/temp/', {'matricule': 'M001', 'token': views.temp_login_token(self.user)},
+                            local=False)
+        self.assertEqual(code, 403)
 
     def test_poste_login_qr_only_from_a_passkey_session(self) -> None:
         self.register()
