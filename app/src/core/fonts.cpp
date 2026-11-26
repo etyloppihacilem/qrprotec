@@ -16,6 +16,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <filesystem>
+#include <initializer_list>
 #include <vector>
 
 
@@ -44,25 +45,37 @@ std::string fontconfig_match() {
 #endif
 }
 
-std::string find_font(bool bold) {
-  const char *file = bold ? "DejaVuSans-Bold.ttf" : "DejaVuSans.ttf";
+// file : nom du fichier DejaVu ; env : variable qui l'impose ; system_dirs : dossiers ou le chercher sur le systeme
+std::vector< std::filesystem::path > font_candidates(const char *file, const char *env,
+                                                     std::initializer_list< const char * > system_dirs) {
   std::vector< std::filesystem::path > candidates;
-  if (const char *env = std::getenv(bold ? "QRPROTEC_FONT_BOLD" : "QRPROTEC_FONT"))
-    candidates.emplace_back(env);
+  if (const char *value = std::getenv(env))
+    candidates.emplace_back(value);
   if (const std::filesystem::path executable = executable_dir(); !executable.empty())
     candidates.push_back(executable / "fonts" / file);
 #ifdef QRPROTEC_FONT_DIR
   candidates.push_back(std::filesystem::path(QRPROTEC_FONT_DIR) / file);
 #endif
-  for (const std::string dir : { "/usr/share/fonts/truetype/dejavu/", "/usr/share/fonts/dejavu-sans-fonts/",
-                                 "/usr/share/fonts/dejavu/", "/usr/share/fonts/TTF/" })
-    candidates.emplace_back(dir + file);
-  if (bold) {
-    for (const auto &candidate : candidates)
-      if (usable(candidate))
-        return candidate.string();
-    return {};
-  }
+  for (const char *dir : system_dirs)
+    candidates.emplace_back(std::string(dir) + file);
+  return candidates;
+}
+
+std::string first_usable(const std::vector< std::filesystem::path > &candidates) {
+  for (const auto &candidate : candidates)
+    if (usable(candidate))
+      return candidate.string();
+  return {};
+}
+
+std::string find_font(bool bold) {
+  const char *file = bold ? "DejaVuSans-Bold.ttf" : "DejaVuSans.ttf";
+  std::vector< std::filesystem::path > candidates =
+    font_candidates(file, bold ? "QRPROTEC_FONT_BOLD" : "QRPROTEC_FONT",
+                    { "/usr/share/fonts/truetype/dejavu/", "/usr/share/fonts/dejavu-sans-fonts/", "/usr/share/fonts/dejavu/",
+                      "/usr/share/fonts/TTF/" });
+  if (bold)
+    return first_usable(candidates);
   for (const char *path : { "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
                             "/usr/share/fonts/dejavu-sans-fonts/DejaVuSans.ttf",
                             "/usr/share/fonts/dejavu/DejaVuSans.ttf",
@@ -71,9 +84,8 @@ std::string find_font(bool bold) {
                             "/usr/share/fonts/liberation-sans-fonts/LiberationSans-Regular.ttf",
                             "/usr/share/fonts/truetype/noto/NotoSans-Regular.ttf" })
     candidates.emplace_back(path);
-  for (const auto &candidate : candidates)
-    if (usable(candidate))
-      return candidate.string();
+  if (std::string found = first_usable(candidates); !found.empty())
+    return found;
   const std::string matched = fontconfig_match();
   return usable(matched) ? matched : std::string();
 }
@@ -96,6 +108,19 @@ const std::string &bold_font_path() {
     std::string found = find_font(true);
     if (found.empty())
       info_log("Police DejaVu Sans Bold introuvable : gras simulé");
+    return found;
+  }();
+  return path;
+}
+
+const std::string &mono_font_path() {
+  static const std::string path = [] {
+    std::string found = first_usable(font_candidates(
+      "DejaVuSansMono.ttf", "QRPROTEC_FONT_MONO",
+      { "/usr/share/fonts/truetype/dejavu/", "/usr/share/fonts/dejavu-sans-mono-fonts/", "/usr/share/fonts/dejavu/",
+        "/usr/share/fonts/TTF/" }));
+    if (found.empty())
+      info_log("Police DejaVu Sans Mono introuvable : blocs de code de la documentation en police normale");
     return found;
   }();
   return path;

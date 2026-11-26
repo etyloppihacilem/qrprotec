@@ -44,6 +44,10 @@ bool report_mark(const char *id); // id unique dans la fenetre (ex : "##report")
 void warning_sign(float height);
 // Police grasse chargee au demarrage (texte des boutons de signalement), nullptr : gras synthetique
 void set_bold_font(ImFont *font);
+ImFont *get_bold_font(); // nullptr si la police grasse n'a pas pu etre chargee
+// Police a chasse fixe (code de la documentation), nullptr : police normale
+void    set_mono_font(ImFont *font);
+ImFont *get_mono_font();
 
 // QR code dessine module par module (net a toute taille, sans texture), a la position du curseur.
 void draw_qr(const std::string &payload, float size);

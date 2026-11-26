@@ -188,6 +188,7 @@ App::App(Inateck &inateck_ref) : feedback(inateck_ref), inateck(inateck_ref) {
   windows.push_back(make_editor_window());
   windows.push_back(make_print_counts_window());
   windows.push_back(make_reports_window());
+  windows.push_back(make_doc_window());
   windows.push_back(make_settings_window()); // derniere du menu Administration : toujours F12
   windows.push_back(make_phone_window());
   windows.push_back(make_lists_window());
@@ -1003,6 +1004,10 @@ void App::draw_gestion_menus(bool dark_bar) {
       window_menu_item(*window("users"));
     if (const AppWindow *settings_window = window("settings"); settings_window && can_open(*settings_window))
       window_menu_item(*window("settings"));
+    if (const AppWindow *docs = window("docs"); docs && can_open(*docs)) {
+      ImGui::Separator();
+      window_menu_item(*window("docs"));
+    }
     ImGui::EndMenu();
   }
 }

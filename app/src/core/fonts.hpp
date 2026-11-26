@@ -22,4 +22,7 @@ const std::string &ui_font_path();
 // Variante grasse (DejaVuSans-Bold.ttf), ou vide : le rendu applique alors un gras synthetique.
 const std::string &bold_font_path();
 
+// Chasse fixe (DejaVuSansMono.ttf, $QRPROTEC_FONT_MONO) : blocs de code du lecteur de documentation. Vide si absente.
+const std::string &mono_font_path();
+
 } // namespace qrprotec

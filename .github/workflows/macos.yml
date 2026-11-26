@@ -67,6 +67,7 @@ jobs:
           export QRPROTEC_TEMPLATES_DIR="$templates"
           export QRPROTEC_FONT="${QRPROTEC_FONT:-$contents/Resources/fonts/DejaVuSans.ttf}"
           export QRPROTEC_FONT_BOLD="${QRPROTEC_FONT_BOLD:-$contents/Resources/fonts/DejaVuSans-Bold.ttf}"
+          export QRPROTEC_FONT_MONO="${QRPROTEC_FONT_MONO:-$contents/Resources/fonts/DejaVuSansMono.ttf}"
           exec "$contents/MacOS/QRProtecApp" "$@"
           SCRIPT
           chmod +x "$app/Contents/MacOS/qrprotec-front"

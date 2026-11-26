@@ -171,6 +171,17 @@ de lots à leur fenêtre (une instance par fenêtre). `inventory_window.cpp` fai
 | Utilisateurs | `users_window.cpp` | admin |
 | Éditeur d'étiquettes | `ui/editor.cpp` | admin |
 | Réglages | `settings_window.cpp` | admin |
+| Documentation (menu Administration) | `doc_window.cpp` | admin |
+
+La fenêtre **Documentation** lit les pages de `docs/` embarquées dans l'exécutable à la construction
+(`CMakeLists.txt` écrit `generated/docs_data.cpp`, tableau `kEmbeddedDocs` de `core/docs.hpp`) : le poste
+montre toujours la documentation de sa version, sans fichier à installer à côté. Le Markdown est lu par
+`core/markdown.cpp` (sans interface, testé par `tests/markdown_test.cpp`, qui vérifie aussi que chaque lien
+relatif et chaque ancre de `docs/` mène quelque part) : titres, listes imbriquées, citations, tableaux, blocs
+de code (police DejaVu Sans Mono), gras, italique, code et liens. L'arborescence suit les sommaires : dans
+chaque dossier, le README puis les pages dans l'ordre de ses liens. Un lien vers une autre page l'ouvre (à
+la bonne section pour `page.md#ancre`, ancres comme sur GitHub), un lien externe copie l'adresse, un lien
+vers un fichier du dépôt hors de `docs/` est signalé. Une nouvelle page de `docs/` y apparaît d'elle-même.
 
 La disposition par défaut est enregistrée en fractions de la zone de travail (`WindowLayout`) :
 elle s'adapte à la résolution de l'écran. Par défaut, la pile de scans occupe la colonne de droite
