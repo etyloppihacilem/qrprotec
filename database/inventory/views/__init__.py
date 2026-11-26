@@ -9,8 +9,9 @@
 # ######################################################################################################################
 
 """API JSON, en plusieurs fichiers : common (aides), public (vues des deux API), local (gestion), notif_settings,
-douchette, lists (listes de materiel), prints (etiquettes demandees depuis le web). Tout est reexporte ici :
-urls.py, live.py et les tests ecrivent views.<nom> comme avant le decoupage."""
+douchette, lists (listes de materiel), prints (etiquettes demandees depuis le web), purchases (commandes
+fournisseurs). Tout est reexporte ici : urls.py, live.py et les tests ecrivent views.<nom> comme avant le
+decoupage."""
 
 from .common import *  # noqa: F401,F403
 from .public import *  # noqa: F401,F403
@@ -20,4 +21,5 @@ from .douchette import *  # noqa: F401,F403
 from .lists import *  # noqa: F401,F403
 from .prints import *  # noqa: F401,F403
 from .passkeys import *  # noqa: F401,F403
+from .purchases import *  # noqa: F401,F403
 from .common import _checklist_call  # noqa: F401

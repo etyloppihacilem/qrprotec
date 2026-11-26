@@ -363,6 +363,7 @@ struct Catalog {
     int lots_version       = 0;
     int users_version      = 0;
     int packs_version      = 0; // paquet ouvert : listes a recharger
+    int purchases_version  = 0; // commande fournisseur recue : commandes et statistiques a recharger
     int maintenance_version = 0; // revision, desinfection ou date enregistree : onglet Materiel a recharger
 
     std::string item_type_name(const std::string &type) const;
@@ -568,6 +569,12 @@ class App {
     void        show_item(const std::string &iid) {
       item_to_show_ = iid;
       show_stock_tab("items");
+    }
+    // commande fournisseur a receptionner : onglet Nouvelle reception, commande choisie (0 : aucune)
+    int  purchase_to_receive_ = 0;
+    void receive_purchase(int order_id) {
+      purchase_to_receive_ = order_id;
+      show_stock_tab("reception");
     }
     // receptions passees d'un type d'item (bouton d'un item)
     std::string receptions_type_to_show_;

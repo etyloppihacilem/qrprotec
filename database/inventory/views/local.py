@@ -20,7 +20,8 @@ from .public import _with_out
 
 if TYPE_CHECKING:
     from django.http.response import HttpResponse
-    from inventory.models import LotType, LotTypeSlot, Lots, Secouristes
+    from datetime import datetime
+    from inventory.models import LotType, LotTypeSlot, Lots, SealedPacks, Secouristes, StockOrder
     from rest_framework.request import Request
     from rest_framework.response import Response
     from django.http import HttpRequest
@@ -255,51 +256,67 @@ def items_batch(request: Request) -> Response:
     require_front(request, GESTION)
     data = request.data
     item_type = get_object_or_404(ItemType, type=str(data.get('type', '')))
+    identity = operation_identity(request, data)
+    with transaction.atomic():
+        created, sealed_packs = receive_items(item_type, data, identity, timezone.now())
+        notifications.check_stock_levels([item_type.type])
+    return Response(reception_response(created, sealed_packs), status=status.HTTP_201_CREATED)
+
+
+def receive_items(item_type: ItemType, data: dict[str, Any], identity: str, now: datetime,
+                  order_line: StockOrder | None = None, order_label: str = '') -> tuple[list[Items], list[SealedPacks]]:
+    """Cree les items d'une reception (`count` items, ou `packs` paquets fermes de `count` items avec "sealed_pack"),
+    "peremption", "location" (rangement du stock), et l'inscrit au journal. `order_line` : ligne de commande
+    fournisseur d'ou viennent les items (reception d'une commande)."""
     peremption = parse_date(data.get('peremption'), 'peremption')
     count = parse_int(data.get('count', 1), 'count', 1, 10000)
     sealed = bool(data.get('sealed_pack'))
     pack_count = parse_int(data.get('packs', 1), 'packs', 1, 500) if sealed else 1
     if count * pack_count > 10000:
         raise ApiError('10 000 items au plus par réception')
-    identity = operation_identity(request, data)
     location = storage_target(data.get('location'))
-    now = timezone.now()
-    with transaction.atomic():
-        sealed_packs, created = [], []
-        for _ in range(pack_count):
-            sealed_pack = None
-            if sealed:
-                sealed_pack = SealedPacks.objects.create(
-                    item_type=item_type,
-                    peremption=peremption if item_type.perissable else None,
-                    count=count,
-                    created_by=identity[:32],
-                )
-                sealed_packs.append(sealed_pack)
-            created += ItemsPacks.objects.add_items(
-                item_type, peremption, count, identity[:32], location=location, sealed_pack=sealed_pack, now=now
+    sealed_packs, created = [], []
+    for _ in range(pack_count):
+        sealed_pack = None
+        if sealed:
+            sealed_pack = SealedPacks.objects.create(
+                item_type=item_type,
+                peremption=peremption if item_type.perissable else None,
+                count=count,
+                created_by=identity[:32],
             )
-        summary = f'{count} × {item_type.name}' if pack_count == 1 else f'{pack_count} paquets de {count} × {item_type.name}'
-        if item_type.perissable and peremption:
-            summary += f", péremption {peremption.strftime('%d/%m/%Y')}"
-        if len(sealed_packs) == 1:
-            summary += f' (paquet fermé {sealed_packs[0].id})'
-        elif sealed_packs:
-            summary += f' (paquets fermés {sealed_packs[0].id} à {sealed_packs[-1].id})'
-        if location is not None:
-            summary += f', rangés dans {location.name}'
-        journal.record(OperationKind.RECEPTION, identity, summary, lot=location, type=item_type.type,
-                       count=count * pack_count, peremption=peremption.isoformat() if peremption else None,
-                       sealed_pack=sealed_packs[0].id if sealed_packs else None,
-                       **({'sealed_packs': [pack.id for pack in sealed_packs]} if len(sealed_packs) > 1 else {}),
-                       items=journal.item_ids(created))
-        notifications.check_stock_levels([item_type.type])
+            sealed_packs.append(sealed_pack)
+        created += ItemsPacks.objects.add_items(
+            item_type, peremption, count, identity[:32], location=location, sealed_pack=sealed_pack, now=now,
+            order_line=order_line,
+        )
+    summary = f'{count} × {item_type.name}' if pack_count == 1 else f'{pack_count} paquets de {count} × {item_type.name}'
+    if item_type.perissable and peremption:
+        summary += f", péremption {peremption.strftime('%d/%m/%Y')}"
+    if len(sealed_packs) == 1:
+        summary += f' (paquet fermé {sealed_packs[0].id})'
+    elif sealed_packs:
+        summary += f' (paquets fermés {sealed_packs[0].id} à {sealed_packs[-1].id})'
+    if location is not None:
+        summary += f', rangés dans {location.name}'
+    if order_label:
+        summary += f', commande {order_label}'
+    journal.record(OperationKind.RECEPTION, identity, summary, lot=location, type=item_type.type,
+                   count=count * pack_count, peremption=peremption.isoformat() if peremption else None,
+                   sealed_pack=sealed_packs[0].id if sealed_packs else None,
+                   **({'sealed_packs': [pack.id for pack in sealed_packs]} if len(sealed_packs) > 1 else {}),
+                   **({'order_line': order_line.id} if order_line is not None else {}),
+                   items=journal.item_ids(created))
+    return created, sealed_packs
+
+
+def reception_response(created: list[Items], sealed_packs: list[SealedPacks]) -> dict[str, Any]:
     today = timezone.localdate()
-    response = {'items': [ser.item_dict(item, today) for item in created]}
+    response: dict[str, Any] = {'items': [ser.item_dict(item, today) for item in created]}
     if sealed_packs:
         response['sealed_pack'] = ser.sealed_pack_dict(sealed_packs[0])  # premier paquet (anciens postes)
         response['sealed_packs'] = [ser.sealed_pack_dict(pack) for pack in sealed_packs]
-    return Response(response, status=status.HTTP_201_CREATED)
+    return response
 
 
 @api_view(['POST'])
