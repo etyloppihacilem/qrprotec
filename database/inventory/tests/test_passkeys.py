@@ -9,6 +9,7 @@ import hashlib
 import json
 import struct
 import time
+from datetime import datetime, timezone as dt_timezone
 from unittest import mock
 from urllib.parse import parse_qs, urlparse
 from typing import Any
@@ -326,6 +327,65 @@ class PasskeyTests(ApiTestCase):
         code, _ = self.call('POST', '/api/auth/temp/', {'matricule': 'M001', 'token': views.temp_login_token(self.user)},
                             local=False)
         self.assertEqual(code, 403)
+
+    def browser_approve(self, request_id: str, **kwargs: Any) -> tuple[int, dict[str, Any]]:
+        _, body = self.call('POST', '/api/auth/passkey/options/', {}, local=False)
+        return self.call('POST', '/api/auth/poste-browser/approve/',
+                         {'request': request_id, 'credential': self.phone.get(body['publicKey'], **kwargs)}, local=False)
+
+    def test_poste_login_by_browser_passkey(self) -> None:
+        # poste non kiosk (Hippolyte, 2026-11-27) : le poste ouvre le navigateur, la passkey y est validee
+        self.register()
+        code, _ = self.call('POST', '/api/auth/poste-browser/', {}, local=False)
+        self.assertEqual(code, 403)  # demande seulement d'un poste
+        code, start = self.call('POST', '/api/auth/poste-browser/', {}, session=False)
+        self.assertEqual(code, 200, start)
+        self.assertRegex(start['code'], r'^\d{4}$')
+        self.assertEqual(start['seconds'], 300)
+        url = urlparse(start['url'])
+        self.assertEqual((url.path, parse_qs(url.query)['r'][0]), ('/poste', start['request']))
+        poll = {'request': start['request'], 'poll': start['poll']}
+        # le navigateur voit le code, pas le secret du poste
+        code, info = self.call('POST', '/api/auth/poste-browser/info/', {'request': start['request']}, local=False)
+        self.assertEqual((code, info['code']), (200, start['code']))
+        self.assertNotIn('poll', info)
+        code, body = self.call('POST', '/api/auth/poste-browser/poll/', poll, session=False)
+        self.assertEqual((code, body.get('pending')), (200, True))
+        # sans le secret du poste, ni depuis le web : rien
+        code, _ = self.call('POST', '/api/auth/poste-browser/poll/', {**poll, 'poll': 'x'}, session=False)
+        self.assertEqual(code, 403)
+        code, _ = self.call('POST', '/api/auth/poste-browser/poll/', poll, local=False)
+        self.assertEqual(code, 403)
+        # passkey falsifiee : refusee, la demande attend toujours
+        code, _ = self.browser_approve(start['request'], tamper=True)
+        self.assertEqual(code, 403)
+        code, body = self.browser_approve(start['request'])
+        self.assertEqual((code, body), (200, {'prenom': 'Jeanne'}))
+        code, _ = self.browser_approve(start['request'])
+        self.assertEqual(code, 409)  # une seule validation
+        code, poste = self.call('POST', '/api/auth/poste-browser/poll/', poll, session=False)
+        self.assertEqual(code, 200, poste)
+        self.assertEqual((poste['matricule'], poste['nom']), ('M001', 'Dupont'))  # session normale du poste
+        self.assertNotIn('temporary', poste)
+        self.assertEqual(views.session_user(poste['session']), self.user)
+        self.assertTrue(Operation.objects.filter(summary__contains='par la passkey du navigateur').exists())
+        code, _ = self.call('POST', '/api/auth/poste-browser/poll/', poll, session=False)
+        self.assertEqual(code, 404)  # une seule connexion
+        # le navigateur, lui, n'est pas connecte : la reponse de validation n'a pas de session
+        self.assertNotIn('session', body)
+
+    def test_poste_browser_request_expires(self) -> None:
+        self.register()
+        _, start = self.call('POST', '/api/auth/poste-browser/', {}, session=False)
+        later = time.time() + 301
+        with mock.patch('django.utils.timezone.now', return_value=datetime.fromtimestamp(later, tz=dt_timezone.utc)):
+            code, _ = self.browser_approve(start['request'])
+            self.assertEqual(code, 404)
+            code, _ = self.call('POST', '/api/auth/poste-browser/poll/',
+                                {'request': start['request'], 'poll': start['poll']}, session=False)
+            self.assertEqual(code, 404)
+        code, _ = self.call('POST', '/api/auth/poste-browser/info/', {'request': 'inconnue'}, local=False)
+        self.assertEqual(code, 404)
 
     def test_admin_deletes_passkeys(self) -> None:
         self.register()

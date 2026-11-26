@@ -982,6 +982,10 @@ dialog#verif-help.slides[open] { display: flex; }
 .settings-check { display: flex; gap: 8px; align-items: flex-start; margin: 8px 0; }
 .settings-check input, #settings-pin .settings-check input { flex: none; width: 20px; height: 20px; margin-top: 3px; padding: 0; }
 /* QR code de connexion temporaire (outil de debug) : dans la fenetre */
+#poste-browser .poste-browser-code { font-size: 2.6rem; font-weight: 700; letter-spacing: 0.3em; text-align: center; margin: 0.2em 0; }
+#poste-browser .error { color: var(--red); }
+#poste-browser .error:empty { display: none; }
+#poste-browser-body > button, #poste-browser-close { width: 100%; margin-bottom: 0.5rem; }
 #temp-login .debug-qr, #poste-qr .debug-qr { width: min(100%, 52dvh, 420px); margin: 0 auto; }
 /* page « Départ » : recherche des lots */
 #home-depart .depart-search { width: 100%; box-sizing: border-box; font: inherit; font-size: 1rem; padding: 10px 12px; margin: 8px 0 2px;

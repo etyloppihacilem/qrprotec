@@ -20,6 +20,11 @@ public_patterns = [
     path('auth/temp/', views.auth_temp),         # QR code de connexion temporaire (outil de debug des admins)
     path('auth/passkey/options/', views.passkey_login_options),
     path('auth/passkey/', views.passkey_login),
+    # poste non kiosk : connexion par la passkey du navigateur de l'ordinateur
+    path('auth/poste-browser/', views.poste_browser_start),
+    path('auth/poste-browser/info/', views.poste_browser_info),
+    path('auth/poste-browser/approve/', views.poste_browser_approve),
+    path('auth/poste-browser/poll/', views.poste_browser_poll),
     path('pin-reset/', views.pin_reset),
     path('pin-forgot/', views.pin_forgot),
     path('me/pin/', views.my_pin),               # PIN choisi, change ou supprime dans les reglages web

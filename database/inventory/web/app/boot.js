@@ -41,6 +41,11 @@ async function boot() {
     showHome('menu', false);
     if (params.get('t')) await tempLogin(params.get('m'), params.get('t'));
     else await login(params.get('m'), params.get('key') || '');
+  } else if (route === 'poste' && params.get('r')) {
+    // l'application d'un poste non kiosk demande une connexion par la passkey de ce navigateur
+    history.replaceState(null, '', './');
+    showHome('menu', false);
+    await openPosteBrowserLogin(params.get('r'));
   } else if (route === 'seal' && params.get('lot') && params.get('s')) {
     // etiquette du scelle : fiche du lot scelle (sans vérif), ou scan « scellé intact » de la vérif en cours
     if (state.lotId) await loadLot(state.lotId);

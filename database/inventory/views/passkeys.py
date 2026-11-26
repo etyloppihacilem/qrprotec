@@ -10,12 +10,14 @@
 
 """Passkeys du front web (voir inventory/passkeys.py) : connexion, gestion par le secouriste, suppression par un
 admin. Le QR code de connexion au poste est calcule par le telephone (cle OTP remise a la connexion, voir
-sessions.poste_otp)."""
+sessions.poste_otp). Connexion d'un poste non kiosk par la passkey du navigateur de l'ordinateur."""
 
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING
+import hashlib
+import secrets
+from typing import TYPE_CHECKING, Any
 
 from .. import passkeys as webauthn
 from .common import *  # noqa: F401,F403
@@ -67,8 +69,14 @@ def passkey_login(request: Request) -> Response:
     """Connexion avec une passkey : {"credential"} (reponse de navigator.credentials.get()). Meme reponse que
     /api/auth/, avec `passkey_session` : le web propose alors le QR code de connexion au poste. Remplace le badge et le
     PIN (le telephone a verifie l'empreinte, le visage ou son code)."""
+    user = passkey_user(request, request.data.get('credential'))
+    return Response(login_response(request, user, passkey=True, method='passkey'))
+
+
+def passkey_user(request: Request, credential: Any) -> Secouristes:
+    """Secouriste d'une reponse de navigator.credentials.get() (defi de connexion), verifiee : signature, compteur,
+    compte utilisable. Leve ApiError (403) sinon, essai compte pour l'adresse."""
     check_login_address(request)
-    credential = request.data.get('credential')
     credential_id = credential.get('id') if isinstance(credential, dict) else None
     passkey = (Passkey.objects.select_related('user').filter(credential_id=str(credential_id)[:1400]).first()
                if isinstance(credential_id, str) and credential_id else None)
@@ -94,7 +102,7 @@ def passkey_login(request: Request) -> Response:
             sign_count=count, last_used=timezone.now())
     if not updated:  # deux connexions simultanees avec la meme signature
         raise ApiError(PASSKEY_LOGIN_ERROR, status.HTTP_403_FORBIDDEN)
-    return Response(login_response(request, user, passkey=True, method='passkey'))
+    return user
 
 
 def first_login_user(request: Request) -> Secouristes | None:
@@ -179,3 +187,112 @@ def debug_passkeys(request: Request) -> Response:
     elif action != 'list':
         raise ApiError('action : list ou delete')
     return Response({'matricule': user.matricule, 'passkeys': passkey_rows(user)})
+
+
+# Connexion d'un poste par le navigateur (Hippolyte, 2026-11-27)
+# ----------------------------------------------------------------------------------------------------------------------
+# Un poste non kiosk (ordinateur perso, Flatpak, Mac, Windows) n'a pas acces aux passkeys de l'ordinateur : ni Bitwarden
+# ni le trousseau d'Apple ne les offrent aux applis natives non signees. Il ouvre donc le navigateur sur
+# poste?r=<demande> ; la personne y valide avec sa passkey (cle USB, gestionnaire, telephone), et le poste, qui
+# interroge le serveur pendant ce temps avec un secret qu'il est seul a connaitre, recoit une session normale. Le
+# navigateur n'est pas connecte pour autant. Un code a 4 chiffres affiche des deux cotes permet de verifier qu'on
+# valide bien la demande de son propre poste.
+
+POSTE_BROWSER_MAX_AGE = 300  # demande valable 5 min
+POSTE_BROWSER_CACHE = 'qrprotec.poste-browser.'
+
+
+def poste_browser_key(request_id: Any) -> str:
+    return POSTE_BROWSER_CACHE + hashlib.sha256(str(request_id or '').encode()).hexdigest()
+
+
+def poste_browser_request(request_id: Any) -> dict[str, Any]:
+    data = cache.get(poste_browser_key(request_id)) if isinstance(request_id, str) and request_id else None
+    if not isinstance(data, dict):
+        raise ApiError("Demande de connexion expirée : relancez « Se connecter avec une passkey » dans l'application",
+                       status.HTTP_404_NOT_FOUND)
+    return data
+
+
+def poste_browser_left(data: dict[str, Any]) -> int:
+    return max(0, int(data['expires'] - timezone.now().timestamp()))
+
+
+@api_view(['POST'])
+@handle_errors
+def poste_browser_start(request: Request) -> Response:
+    """Poste (API locale ou cle de front) : nouvelle demande de connexion par le navigateur -> {"request", "poll",
+    "code", "url", "seconds"}. `url` est a ouvrir dans le navigateur de l'ordinateur ; `poll` reste dans le poste
+    (auth/poste-browser/poll/)."""
+    if not is_front(request):
+        raise ApiError("Réservé aux postes", status.HTTP_403_FORBIDDEN)
+    check_login_address(request)
+    request_id, poll = secrets.token_urlsafe(24), secrets.token_urlsafe(32)
+    code = f'{secrets.randbelow(10000):04d}'
+    expires = timezone.now().timestamp() + POSTE_BROWSER_MAX_AGE
+    cache.set(poste_browser_key(request_id), {
+        'poll': hashlib.sha256(poll.encode()).hexdigest(), 'code': code, 'expires': expires,
+        'poste': getattr(request, 'qrprotec_front', '') or 'poste principal', 'matricule': None,
+    }, POSTE_BROWSER_MAX_AGE + 60)
+    return Response({'request': request_id, 'poll': poll, 'code': code, 'seconds': POSTE_BROWSER_MAX_AGE,
+                     'url': ser.public_url('poste', r=request_id)})
+
+
+@api_view(['POST'])
+@handle_errors
+def poste_browser_info(request: Request) -> Response:
+    """Page poste?r=... du navigateur : {"request"} -> {"code", "poste", "seconds"} (secondes restantes)."""
+    data = poste_browser_request(request.data.get('request'))
+    if data['matricule']:
+        raise ApiError("Cette demande de connexion a déjà été validée", status.HTTP_409_CONFLICT)
+    return Response({'code': data['code'], 'poste': data['poste'], 'seconds': poste_browser_left(data)})
+
+
+@api_view(['POST'])
+@handle_errors
+def poste_browser_approve(request: Request) -> Response:
+    """Navigateur : {"request", "credential"} (navigator.credentials.get() avec les options de auth/passkey/options/)
+    -> {"prenom"}. La passkey est verifiee maintenant, comme pour une connexion au web ; une seule validation."""
+    key = poste_browser_key(request.data.get('request'))
+    data = poste_browser_request(request.data.get('request'))
+    if data['matricule']:
+        raise ApiError("Cette demande de connexion a déjà été validée", status.HTTP_409_CONFLICT)
+    user = passkey_user(request, request.data.get('credential'))
+    if not cache.add(key + '.approved', user.matricule, POSTE_BROWSER_MAX_AGE + 60):
+        raise ApiError("Cette demande de connexion a déjà été validée", status.HTTP_409_CONFLICT)
+    left = poste_browser_left(data)
+    if not left:
+        raise ApiError("Demande de connexion expirée : relancez « Se connecter avec une passkey » dans l'application",
+                       status.HTTP_404_NOT_FOUND)
+    cache.set(key, {**data, 'matricule': user.matricule}, left + 60)
+    return Response({'prenom': user.prenom})
+
+
+@api_view(['POST'])
+@handle_errors
+def poste_browser_poll(request: Request) -> Response:
+    """Poste : {"request", "poll"} -> {"pending": true} tant que personne n'a valide, puis la reponse de /api/auth/
+    (session normale du poste), une seule fois. 404 quand la demande a expire."""
+    if not is_front(request):
+        raise ApiError("Réservé aux postes", status.HTTP_403_FORBIDDEN)
+    key = poste_browser_key(request.data.get('request'))
+    data = poste_browser_request(request.data.get('request'))
+    if not secrets.compare_digest(data['poll'], hashlib.sha256(str(request.data.get('poll') or '').encode()).hexdigest()):
+        raise ApiError("Demande de connexion inconnue", status.HTTP_403_FORBIDDEN)
+    if not poste_browser_left(data):
+        raise ApiError("Demande de connexion expirée : relancez « Se connecter avec une passkey »",
+                       status.HTTP_404_NOT_FOUND)
+    if not data['matricule']:
+        return Response({'pending': True, 'seconds': poste_browser_left(data)})
+    if not cache.add(key + '.used', 1, POSTE_BROWSER_MAX_AGE + 60):
+        raise ApiError("Demande de connexion déjà utilisée", status.HTTP_404_NOT_FOUND)
+    cache.delete(key)
+    user = Secouristes.objects.filter(matricule=data['matricule']).first()
+    if user is None or user.guest or not user.badge_valid():
+        raise ApiError("Compte désactivé ou badge expiré : voyez le TECH", status.HTTP_403_FORBIDDEN)
+    if user.pin_blocked is not None:
+        raise pin_blocked_error(user)
+    journal.record(OperationKind.USER, f'{SOURCE_VERIFIED}:{user.matricule}',
+                   f'connexion de {user} ({user.matricule}) au poste {data["poste"]} par la passkey du navigateur',
+                   matricule=user.matricule)
+    return Response(login_response(request, user, passkey=True, method='passkey_browser'))

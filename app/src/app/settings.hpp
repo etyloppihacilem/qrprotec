@@ -104,9 +104,14 @@ struct StoredLogin {
     std::string nom;       // connexion sans badge : nom et prenom, le PIN est redemande
     std::string prenom;
 
+    // connexion par la passkey du navigateur (poste non kiosk) : matricule seul, rien de secret ; au redemarrage la
+    // fenetre de connexion propose la passkey en premier
+    bool        passkey = false;
+
     bool badge() const { return !matricule.empty() && !key.empty(); }
     bool by_name() const { return !nom.empty() && !prenom.empty(); }
-    bool empty() const { return !badge() && !by_name(); }
+    bool by_passkey() const { return passkey && !matricule.empty(); }
+    bool empty() const { return !badge() && !by_name() && !by_passkey(); }
 
     static std::filesystem::path file_path();
     static StoredLogin           load();

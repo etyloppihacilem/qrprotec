@@ -154,7 +154,7 @@ def favicon(request: HttpRequest) -> FileResponse | HttpResponseNotModified:
 
 # Pages de l'appli (URLs des QR codes) : toutes servent index.html. Hors connexion, le service worker de l'appli
 # (app-sw.js) repond a chacune avec la copie gardee de la page.
-PAGES = ('', 'verif', 'badge', 'item', 'task', 'liste', 'pack', 'seal', 'unseal', 'pinreset')
+PAGES = ('', 'verif', 'badge', 'item', 'task', 'liste', 'pack', 'seal', 'unseal', 'pinreset', 'poste')
 
 
 def offline_files() -> list[str]:

@@ -59,6 +59,7 @@ AUTH_METHODS = {
     'temp_qr': 'QR code de dépannage du TECH',
     'passkey': 'passkey',
     'passkey_qr': 'QR code du téléphone (passkey)',
+    'passkey_browser': 'passkey (navigateur de l\'ordinateur)',
     'setup': 'création du premier administrateur',
 }
 

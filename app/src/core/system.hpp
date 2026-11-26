@@ -36,4 +36,8 @@ std::filesystem::path executable_dir();
 std::filesystem::path home_dir();
 // Reglages de l'utilisateur : ~/.config/qrprotec (Linux, macOS), %APPDATA%\QRProtec (Windows). Vide si inconnu.
 std::filesystem::path user_config_dir();
+
+// Ouvre une adresse http(s) dans le navigateur par defaut : xdg-open (sous Flatpak, il passe par le portail du bureau),
+// open sous macOS, ShellExecute sous Windows. Ne bloque pas. false et `error` rempli si rien n'a pu etre lance.
+bool open_url(const std::string &url, std::string &error);
 } // namespace qrprotec

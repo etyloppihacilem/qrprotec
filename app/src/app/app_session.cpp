@@ -24,6 +24,7 @@
 #include "labels.hpp"
 #include "../core/paths.hpp"
 #include "../core/template_io.hpp"
+#include "../core/system.hpp"
 
 #include "imgui_internal.h"
 #include "imgui_stdlib.h"
@@ -85,12 +86,21 @@ void App::draw_login_modal() {
     ImGui::SetNextItemWidth(360.0f);
     if (ImGui::IsWindowAppearing())
       ImGui::SetKeyboardFocusHere();
+    // derniere connexion de ce poste par passkey : elle est proposee en premier, Entree la lance
+    const bool passkey_first = passkey_browser_available() && last_login_.by_passkey();
     if (ImGui::InputTextWithHint("##badge", "ou saisissez le code du badge", &login_manual_,
                                  ImGuiInputTextFlags_EnterReturnsTrue | ImGuiInputTextFlags_Password)) {
-      handle_scan(login_manual_, ScanSource::Manual);
+      if (login_manual_.empty() && passkey_first && !passkey_.active && !passkey_.busy)
+        start_passkey_browser();
+      else
+        handle_scan(login_manual_, ScanSource::Manual);
       login_manual_.clear();
     }
     ImGui::PopStyleColor();
+    if (passkey_browser_available()) {
+      ImGui::Spacing();
+      draw_passkey_browser();
+    }
     // sans badge, pour un secouriste qui a un code PIN : discret, replie par defaut
     ImGui::Spacing();
     if (name_login_.open)
@@ -124,6 +134,7 @@ void App::draw_login_modal() {
     if (button("Annuler", ImVec2(160, 0)) || escape_pressed()) {
       login_prompt_   = false;
       pending_action_ = nullptr;
+      passkey_        = PasskeyBrowser{}; // le poste n'attend plus le navigateur
     }
     if (!login_prompt_ || logged_in() || pin_.active) // le PIN prend le relais (l'action en attente est gardee)
       ImGui::CloseCurrentPopup();
@@ -132,6 +143,8 @@ void App::draw_login_modal() {
     login_prompt_opened_ = false;
     login_prompt_        = false;
     name_login_          = NameLogin{};
+    if (!pin_.active)
+      passkey_ = PasskeyBrowser{};
   }
 }
 
@@ -293,6 +306,11 @@ void App::restore_login() {
   if (last_login_.badge()) {
     // le serveur redemande le PIN si l'utilisateur en a un (fenetre « Code PIN »)
     send_auth(last_login_.matricule, last_login_.key, "", "", ScanSource::Manual);
+  } else if (last_login_.by_passkey() && passkey_browser_available()) {
+    // passkey du navigateur : fenetre de connexion avec la passkey en premier (Entree la lance), rien a taper
+    login_reason_     = "reprendre votre session";
+    login_prompt_     = true;
+    name_login_       = NameLogin{};
   } else if (last_login_.by_name()) {
     // sans badge : nom et prenom deja remplis, seul le PIN est demande
     login_reason_      = "reprendre votre session";
@@ -363,6 +381,122 @@ void App::send_temp_login(const std::string &matricule, const std::string &token
     feedback.error(source, settings);
     notify("QR code de connexion refusé : " + result.error, true);
   });
+}
+
+// Passkey par le navigateur (Hippolyte, 2026-11-27). Un poste non kiosk n'a pas acces aux passkeys de l'ordinateur
+// (Bitwarden, trousseau d'Apple et cles USB ne s'offrent qu'aux navigateurs, ou a des applis signees) : il ouvre le
+// navigateur sur le serveur, la personne y valide avec sa passkey et le code a 4 chiffres affiche ici, et le poste,
+// qui interroge le serveur pendant ce temps, recoit une session normale. Pas de lien qrprotec:// a enregistrer aupres
+// du systeme : marche aussi sous Flatpak.
+bool App::passkey_browser_available() const {
+  return AppSettings::api_env("QRPROTEC_KIOSK") == nullptr;
+}
+
+void App::start_passkey_browser() {
+  if (passkey_.busy)
+    return;
+  passkey_      = PasskeyBrowser{};
+  passkey_.busy = true;
+  api.post("/api/auth/poste-browser/", Json::object(), [this](const ApiResult &result) {
+    passkey_.busy = false;
+    if (!result.ok) {
+      passkey_.error = result.error;
+      return;
+    }
+    passkey_.request   = result.data["request"].str();
+    passkey_.poll      = result.data["poll"].str();
+    passkey_.code      = result.data["code"].str();
+    passkey_.url       = result.data["url"].str();
+    passkey_.expires   = ImGui::GetTime() + static_cast< double >(result.data["seconds"].integer());
+    passkey_.next_poll = ImGui::GetTime() + 2.0;
+    passkey_.active    = true;
+    std::string error;
+    if (!open_url(passkey_.url, error))
+      passkey_.error = passkey_.url.rfind("http", 0) == 0
+                         ? "Navigateur non ouvert (" + error + ") : copiez l'adresse et ouvrez-la vous-même."
+                         : "Adresse publique du serveur non réglée (PUBLIC_BASE_URL) : voyez le TECH.";
+  });
+}
+
+void App::poll_passkey_browser() {
+  if (!passkey_.active || passkey_.busy || ImGui::GetTime() < passkey_.next_poll)
+    return;
+  if (ImGui::GetTime() > passkey_.expires + 5.0) {
+    passkey_        = PasskeyBrowser{};
+    passkey_.error  = "Demande expirée : relancez la connexion avec une passkey.";
+    return;
+  }
+  Json body;
+  body["request"] = passkey_.request;
+  body["poll"]    = passkey_.poll;
+  passkey_.busy   = true;
+  const std::string request = passkey_.request;
+  api.post("/api/auth/poste-browser/poll/", body, [this, request](const ApiResult &result) {
+    if (passkey_.request != request) // annulee ou relancee pendant la requete
+      return;
+    passkey_.busy      = false;
+    passkey_.next_poll = ImGui::GetTime() + 2.0;
+    if (result.ok && result.data["pending"].boolean())
+      return;
+    if (result.status == 0 && !result.ok) // serveur injoignable un instant : on reessaie
+      return;
+    if (!result.ok) {
+      feedback.error(ScanSource::Manual, settings);
+      passkey_       = PasskeyBrowser{};
+      passkey_.error = result.error;
+      return;
+    }
+    passkey_ = PasskeyBrowser{};
+    StoredLogin login;
+    login.matricule = result.data["matricule"].str();
+    login.passkey   = true;
+    remember_login(login);
+    complete_login(result.data);
+    focus_requested = true; // l'application revient devant le navigateur
+  });
+}
+
+void App::draw_passkey_browser() {
+  const bool first = last_login_.by_passkey();
+  if (!passkey_.active) {
+    ImGui::BeginDisabled(passkey_.busy);
+    if (first ? primary_button("Se connecter avec une passkey (Entrée)", ImVec2(360, 0))
+              : button("Se connecter avec une passkey", ImVec2(360, 0)))
+      start_passkey_browser();
+    ImGui::EndDisabled();
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+      ImGui::SetTooltip("Ouvre le navigateur : clé USB, gestionnaire de mots de passe, trousseau ou téléphone.");
+    if (!passkey_.error.empty()) {
+      ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + 360.0f);
+      ImGui::TextColored(colors::red, "%s", passkey_.error.c_str());
+      ImGui::PopTextWrapPos();
+    }
+    return;
+  }
+  ImGui::SeparatorText("Passkey");
+  ImGui::TextUnformatted("Validez dans le navigateur avec ce code :");
+  ImGui::PushFont(nullptr, ImGui::GetStyle().FontSizeBase * 2.0f);
+  ImGui::TextUnformatted(passkey_.code.c_str());
+  ImGui::PopFont();
+  const int left = std::max(0, static_cast< int >(passkey_.expires - ImGui::GetTime()));
+  ImGui::TextDisabled("En attente du navigateur... (encore %d min %02d s)", left / 60, left % 60);
+  if (!passkey_.error.empty()) {
+    ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + 360.0f);
+    ImGui::TextColored(colors::red, "%s", passkey_.error.c_str());
+    ImGui::PopTextWrapPos();
+  }
+  if (ImGui::TextLink("Rouvrir le navigateur")) {
+    std::string error;
+    if (!open_url(passkey_.url, error))
+      passkey_.error = "Navigateur non ouvert (" + error + ") : copiez l'adresse et ouvrez-la vous-même.";
+  }
+  ImGui::SameLine();
+  if (ImGui::TextLink("Copier l'adresse"))
+    ImGui::SetClipboardText(passkey_.url.c_str());
+  ImGui::SameLine();
+  if (ImGui::TextLink("Annuler la passkey"))
+    passkey_ = PasskeyBrowser{};
+  ImGui::Spacing();
 }
 
 // Le serveur verifie la cle du badge puis, si besoin, le PIN : une erreur pin_required (ou
@@ -481,6 +615,7 @@ void App::complete_login(const Json &data) {
   } else if (const auto expires = Date::parse(session.key_expires); expires && *expires < today().plus_days(30))
     notify("Votre badge expire le " + expires->display() + ", demandez son renouvellement.", true);
   login_prompt_ = false;
+  passkey_      = PasskeyBrowser{};
   auto action   = std::move(pending_action_);
   pending_action_ = nullptr;
   if (action)

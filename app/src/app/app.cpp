@@ -576,6 +576,7 @@ void App::begin_frame() {
   for (const ScanEvent &event : inateck.take_scans())
     handle_scan(event.code, event.source);
   check_inactivity();
+  poll_passkey_browser();
 #ifdef QRPROTEC_HOTSPOT
   if (Hotspot::supported())
     hotspot.poll(ImGui::GetTime());
