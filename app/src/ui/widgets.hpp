@@ -85,7 +85,8 @@ bool search_select(const char *id, const Json &list, const char *key_field, cons
                    float width = -FLT_MIN, const char *code_field = nullptr);
 
 // Champ texte libre avec suggestions (ex : emplacements deja donnes dans le lot) : la liste sous le champ filtre
-// les suggestions comme search_select, fleches pour en choisir une, Tab pour completer, Entree pour garder le
+// les suggestions comme search_select, fleches pour en choisir une, Tab pour completer (puis champ suivant ; Tab
+// passe directement au champ suivant quand il n'y a rien a completer), Entree pour garder le
 // texte tape (ou la suggestion choisie). Limite a `max_chars` caracteres. Retourne true si modifie.
 bool input_suggest(const char *id, std::string &value, const std::vector< std::string > &suggestions, int max_chars,
                    const char *hint = nullptr, float width = -FLT_MIN);
