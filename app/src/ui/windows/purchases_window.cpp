@@ -1203,9 +1203,50 @@ class PurchasesWindow final : public AppWindow {
 
 // ---- Reception d'une commande (fenetre Reception) ---------------------------------------------------------------
 
+// Repartition de `count` items en `packs` paquets fermes : d'apres le nombre d'items par paquet enregistre s'il
+// convient (36 par 15 en 3 → 15, 15, 6), sinon egale si elle tombe juste (36 en 4 → 9), sinon en dizaines si possible
+// (50 en 3 → 20, 20, 10), en cinq, ou au plus juste (7 en 2 → 4, 3). Les premiers paquets sont pleins, le dernier prend le reste.
+std::vector< int > split_packs(int count, int packs, int per_pack) {
+  packs = std::clamp(packs, 1, std::max(1, count));
+  if (count <= 0)
+    return std::vector< int >(static_cast< std::size_t >(packs), 0);
+  if (per_pack > 1 && per_pack * (packs - 1) < count && count <= per_pack * packs) {
+    std::vector< int > sizes(static_cast< std::size_t >(packs - 1), per_pack);
+    sizes.push_back(count - per_pack * (packs - 1));
+    return sizes;
+  }
+  if (count % packs == 0)
+    return std::vector< int >(static_cast< std::size_t >(packs), count / packs);
+  const int share = (count + packs - 1) / packs;
+  for (const int step : { 10, 5 }) {
+    const int size = (share + step - 1) / step * step;
+    if (share >= step && size * (packs - 1) < count) {
+      std::vector< int > sizes(static_cast< std::size_t >(packs - 1), size);
+      sizes.push_back(count - size * (packs - 1));
+      return sizes;
+    }
+  }
+  std::vector< int > sizes;
+  for (int index = 0; index < packs; ++index)
+    sizes.push_back(count / packs + (index < count % packs ? 1 : 0));
+  return sizes;
+}
+
+// Nombre de paquets propose : d'apres le nombre d'items par paquet enregistre pour le type, sinon un seul
+int default_packs(int count, int per_pack) {
+  if (per_pack <= 1 || count <= 0)
+    return 1;
+  return std::clamp((count + per_pack - 1) / per_pack, 1, 500);
+}
+
 struct ReceptionRow {
-    int         count = 0;
-    std::string peremption; // tape librement (parse_user_date)
+    int                count = 0;
+    std::string        peremption;          // tape librement (parse_user_date)
+    int                packs        = 1;     // paquets fermes
+    bool               packs_edited = false; // nombre de paquets tape : plus recalcule avec le nombre d'items
+    std::vector< int > sizes;               // items par paquet (repartition modifiable)
+    int                sizes_count = -1;     // nombre d'items et de paquets de la repartition proposee
+    int                sizes_packs = -1;
 };
 
 struct ReceptionLine {
@@ -1349,14 +1390,8 @@ class OrderReceptionPanel final : public OrderReception {
           ReceptionRow &row = line.rows[r];
           ImGui::PushID(static_cast< int >(r));
           ImGui::SetNextItemWidth(ImGui::GetFontSize() * 7.0f);
-          if (line.sealed) {
-            int packs = row.count / std::max(1, line.per_pack);
-            ImGui::InputInt("paquets", &packs);
-            row.count = std::clamp(packs, 0, 500) * line.per_pack;
-          } else {
-            ImGui::InputInt("items", &row.count);
-            row.count = std::clamp(row.count, 0, 10000);
-          }
+          ImGui::InputInt("items", &row.count);
+          row.count = std::clamp(row.count, 0, 10000);
           line_sum += row.count;
           if (line.perishable) {
             ImGui::SameLine();
@@ -1384,6 +1419,8 @@ class OrderReceptionPanel final : public OrderReception {
             if (small_button("✕"))
               remove = static_cast< int >(r);
           }
+          if (line.sealed && row.count > 0 && !draw_packs(line, row))
+            invalid = true;
           ImGui::PopID();
         }
         if (remove >= 0)
@@ -1396,15 +1433,10 @@ class OrderReceptionPanel final : public OrderReception {
           ImGui::SameLine();
         if (ImGui::Checkbox("Paquets fermés", &line.sealed))
           for (ReceptionRow &row : line.rows)
-            row.count = line.sealed ? std::max(1, row.count / std::max(1, line.per_pack)) * line.per_pack : row.count;
+            row.packs_edited = false; // nombre de paquets repropose d'apres le nombre d'items
         help_marker("Paquets que l'on n'ouvre pas tout de suite : une étiquette par paquet, les étiquettes des items "
-                    "sont imprimées à l'ouverture.");
-        if (line.sealed) {
-          ImGui::SameLine();
-          ImGui::SetNextItemWidth(ImGui::GetFontSize() * 6.0f);
-          if (ImGui::InputInt("items par paquet", &line.per_pack))
-            line.per_pack = std::clamp(line.per_pack, 1, 10000);
-        }
+                    "sont imprimées à l'ouverture. Indiquez le nombre de paquets ; s'ils ne sont pas tous pareils, "
+                    "corrigez la répartition proposée.");
         ImGui::SetNextItemWidth(ImGui::GetFontSize() * 18.0f);
         search_select("place", places, "id", "label", line.place, "Rangement du stock…", "Stock (sans rangement)",
                       ImGui::GetFontSize() * 18.0f);
@@ -1431,6 +1463,60 @@ class OrderReceptionPanel final : public OrderReception {
       ImGui::EndDisabled();
     }
 
+    // Paquets fermes d'une date : leur nombre, puis la repartition des items si elle n'est pas egale. Faux si la
+    // repartition ne fait pas le nombre d'items.
+    static bool draw_packs(ReceptionLine &line, ReceptionRow &row) {
+      if (!row.packs_edited)
+        row.packs = default_packs(row.count, line.per_pack);
+      row.packs = std::clamp(row.packs, 1, std::clamp(row.count, 1, 500));
+      if (row.sizes_count != row.count || row.sizes_packs != row.packs) {
+        row.sizes       = split_packs(row.count, row.packs, line.per_pack);
+        row.sizes_count = row.count;
+        row.sizes_packs = row.packs;
+      }
+      ImGui::Indent(ImGui::GetFontSize() * 1.5f);
+      ImGui::SetNextItemWidth(ImGui::GetFontSize() * 7.0f);
+      if (ImGui::InputInt("paquets", &row.packs)) {
+        row.packs_edited = true;
+        row.packs        = std::clamp(row.packs, 1, std::clamp(row.count, 1, 500));
+        row.sizes        = split_packs(row.count, row.packs, line.per_pack);
+        row.sizes_packs  = row.packs;
+      }
+      const bool equal = std::all_of(row.sizes.begin(), row.sizes.end(), [&](int size) { return size == row.sizes[0]; });
+      ImGui::SameLine();
+      if (equal)
+        ImGui::TextDisabled("de %s", nb(row.sizes[0], "item").c_str());
+      else
+        ImGui::TextDisabled("répartition (modifiable) :");
+      int sum = 0;
+      for (const int size : row.sizes)
+        sum += size;
+      if (!equal) {
+        if (ImGui::BeginTable("sizes", static_cast< int >(std::min< std::size_t >(row.sizes.size(), 8)),
+                              ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_BordersInnerV)) {
+          for (std::size_t index = 0; index < row.sizes.size(); ++index) {
+            ImGui::TableNextColumn();
+            ImGui::PushID(static_cast< int >(index));
+            ImGui::TextDisabled("Paquet %d", static_cast< int >(index) + 1);
+            ImGui::SetNextItemWidth(ImGui::GetFontSize() * 4.5f);
+            ImGui::InputInt("##size", &row.sizes[index], 0);
+            row.sizes[index] = std::clamp(row.sizes[index], 1, 10000);
+            ImGui::PopID();
+          }
+          ImGui::EndTable();
+        }
+      }
+      ImGui::Unindent(ImGui::GetFontSize() * 1.5f);
+      if (sum != row.count) {
+        ImGui::Indent(ImGui::GetFontSize() * 1.5f);
+        ImGui::TextColored(colors::red, "Les paquets font %s, pour %s reçus.", nb(sum, "item").c_str(),
+                           nb(row.count, "item").c_str());
+        ImGui::Unindent(ImGui::GetFontSize() * 1.5f);
+        return false;
+      }
+      return true;
+    }
+
     void send(App &app) {
       Json body;
       body["user"]       = app.user_ref();
@@ -1444,14 +1530,23 @@ class OrderReceptionPanel final : public OrderReception {
           const auto date  = parse_user_date(row.peremption);
           item["peremption"] = line.perishable && date ? Json(date->iso()) : Json();
           item["location"] = line.place.empty() ? Json() : Json(line.place);
-          if (line.sealed) {
-            item["sealed_pack"] = true;
-            item["count"]       = line.per_pack;
-            item["packs"]       = row.count / std::max(1, line.per_pack);
-          } else {
+          if (!line.sealed) {
             item["count"] = row.count;
+            body["receptions"].push_back(item);
+            continue;
           }
-          body["receptions"].push_back(item);
+          // paquets fermes : une reception par suite de paquets de meme taille (20, 20 puis 10)
+          for (std::size_t index = 0; index < row.sizes.size();) {
+            std::size_t end = index;
+            while (end < row.sizes.size() && row.sizes[end] == row.sizes[index])
+              ++end;
+            Json packs           = item;
+            packs["sealed_pack"] = true;
+            packs["count"]       = row.sizes[index];
+            packs["packs"]       = static_cast< int >(end - index);
+            body["receptions"].push_back(packs);
+            index = end;
+          }
         }
       sending_ = true;
       error_.clear();

@@ -85,7 +85,10 @@ avec ce qui reste attendu :
 - la **quantité** arrivée (0 pour ce qui n'est pas encore là : la commande reste attendue pour le reste) ;
 - la **date de péremption**, demandée pour chaque type périssable ; **+ Autre date** si le colis mélange plusieurs
   dates (80 sérums au 03/2027, 40 au 06/2027) ;
-- **Paquets fermés** et le nombre d'items par paquet, pour des boîtes que l'on n'ouvre pas tout de suite ;
+- **Paquets fermés** et le nombre de paquets, pour des boîtes que l'on n'ouvre pas tout de suite. Le nombre proposé
+  vient du nombre d'items par paquet enregistré pour le type (sinon un seul paquet) ; si les paquets ne sont pas tous
+  pareils, une répartition est proposée en dizaines quand c'est possible (50 items en 3 paquets → 20, 20, 10) et se
+  corrige case par case ;
 - le **rangement du stock**, proposé comme pour une réception ordinaire.
 
 **Créer N items et voir toutes les étiquettes** crée tout d'un coup et ouvre l'aperçu de **toutes** les étiquettes
