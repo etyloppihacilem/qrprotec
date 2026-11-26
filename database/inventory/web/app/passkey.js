@@ -61,6 +61,17 @@ async function tryPasskeyFirst(fallback) {
   if (!done && !state.user) fallback();
 }
 
+// Reponse de navigator.credentials.get() envoyee au serveur
+const assertionJson = (credential) => ({
+  id: credential.id, type: credential.type,
+  response: {
+    clientDataJSON: bufferToB64url(credential.response.clientDataJSON),
+    authenticatorData: bufferToB64url(credential.response.authenticatorData),
+    signature: bufferToB64url(credential.response.signature),
+    userHandle: credential.response.userHandle ? bufferToB64url(credential.response.userHandle) : null,
+  },
+});
+
 // true si la connexion a reussi. quiet : essai automatique (passkeyFirst), pas de message si la personne annule ;
 // les autres moyens de connexion s'affichent ensuite.
 async function passkeyLogin({ quiet = false } = {}) {
@@ -76,15 +87,7 @@ async function passkeyLogin({ quiet = false } = {}) {
     return false;
   }
   try {
-    const user = await api('auth/passkey/', { credential: {
-      id: credential.id, type: credential.type,
-      response: {
-        clientDataJSON: bufferToB64url(credential.response.clientDataJSON),
-        authenticatorData: bufferToB64url(credential.response.authenticatorData),
-        signature: bufferToB64url(credential.response.signature),
-        userHandle: credential.response.userHandle ? bufferToB64url(credential.response.userHandle) : null,
-      },
-    } });
+    const user = await api('auth/passkey/', { credential: assertionJson(credential) });
     if ($('#name-login').open) $('#name-login').close();
     if (user.poste_otp) user.poste_otp.received_at = Date.now(); // ecart d'horloge pour les codes du QR poste
     loggedIn({ ...user, loginAt: Date.now() });
@@ -265,3 +268,59 @@ $('#login-gate-passkey').addEventListener('click', () => passkeyLogin());
 $('#name-login-passkey').addEventListener('click', () => passkeyLogin());
 $('#login-gate-passkey').hidden = !passkeySupported();
 $('#name-login-passkey').hidden = !passkeySupported();
+
+// Connexion d'un poste non kiosk par la passkey de ce navigateur (Hippolyte, 2026-11-27) : l'application du poste ouvre
+// poste?r=<demande> dans le navigateur de l'ordinateur. On y valide avec sa passkey (cle USB, gestionnaire de mots de
+// passe, trousseau, telephone) ; le poste, qui attend de son cote, recoit la session. Ce navigateur n'est pas connecte
+// pour autant. Le code a 4 chiffres est celui qu'affiche l'application : sans lui, ne rien valider.
+async function openPosteBrowserLogin(requestId) {
+  const dialog = $('#poste-browser');
+  const body = $('#poste-browser-body');
+  const title = el('h2', {}, 'Connexion de l\'application QRProtec');
+  const show = (...parts) => { body.replaceChildren(title, ...parts); if (!dialog.open) dialog.showModal(); };
+  show(el('p', { class: 'hint' }, 'Chargement…'));
+  let info;
+  try {
+    info = await api('auth/poste-browser/info/', { request: requestId });
+  } catch (e) {
+    show(el('p', {}, e.message));
+    return;
+  }
+  if (!passkeySupported()) {
+    show(el('p', {}, 'Ce navigateur ne gère pas les passkeys (ou la page n\'est pas en HTTPS). Connectez-vous au poste avec votre carte.'));
+    return;
+  }
+  const error = el('p', { class: 'error' });
+  const validate = async (button) => {
+    button.disabled = true;
+    error.textContent = '';
+    let credential;
+    try {
+      const { publicKey } = await api('auth/passkey/options/', {});
+      publicKey.challenge = b64urlToBuffer(publicKey.challenge);
+      credential = await navigator.credentials.get({ publicKey });
+    } catch (e) {
+      error.textContent = (e && e.status !== undefined ? e.message : passkeyBrowserError(e)) || '';
+      button.disabled = false;
+      return;
+    }
+    try {
+      const data = await api('auth/poste-browser/approve/', { request: requestId, credential: assertionJson(credential) });
+      feedback.info();
+      show(el('p', {}, el('b', {}, `C'est fait, ${data.prenom} : l'application est connectée.`)),
+        el('p', { class: 'hint' }, 'Vous pouvez fermer cet onglet et revenir à l\'application.'));
+      setTimeout(() => window.close(), 1500); // ferme l'onglet quand le navigateur le permet
+    } catch (e) {
+      feedback.bad();
+      error.textContent = e.message;
+      button.disabled = !!(e.status === 404 || e.status === 409);
+    }
+  };
+  const button = el('button', { type: 'button', class: 'primary', onclick: () => validate(button) }, icon('key'), 'Valider avec ma passkey');
+  show(el('p', {}, `Ordinateur : ${info.poste}`),
+    el('p', {}, 'Code affiché par l\'application :'),
+    el('p', { class: 'poste-browser-code' }, info.code),
+    el('p', { class: 'hint' }, 'Validez seulement si vous venez de demander la connexion dans l\'application et si le code est le même.'),
+    error, button);
+}
+$('#poste-browser-close').addEventListener('click', () => $('#poste-browser').close());

@@ -100,6 +100,13 @@ l'accueil et scannez le QR code avec la douchette du poste. Le code change toute
 sert qu'une fois. Il marche même sans réseau sur le téléphone, pendant 12 heures après votre connexion
 avec la passkey ; ensuite, reconnectez-vous avec elle.
 
+**Ne plus taper mon code PIN sur mon ordinateur (passkey).**
+Sur un ordinateur où l'application QRProtec est installée (pas la borne), cliquez sur **Se connecter
+avec une passkey** dans la fenêtre de connexion. Le navigateur s'ouvre : vérifiez que le code à 4
+chiffres est le même que dans l'application, puis **Valider avec ma passkey** (clé USB, Bitwarden,
+trousseau du Mac ou téléphone). L'application se connecte d'elle-même. Si la case « Machine
+partagée » est décochée, l'application propose la passkey en premier à chaque ouverture : Entrée suffit.
+
 **Le poste m'a déconnecté et a vidé la pile.**
 Après 15 minutes sans activité, le poste revient à son état de départ (réglable par le TECH).
 

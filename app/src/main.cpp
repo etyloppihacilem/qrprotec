@@ -399,6 +399,16 @@ int main(int argc, char** argv)
         app->draw();
         if (app->quit_requested)
             glfwSetWindowShouldClose(window, GLFW_TRUE);
+        if (std::exchange(app->focus_requested, false)) {
+            // connexion validee dans le navigateur : l'application repasse devant. Wayland refuse de donner le
+            // focus a une fenetre : on demande seulement l'attention (barre des taches)
+#ifdef GLFW_PLATFORM_WAYLAND
+            if (glfwGetPlatform() == GLFW_PLATFORM_WAYLAND)
+                glfwRequestWindowAttention(window);
+            else
+#endif
+                glfwFocusWindow(window);
+        }
 
         ImGui::Render();
 

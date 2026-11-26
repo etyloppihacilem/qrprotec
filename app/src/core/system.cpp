@@ -16,11 +16,18 @@
 #define NOMINMAX
 #endif
 #include <windows.h>
+#include <shellapi.h>
 #else
+#include <spawn.h>
+#include <sys/wait.h>
 #include <unistd.h>
 #endif
+#include <thread>
 #ifdef __APPLE__
 #include <mach-o/dyld.h>
+#endif
+#if !defined(_WIN32)
+extern char **environ;
 #endif
 
 namespace qrprotec {
@@ -251,6 +258,48 @@ fs::path user_config_dir() {
 #endif
   const fs::path home = home_dir();
   return home.empty() ? fs::path() : home / ".config" / "qrprotec";
+}
+
+bool open_url(const std::string &url, std::string &error) {
+  if (url.rfind("https://", 0) != 0 && url.rfind("http://", 0) != 0) {
+    error = "Adresse invalide : " + url;
+    return false;
+  }
+#ifdef _WIN32
+  const int size = MultiByteToWideChar(CP_UTF8, 0, url.c_str(), -1, nullptr, 0);
+  std::wstring wide(static_cast< std::size_t >(size > 0 ? size : 1), L'\0');
+  MultiByteToWideChar(CP_UTF8, 0, url.c_str(), -1, wide.data(), size);
+  const auto result = reinterpret_cast< INT_PTR >(ShellExecuteW(nullptr, L"open", wide.c_str(), nullptr, nullptr, SW_SHOWNORMAL));
+  if (result <= 32) {
+    error = "Navigateur introuvable (erreur " + std::to_string(result) + ")";
+    return false;
+  }
+  return true;
+#else
+#ifdef __APPLE__
+  const char *tool = "open";
+#else
+  const char *tool = "xdg-open";
+#endif
+  std::string first(tool);
+  std::string target(url);
+  char       *argv[] = {first.data(), target.data(), nullptr};
+  pid_t       child  = 0;
+  const int   status = ::posix_spawnp(&child, tool, nullptr, nullptr, argv, environ);
+  if (status != 0) {
+    error = std::string(tool) + " introuvable : " + std::strerror(status);
+    error_log("Navigateur non ouvert : " + error, "system");
+    return false;
+  }
+  // xdg-open rend la main une fois le navigateur lance : son code de retour est attendu a part (pas de zombie)
+  std::thread([child] {
+    int code = 0;
+    if (::waitpid(child, &code, 0) == child && (!WIFEXITED(code) || WEXITSTATUS(code) != 0))
+      error_log("Navigateur : xdg-open/open a échoué (code " + std::to_string(WIFEXITED(code) ? WEXITSTATUS(code) : -1) + ")",
+                "system");
+  }).detach();
+  return true;
+#endif
 }
 
 } // namespace qrprotec

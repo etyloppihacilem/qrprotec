@@ -369,6 +369,8 @@ StoredLogin StoredLogin::load() {
       login.nom = unescape_line(value);
     else if (key == "prenom")
       login.prenom = unescape_line(value);
+    else if (key == "passkey")
+      login.passkey = value == "1";
   }
   return login;
 }
@@ -396,6 +398,8 @@ bool StoredLogin::save(std::string &error) const {
   output << "# Session QRProtec de cette machine (non partagée), effacée par « Se déconnecter »\n";
   if (badge())
     output << "matricule=" << matricule << '\n' << "key=" << key << '\n';
+  else if (by_passkey())
+    output << "matricule=" << matricule << '\n' << "passkey=1\n";
   else
     output << "nom=" << escape_line(nom) << '\n' << "prenom=" << escape_line(prenom) << '\n';
   output.close();

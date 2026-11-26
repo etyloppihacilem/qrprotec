@@ -9,9 +9,10 @@ Fichiers concernés :
 | Fichier | Rôle |
 |---|---|
 | `database/inventory/passkeys.py` | Vérification WebAuthn sans bibliothèque dédiée : CBOR minimal, clés COSE (ES256, Ed25519, RS256), défis signés à usage unique, domaine (RP ID) et origine. |
-| `database/inventory/views/passkeys.py` | Routes : connexion, passkeys de l'utilisateur, QR code de connexion au poste, outil de debug des admins. |
+| `database/inventory/views/passkeys.py` | Routes : connexion, passkeys de l'utilisateur, QR code de connexion au poste, connexion d'un poste par le navigateur, outil de debug des admins. |
 | `database/inventory/models.py` | `Passkey` : identifiant, clé publique COSE, compteur de signatures, appareil, dates. |
-| `database/inventory/web/app/passkey.js` | Front web : création, connexion, réglages, bouton du QR code pour le poste. |
+| `database/inventory/web/app/passkey.js` | Front web : création, connexion, réglages, bouton du QR code pour le poste, page `poste?r=…` de validation pour un poste. |
+| `app/src/app/app_session.cpp` | Poste : « Se connecter avec une passkey » (navigateur), attente de la validation. |
 | `database/inventory/tests/test_passkeys.py` | Faux authentificateur (vraie clé P-256) et tous les cas de refus. |
 
 ## Règles
@@ -51,6 +52,22 @@ Fichiers concernés :
   fois, et après une connexion plus aucun code de la même période ou d'avant. Accepté seulement par un
   poste (douchette), qui ouvre une session normale. Renouveler le badge ou supprimer les passkeys
   invalide la clé.
+- **Poste non kiosk : passkey par le navigateur de l'ordinateur** (Hippolyte, 2026-11-27). Une appli
+  native n'a pas accès aux passkeys de l'ordinateur : Bitwarden et les clés USB ne s'offrent qu'aux
+  navigateurs, le trousseau d'Apple seulement à une appli signée avec un domaine associé. Le poste
+  (bouton « Se connecter avec une passkey » de la fenêtre de connexion, jamais sur une borne
+  `QRPROTEC_KIOSK`) demande `POST auth/poste-browser/` (poste seulement, `is_front`) : identifiant de
+  demande, secret `poll` gardé par le poste, code à 4 chiffres et lien `poste?r=…` (PUBLIC_BASE_URL),
+  valable 5 min. Il ouvre le lien (xdg-open, qui passe par le portail sous Flatpak ; `open` sous macOS ;
+  ShellExecute sous Windows) et demande `auth/poste-browser/poll/` toutes les 2 s. La page du navigateur
+  (`auth/poste-browser/info/`) montre le nom de l'ordinateur (clé de front) et le code ; « Valider avec
+  ma passkey » envoie une assertion WebAuthn neuve à `auth/poste-browser/approve/` (une seule
+  validation). Le poste reçoit alors une session normale (moyen `passkey_browser`, une seule fois) et
+  repasse au premier plan ; le navigateur, lui, n'est pas connecté. Pas de lien `qrprotec://` à
+  enregistrer. Admins compris : la passkey est vérifiée sur le moment (`userVerification: required`).
+  Machine non partagée : `session.conf` garde `matricule` + `passkey=1` (rien de secret) ; au
+  redémarrage, ou à l'expiration de la session, la fenêtre de connexion propose la passkey en premier et
+  Entrée la lance.
 
 ## Domaine (RP ID)
 

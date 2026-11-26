@@ -137,6 +137,21 @@ struct NameLogin {
     std::string error;
 };
 
+// Connexion d'un poste non kiosk par la passkey du navigateur de l'ordinateur : le serveur donne une demande (lien a
+// ouvrir, code a 4 chiffres) et un secret garde ici, avec lequel le poste demande toutes les 2 s si la passkey a ete
+// validee dans le navigateur (POST /api/auth/poste-browser/poll/)
+struct PasskeyBrowser {
+    bool        active  = false; // demande en cours, en attente de la validation dans le navigateur
+    bool        busy    = false; // requete en cours (creation ou interrogation)
+    std::string request;
+    std::string poll;
+    std::string code;
+    std::string url;
+    double      next_poll = 0.0;
+    double      expires   = 0.0;
+    std::string error;
+};
+
 // Autre lot du meme lot global ajoute a la verif en cours par son etiquette privee
 struct VerifExtra {
     std::string id;
@@ -706,6 +721,7 @@ class App {
     void                         open_hotspot() { hotspot_open_pending_ = true; }
 #endif
     bool                         quit_requested = false; // ferme l'application (main.cpp), ex. pour installer une mise a jour
+    bool                         focus_requested = false; // fenetre ramenee au premier plan (main.cpp), ex. apres la passkey
     ApiClient                    api;
     ScanStack                    stack;
     // etiquettes envoyees a l'imprimante pas encore recues par le serveur (avant `printer`, qui l'utilise)
@@ -769,6 +785,11 @@ class App {
     void login_with_badge(const ParsedScan &scan, ScanSource source);
     void send_temp_login(const std::string &matricule, const std::string &token, const std::string &otp,
                          ScanSource source);
+    // Passkey par le navigateur (pas sur une borne : ni navigateur ni bureau)
+    bool passkey_browser_available() const;
+    void start_passkey_browser();
+    void poll_passkey_browser();
+    void draw_passkey_browser();
     void send_auth(const std::string &matricule, const std::string &key, const std::string &pin,
                    const std::string &new_pin, ScanSource source);
     void complete_login(const Json &data);
@@ -915,6 +936,7 @@ class App {
     bool                    login_prompt_ = false;
     PinPrompt               pin_;
     NameLogin               name_login_;
+    PasskeyBrowser          passkey_;
     bool                    login_prompt_opened_ = false;
     bool                    douchette_pending_   = false;
     std::size_t             douchette_index_     = 0;

@@ -170,8 +170,9 @@ target_include_directories(QRProtecCore PUBLIC
 )
 target_link_libraries(QRProtecCore PUBLIC PNG::PNG Freetype::Freetype Threads::Threads OpenSSL::SSL)
 if(WIN32)
-    # Winsock (HTTP, WebSocket) ; crypt32 : magasin de certificats de Windows (OpenSSL winstore)
-    target_link_libraries(QRProtecCore PUBLIC ws2_32 crypt32)
+    # Winsock (HTTP, WebSocket) ; crypt32 : magasin de certificats de Windows (OpenSSL winstore) ; shell32 :
+    # ShellExecute (navigateur de la connexion par passkey)
+    target_link_libraries(QRProtecCore PUBLIC ws2_32 crypt32 shell32)
 endif()
 # Police avec accents fournie avec les sources (copiee aussi a cote de l'executable)
 target_compile_definitions(QRProtecCore PRIVATE
