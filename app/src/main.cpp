@@ -171,6 +171,10 @@ static void load_font(float size)
     const std::string& bold = qrprotec::bold_font_path();
     if (!bold.empty() && io.Fonts->Fonts.Size > 0)
         qrprotec::set_bold_font(io.Fonts->AddFontFromFileTTF(bold.c_str(), size));
+    // chasse fixe : blocs de code du lecteur de documentation (Administration > Documentation)
+    const std::string& mono = qrprotec::mono_font_path();
+    if (!mono.empty() && io.Fonts->Fonts.Size > 0)
+        qrprotec::set_mono_font(io.Fonts->AddFontFromFileTTF(mono.c_str(), size));
     ImGui::GetStyle().FontSizeBase = size;
 }
 

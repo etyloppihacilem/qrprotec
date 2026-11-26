@@ -152,6 +152,8 @@ Create a key for a remote front with: qrprotec-manage frontkey add NAME
 Summary:        QRProtec front: ImGui window for a desktop session
 License:        LicenseRef-Proprietary AND MIT
 Requires:       dejavu-sans-fonts
+# blocs de code du lecteur de documentation (Administration > Documentation)
+Requires:       dejavu-sans-mono-fonts
 Requires:       hicolor-icon-theme
 Recommends:     alsa-utils
 Recommends:     bluez

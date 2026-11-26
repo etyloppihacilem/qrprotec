@@ -384,6 +384,14 @@ enregistré dans les données du site. Sur cet appareil, une connexion n'est plu
 téléphone personnel : elle s'arrête à la fermeture de l'appli et après **1 h sans activité**. Les
 secouristes voient la case grisée ; seuls la gestion et les admins peuvent la décocher.
 
+## Documentation au poste
+
+**Administration > Documentation** (admins, en mode gestion) ouvre cette documentation sur le poste,
+sans Internet : l'arborescence des guides à gauche (sous la page ouverte, ses sections), la page à
+droite. Les liens s'ouvrent dans la fenêtre ; **← Précédent** et **Suivant →** (ou `Alt+←` et `Alt+→`)
+reviennent en arrière comme dans un navigateur. Un lien vers un site Internet copie son adresse dans le
+presse-papiers. C'est toujours la documentation de la version installée.
+
 ## Sauvegardes
 
 La borne fait une sauvegarde automatique chaque jour (base, configuration, réglages et modèles

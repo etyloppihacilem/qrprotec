@@ -188,6 +188,7 @@ bool warning_button(const char *label, const ImVec2 &size) {
 
 namespace {
 ImFont *bold_font = nullptr;
+ImFont *mono_font = nullptr;
 
 // Signalement, reconnaissable sans faire croire a un probleme en cours (meme sur un lot tout vert) :
 // - gros bouton (strip > 0) : noir plein, liseré hachure noir et jaune a gauche, texte blanc en gras
@@ -230,6 +231,18 @@ bool report_shape(const char *id, const char *text, const ImVec2 &size, float ro
 
 void set_bold_font(ImFont *font) {
   bold_font = font;
+}
+
+ImFont *get_bold_font() {
+  return bold_font;
+}
+
+void set_mono_font(ImFont *font) {
+  mono_font = font;
+}
+
+ImFont *get_mono_font() {
+  return mono_font;
 }
 
 bool report_button(const char *label, const ImVec2 &size) {

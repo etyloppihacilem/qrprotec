@@ -140,6 +140,7 @@ add_library(QRProtecCore STATIC
     src/core/glob_utils.cpp
     src/core/hotspot_state.cpp
     src/core/json.cpp
+    src/core/markdown.cpp
     src/core/paths.cpp
     src/core/placeholders.cpp
     src/core/search.cpp
@@ -209,6 +210,38 @@ endforeach()
 file(WRITE "${QRPROTEC_ICON_HEADER}.in" "${QRPROTEC_ICON_CONTENT}")
 configure_file("${QRPROTEC_ICON_HEADER}.in" "${QRPROTEC_ICON_HEADER}" COPYONLY)
 
+# Documentation (docs/*.md) embarquee dans l'executable : lecteur du poste, Administration > Documentation. Toujours
+# celle de la version installee, rien a deployer a cote (RPM, Flatpak, zip Windows, .app). Une page modifiee ou
+# ajoutee relance la configuration (CONFIGURE_DEPENDS) ; docs/pdf (mise en page du PDF) n'en fait pas partie.
+set(QRPROTEC_DOCS_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../docs" CACHE PATH "Dossier de la documentation (pages .md)")
+set(QRPROTEC_DOCS_SOURCE "${CMAKE_CURRENT_BINARY_DIR}/generated/docs_data.cpp")
+set(QRPROTEC_DOCS_CONTENT "// Genere par CMakeLists.txt depuis ${QRPROTEC_DOCS_DIR}\n#include \"core/docs.hpp\"\n\nnamespace qrprotec {\nnamespace {\n")
+set(QRPROTEC_DOCS_TABLE "")
+set(QRPROTEC_DOCS_COUNT 0)
+if(EXISTS "${QRPROTEC_DOCS_DIR}")
+    file(GLOB_RECURSE QRPROTEC_DOC_FILES CONFIGURE_DEPENDS RELATIVE "${QRPROTEC_DOCS_DIR}" "${QRPROTEC_DOCS_DIR}/*.md")
+    list(FILTER QRPROTEC_DOC_FILES EXCLUDE REGEX "^pdf/")
+    list(SORT QRPROTEC_DOC_FILES)
+    foreach(doc IN LISTS QRPROTEC_DOC_FILES)
+        file(READ "${QRPROTEC_DOCS_DIR}/${doc}" doc_hex HEX)
+        string(LENGTH "${doc_hex}" doc_hex_length)
+        math(EXPR doc_size "${doc_hex_length} / 2")
+        string(REGEX REPLACE "([0-9a-f][0-9a-f])" "0x\\1," doc_bytes "${doc_hex}")
+        string(APPEND QRPROTEC_DOCS_CONTENT "const unsigned char doc_${QRPROTEC_DOCS_COUNT}[] = {${doc_bytes}0};\n")
+        string(APPEND QRPROTEC_DOCS_TABLE "  { \"${doc}\", doc_${QRPROTEC_DOCS_COUNT}, ${doc_size} },\n")
+        math(EXPR QRPROTEC_DOCS_COUNT "${QRPROTEC_DOCS_COUNT} + 1")
+    endforeach()
+endif()
+if(QRPROTEC_DOCS_COUNT EQUAL 0)
+    # tableau vide interdit en C++ : une entree factice, non comptee
+    message(WARNING "Documentation introuvable dans ${QRPROTEC_DOCS_DIR} : lecteur du poste vide")
+    string(APPEND QRPROTEC_DOCS_TABLE "  { \"\", nullptr, 0 },\n")
+endif()
+string(APPEND QRPROTEC_DOCS_CONTENT "} // namespace\n\nconst EmbeddedDoc kEmbeddedDocs[] = {\n${QRPROTEC_DOCS_TABLE}};\n"
+       "const std::size_t kEmbeddedDocsCount = ${QRPROTEC_DOCS_COUNT};\n\n} // namespace qrprotec\n")
+file(WRITE "${QRPROTEC_DOCS_SOURCE}.in" "${QRPROTEC_DOCS_CONTENT}")
+configure_file("${QRPROTEC_DOCS_SOURCE}.in" "${QRPROTEC_DOCS_SOURCE}" COPYONLY)
+
 # -----------------------------------------------------------------------------
 # 3. Définition de l'exécutable
 # -----------------------------------------------------------------------------
@@ -235,6 +268,7 @@ add_executable(${PROJECT_NAME}
     src/app/scan_stack.cpp
     src/app/settings.cpp
     src/app/updater.cpp
+    ${QRPROTEC_DOCS_SOURCE}
     src/inateck/hid_classifier.cpp
     src/inateck/inateck_worker.cpp
     src/inateck/scanner_settings.cpp
@@ -244,6 +278,7 @@ add_executable(${PROJECT_NAME}
     src/ui/label_preview.cpp
     src/ui/widgets.cpp
     src/ui/file_picker.cpp
+    src/ui/windows/doc_window.cpp
     src/ui/windows/inventory_window.cpp
     src/ui/windows/journal_window.cpp
     src/ui/windows/pack_window.cpp
@@ -337,6 +372,12 @@ if(BUILD_TESTING)
     target_link_libraries(QRProtecCoreTest PRIVATE QRProtecCore)
     add_test(NAME QRProtecCoreTest COMMAND QRProtecCoreTest)
 
+    # lecteur de documentation du poste : Markdown, liens, arborescence, et les vraies pages de docs/
+    add_executable(QRProtecMarkdownTest tests/markdown_test.cpp)
+    target_link_libraries(QRProtecMarkdownTest PRIVATE QRProtecCore)
+    target_compile_definitions(QRProtecMarkdownTest PRIVATE QRPROTEC_DOCS_SOURCE_DIR="${QRPROTEC_DOCS_DIR}")
+    add_test(NAME QRProtecMarkdownTest COMMAND QRProtecMarkdownTest)
+
     add_executable(QRProtecCodesTest tests/codes_test.cpp)
     target_link_libraries(QRProtecCodesTest PRIVATE QRProtecCore)
     # modeles fournis (ex : item_codebarre.qr) : valides et lisibles
@@ -375,7 +416,7 @@ if(BUILD_TESTING)
     add_test(NAME QRProtecSdkJsonTest COMMAND QRProtecSdkJsonTest)
 
     # Les tests reposent sur assert() (parfois avec effets de bord) : le garder actif en Release
-    foreach(test_target QRProtecCoreTest QRProtecCodesTest QRProtecVerifScenariosTest QRProtecPrinterTest QRProtecHidClassifierTest QRProtecSdkJsonTest)
+    foreach(test_target QRProtecCoreTest QRProtecMarkdownTest QRProtecCodesTest QRProtecVerifScenariosTest QRProtecPrinterTest QRProtecHidClassifierTest QRProtecSdkJsonTest)
         target_compile_options(${test_target} PRIVATE -UNDEBUG)
     endforeach()
 endif()

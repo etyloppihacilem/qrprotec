@@ -37,6 +37,7 @@ std::unique_ptr< AppWindow > make_reports_window(); // signalements de problemes
 std::unique_ptr< AppWindow > make_editor_window();
 std::unique_ptr< AppWindow > make_print_counts_window(); // compteur d'impressions par mois et categorie d'etiquette
 std::unique_ptr< AppWindow > make_settings_window();
+std::unique_ptr< AppWindow > make_doc_window(); // documentation du projet (docs/ embarque), admins
 
 // Gestion des lots sans fenetre a elle : la fiche complete d'un lot (onglets de gestion, creation, ordre, archives)
 // vit dans Lots (F2), les types de lots dans leur fenetre (F8). Une instance par fenetre.
