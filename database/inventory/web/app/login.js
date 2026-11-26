@@ -281,6 +281,7 @@ function renderHomePage() {
   if (page === 'depart') renderDepartPage();
   if (page === 'debug') renderDebugPage();
   if (page === 'stats') renderFunStats();
+  if (page === 'dashboard') renderDashboard();
 }
 
 // Lignes des lots de state.lots (page « État des lots », onglet Lots de « Départ ») : etat, derniere vérif,

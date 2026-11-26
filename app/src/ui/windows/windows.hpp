@@ -25,6 +25,7 @@ std::unique_ptr< AppWindow > make_lists_window(); // listes de materiel a prendr
 
 // Mode gestion : une fenetre par domaine
 std::unique_ptr< AppWindow > make_stock_window();     // Gestion de la TECH : a faire, a venir
+std::unique_ptr< AppWindow > make_dashboard_window(); // Tableau de bord de la TECH : scores, depenses, consommation...
 std::unique_ptr< AppWindow > make_inventory_window(); // Stock : etat, projection, commandes, transferts
 std::unique_ptr< AppWindow > make_items_window();     // Items : types d'items, items, entretien, paquets fermes
 std::unique_ptr< AppWindow > make_lot_types_window(); // Types de lots

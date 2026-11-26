@@ -46,6 +46,7 @@ from rest_framework.response import Response
 from .. import datacache
 from .. import debug_codes
 from .. import forecast
+from .. import dashboard
 from .. import fun_stats
 from .. import front_config
 from .. import journal

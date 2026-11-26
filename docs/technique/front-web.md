@@ -163,6 +163,16 @@ Deux règles :
   plus ancien, lot oublié, jour et mois préférés). Une vérif en cascade compte une fois, pour chacun de ses
   participants ; seuls les secouristes connectés entrent dans les podiums, prénoms seulement. « Présenter »
   les affiche en plein écran une carte à la fois (`#fun-show`, flèches ou toucher pour avancer).
+- **Tableau de bord de la TECH** (gestion et admin) : page `#tableau-de-bord` (`dashboard.js`), ouverte par le
+  gros bouton en haut de la Gestion de la TECH. `POST api/dashboard/summary/` (`dashboard.py`, aussi en
+  `GET api/dashboard/` pour la fenêtre du poste) rend tout, phrases comprises, sur les 12 derniers mois : scores
+  de fonctionnement sur 100 (vérifs, réassorts, péremptions, signalements, listes) et leur moyenne, alertes
+  (phrases rouges et orange de toutes les sections), puis une section par sujet (lots et vérifs, réassorts,
+  consommation, dépenses, signalements, listes, étiquettes et consommables, utilisation du logiciel, fun facts)
+  avec des tuiles, des phrases, des graphes par mois et des tableaux. Le front ne fait que le rendu générique.
+  Score de réassort : part des réassorts dont la vérif suivante du lot est complète, moins la part d'items
+  réassortis introuvables à cette vérif ; les items en plus (au-delà de l'attendu, ou types non attendus) restés
+  dans les lots sont listés avec les items présents à la première et à la dernière vérif complète de l'année.
 - **Outil de debug des codes** (admins) : page cachée `#debug`, ouverte par 5 appuis rapides sur
   « État des stocks » (`debugTap`). `POST api/debug/codes/` (`debug_codes.py`, refusé à tout autre rôle
   par le serveur) rend le contenu de toutes les étiquettes imprimables : items (QR de l'URL, ou iid court

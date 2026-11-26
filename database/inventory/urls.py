@@ -44,6 +44,7 @@ public_patterns = [
     path('debug/passkeys/', views.debug_passkeys),  # passkeys d'un secouriste, admins seulement
     path('debug/guest-cards/', views.debug_guest_cards),  # cartes d'invites, admins seulement
     path('stats/fun/', views.fun_stats_view),  # gestion et admin (stats de l'AG)
+    path('dashboard/summary/', views.dashboard_summary),  # gestion et admin (tableau de bord du web)
     path('lots/<str:lot_id>/', views.lot_detail),
     path('lots/<str:lot_id>/sheet.pdf', views.lot_sheet_pdf),
     path('lots/<str:lot_id>/state-report/', views.lot_state_report),
@@ -123,6 +124,7 @@ local_patterns = [
     path('stock/forecast/', views.stock_forecast),
     path('stock/verif/', views.stock_verif),
     path('tasks/', views.tasks_list),
+    path('dashboard/', views.dashboard_view),  # tableau de bord de la TECH (poste)
     path('events/', views.events_list),
     path('maintenance/', views.maintenance_overview),  # onglet Materiel de l'Inventaire du poste
     path('packs/', views.sealed_packs),
