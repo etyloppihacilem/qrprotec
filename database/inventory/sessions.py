@@ -16,6 +16,7 @@ telephone n'a pas la cle du badge : le jeton la remplace dans les identifiants {
 
 from __future__ import annotations
 
+import time
 from typing import TYPE_CHECKING, Any
 
 from django.core import signing
@@ -36,6 +37,10 @@ TEMP_SESSION_MAX_AGE = 24 * 3600
 # QR code de connexion au poste montre par un secouriste connecte au web avec sa passkey : 5 min seulement (il est a
 # l'ecran du telephone, on le scanne tout de suite), il ouvre une session normale sur le poste
 PASSKEY_POSTE_LOGIN_MAX_AGE = 300
+# Le meme QR code pour un admin (Hippolyte, 2026-11-27) : nouveau code toutes les 30 s, chacun valable 40 s (celui
+# d'avant marche encore 10 s, pour un scan juste avant le changement)
+PASSKEY_ADMIN_QR_MAX_AGE = 40
+PASSKEY_ADMIN_QR_REFRESH = 30
 
 
 # Moyens de connexion, gardes dans le jeton de session (`a`) et notes au journal des operations (details.auth)
@@ -113,21 +118,30 @@ def _session_data(token: str | None) -> dict[str, Any] | None:
     return None
 
 
-def temp_login_token(user: Secouristes, passkey: bool = False) -> str:
+def temp_login_token(user: Secouristes, passkey: bool = False, max_age: int | None = None) -> str:
     """Jeton du QR code de connexion de depannage (1h), lie au badge courant comme les sessions. `passkey` : QR code
-    de connexion au poste montre par le secouriste lui-meme, connecte avec sa passkey (5 min)."""
-    data = {'m': user.matricule, 'k': user.key_hash[-8:]}
+    de connexion au poste montre par le secouriste lui-meme, connecte avec sa passkey (5 min, ou `max_age` secondes
+    si c'est moins : 40 s pour un admin). `n` : heure de creation, pour refuser les codes crees avant une connexion
+    reussie (views.public.auth_temp)."""
+    data: dict[str, Any] = {'m': user.matricule, 'k': user.key_hash[-8:]}
     if passkey:
         data['pk'] = 1
+        data['n'] = time.time()
+        if max_age is not None:
+            data['s'] = max_age
     return signing.dumps(data, salt=TEMP_LOGIN_SALT)
 
 
 def temp_login_data(token: str) -> dict[str, Any] | None:
-    """Contenu d'un jeton de QR code de connexion valide (1h, 5 min s'il vient d'une passkey), None sinon."""
+    """Contenu d'un jeton de QR code de connexion valide (1h ; 5 min s'il vient d'une passkey, 40 s pour un admin), None
+    sinon."""
     try:
         data = signing.loads(str(token or ''), salt=TEMP_LOGIN_SALT, max_age=TEMP_LOGIN_MAX_AGE)
         if data.get('pk') == 1:
-            signing.loads(str(token or ''), salt=TEMP_LOGIN_SALT, max_age=PASSKEY_POSTE_LOGIN_MAX_AGE)
+            seconds = data.get('s')
+            max_age = (min(seconds, PASSKEY_POSTE_LOGIN_MAX_AGE) if isinstance(seconds, int)
+                       else PASSKEY_POSTE_LOGIN_MAX_AGE)
+            signing.loads(str(token or ''), salt=TEMP_LOGIN_SALT, max_age=max_age)
     except signing.BadSignature:
         return None
     return data

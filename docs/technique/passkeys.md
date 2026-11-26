@@ -42,7 +42,11 @@ Fichiers concernés :
 - **QR code de connexion au poste** : le petit bouton ▦ à côté du nom, sur l'accueil, n'apparaît que
   pour une session **ouverte avec une passkey** (jeton de session marqué `pk`). Il affiche
   `badge?m=…&t=…`, valable 5 min, une seule fois, accepté seulement par un poste (douchette). Le poste
-  ouvre une session normale. Jamais pour un admin (carte et PIN au poste).
+  ouvre une session normale. Aussi pour un admin connecté avec sa passkey, avec un **code tournant** :
+  nouveau QR code toutes les 30 s (`refresh`), chacun valable 40 s (le précédent marche encore 10 s,
+  pour un scan juste avant le changement), 5 min de rotation au plus. Après une connexion réussie, les
+  codes créés avant elle sont refusés (`n`, heure de création dans le jeton). Le QR code de dépannage
+  du TECH, lui, n'est jamais pour un admin.
 
 ## Domaine (RP ID)
 
