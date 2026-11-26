@@ -186,6 +186,7 @@ class InventoryWindow final : public AppWindow {
           app.refresh_lots(true); // rangements du stock ou ranger la reception
           load_receptions(app);
           order_reception_->reload(app); // commandes fournisseurs en attente de livraison
+          load_consumable_refs(app);
           break;
       }
     }
@@ -452,6 +453,7 @@ class InventoryWindow final : public AppWindow {
                            "Exemple d'étiquette (avant création)");
       }
       ImGui::EndDisabled();
+      draw_consumable_reception(app);
 
       if (last_batch_.is_null())
         return;
@@ -504,6 +506,81 @@ class InventoryWindow final : public AppWindow {
         ImGui::PopID();
       }
       ImGui::EndChild();
+    }
+
+    // Reception d'etiquettes ou de ruban (consommables de l'imprimante) : meme mouvement que l'onglet Consommables
+    // de la fenetre Impressions et consommables, qui garde les inventaires et l'historique
+    void draw_consumable_reception(App &app) {
+      ImGui::Spacing();
+      if (!ImGui::CollapsingHeader("Réception d'étiquettes ou de ruban (consommables de l'imprimante)"))
+        return;
+      const Json *ref = nullptr;
+      for (const Json &row : consumable_refs_.items())
+        if (row["id"].integer() == consumable_ref_)
+          ref = &row;
+      if (consumable_refs_.size() == 0) {
+        ImGui::TextDisabled("Aucune référence de bobine ou de ruban.");
+        ImGui::SameLine();
+      }
+      ImGui::SetNextItemWidth(ImGui::GetFontSize() * 18.0f);
+      if (consumable_refs_.size() > 0 && ImGui::BeginCombo("Référence##consumable", ref ? (*ref)["name"].str().c_str() : "choisir...")) {
+        for (const Json &row : consumable_refs_.items()) {
+          if (row["archived"].boolean())
+            continue;
+          if (ImGui::Selectable((row["name"].str() + "##" + std::to_string(row["id"].integer())).c_str(),
+                                row["id"].integer() == consumable_ref_))
+            consumable_ref_ = row["id"].integer();
+          if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("%s\n%s", row["pool_label"].str().c_str(), row["summary"].str().c_str());
+        }
+        ImGui::EndCombo();
+      }
+      ImGui::SameLine();
+      if (small_button("Références et stock...")) {
+        app.show_consumables = true;
+        app.open_window("print_counts");
+      }
+      if (!ref)
+        return;
+      const bool  ribbon = (*ref)["kind"].str() == "ribbon";
+      const float width  = ImGui::GetFontSize() * 7.0f;
+      ImGui::SetNextItemWidth(width);
+      ImGui::InputInt("boîtes##consumable", &consumable_boxes_);
+      ImGui::SameLine();
+      ImGui::SetNextItemWidth(width);
+      ImGui::InputInt(ribbon ? "rouleaux##consumable" : "bobines##consumable", &consumable_rolls_);
+      consumable_boxes_ = std::clamp(consumable_boxes_, 0, 1000);
+      consumable_rolls_ = std::clamp(consumable_rolls_, 0, 1000);
+      ImGui::TextDisabled("%s", (*ref)["summary"].str().c_str());
+      const bool empty = consumable_boxes_ == 0 && consumable_rolls_ == 0;
+      ImGui::BeginDisabled(empty || consumable_sending_);
+      if (primary_button("Enregistrer la réception##consumable")) {
+        Json body;
+        body["ref"]       = consumable_ref_;
+        body["kind"]      = "reception";
+        body["boxes"]     = consumable_boxes_;
+        body["rolls"]     = consumable_rolls_;
+        body["loose"]     = 0;
+        consumable_sending_ = true;
+        app.api.post("/api/consumables/moves/", body, [this, &app](const ApiResult &result) {
+          consumable_sending_ = false;
+          if (!result.ok) {
+            app.notify(result.error, true);
+            return;
+          }
+          consumable_boxes_ = consumable_rolls_ = 0;
+          consumable_refs_  = result.data["refs"];
+          app.notify("Réception enregistrée : le stock estimé des consommables est à jour.");
+        });
+      }
+      ImGui::EndDisabled();
+    }
+
+    void load_consumable_refs(App &app) {
+      app.api.get("/api/consumables/", [this](const ApiResult &result) {
+        if (result.ok)
+          consumable_refs_ = result.data["refs"];
+      });
     }
 
     // Rangement propose : le dernier ou ce type a ete range (vide s'il n'a jamais ete range)
@@ -1877,6 +1954,11 @@ class InventoryWindow final : public AppWindow {
 
     // Reception
     std::string reception_type_;
+    Json        consumable_refs_ = Json::array(); // bobines et rubans, pour une reception de consommables
+    int         consumable_ref_      = 0;
+    int         consumable_boxes_    = 0;
+    int         consumable_rolls_    = 0;
+    bool        consumable_sending_  = false;
     std::string reception_place_; // rangement du stock de la reception (vide : le stock en vrac)
     std::string suggested_place_; // dernier rangement du type choisi, propose par defaut
     std::string peremption_;

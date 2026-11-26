@@ -10,7 +10,7 @@
 
 """Tableau de bord de la TECH (roles gestion et admin, web et poste) : en un seul endroit, comment va la TECH (lots,
 vérifs, réassorts), ce qu'elle consomme et jette, ce qu'elle dépense (commandes fournisseurs), les signalements, les
-listes et départs, les étiquettes et consommables, l'utilisation du logiciel et les stats fun de l'AG.
+listes et départs, les étiquettes et consommables, l'utilisation du logiciel et les stats fun de l'année.
 
 Tout est calcule et ecrit ici (phrases comprises), les deux fronts affichent la meme chose avec le meme rendu
 generique. Chaque section : {key, emoji, title, help, link, tiles, lines, charts, tables} avec
@@ -43,7 +43,7 @@ from .idendity import SOURCE_VERIFIED
 from .journal import pl, plural
 from .models import (
     Checklist, ChecklistStatus, ItemMovement, Items, ItemStatus, Lots, MovementKind, Operation, OperationKind,
-    ProblemReport, ReportStatus, Secouristes, Verifs, VerifItem, VerifResult, qrprotec_setting,
+    ProblemReport, ReportResolution, ReportStatus, Secouristes, Verifs, VerifItem, VerifResult, qrprotec_setting,
 )
 from .reports import target_name
 from .tasks import LIST_RETURN_DAYS
@@ -71,6 +71,42 @@ GREY = '#8a94a6'
 ACTIVE_DAYS = 30
 EXPIRY_SOON_DAYS = 30
 EXPIRY_LATER_DAYS = 90
+
+
+# Ce que recouvre chaque genre d'operation du journal (info-bulle du tableau « Opérations les plus fréquentes »)
+OPERATION_HELP = {
+    OperationKind.VERIF: 'Vérif d\'un lot : ses items scannés et comparés à ce qui est attendu.',
+    OperationKind.STOCK_VERIF: 'Vérif d\'un rangement du stock (ou du stock sans rangement).',
+    OperationKind.RESTOCK: 'Items rangés dans un lot sans vérif complète (le lot passe en « vérif recommandée »).',
+    OperationKind.REMOVE: 'Items sortis d\'un lot et remis dans le stock.',
+    OperationKind.SEAL: 'Scellé posé sur un lot vérifié complet.',
+    OperationKind.UNSEAL: 'Scellé d\'un lot ouvert (étiquette d\'ouverture, ajout ou retrait de matériel).',
+    OperationKind.RECEPTION: 'Matériel reçu et entré dans le stock (nouvelles étiquettes d\'items).',
+    OperationKind.ITEM_DELETE: 'Item supprimé de l\'inventaire (perdu, jeté hors vérif).',
+    OperationKind.ITEM_RESTORE: 'Item supprimé par erreur remis dans l\'inventaire.',
+    OperationKind.ITEM_DISABLE: 'Item désactivé (non conforme) : à remplacer à la prochaine vérif.',
+    OperationKind.ITEM_ENABLE: 'Item désactivé remis en service.',
+    OperationKind.ITEM_SPLIT: 'Item découpé en plusieurs (ex : une boîte en unités).',
+    OperationKind.ITEM_OUT: 'Matériel sorti du stock sans lot (liste de matériel, usage direct).',
+    OperationKind.ITEM_OUT_USED: 'Matériel sorti du stock qui n\'est pas revenu : compté comme utilisé.',
+    OperationKind.PACK_OPEN: 'Paquet fermé ouvert : ses items deviennent des items étiquetés un par un.',
+    OperationKind.PACK_CLOSE: 'Paquet refermé.',
+    OperationKind.PACK_PRELABEL: 'Paquet fermé étiqueté à l\'avance.',
+    OperationKind.LOT: 'Gestion des lots : création, modification, archivage, contenu propre d\'un lot.',
+    OperationKind.LOT_KEY: 'Étiquette clé d\'un lot renouvelée (l\'ancienne ne marche plus).',
+    OperationKind.CATALOG: 'Types d\'items et types de lots créés ou modifiés (contenu attendu, minimums...).',
+    OperationKind.USER: 'Comptes des secouristes : création, droits, badge, code PIN, passkey.',
+    OperationKind.SETTINGS: 'Réglages du serveur modifiés.',
+    OperationKind.REPORT: 'Signalement créé, pris en charge ou résolu.',
+    OperationKind.REVISION: 'Révision périodique de matériel faite.',
+    OperationKind.DISINFECTION: 'Désinfection de matériel ou d\'un lot faite.',
+    OperationKind.CHECKLIST: 'Liste de matériel créée, validée (sortie) ou rentrée.',
+    OperationKind.LOT_USED: 'Lot marqué « utilisé » depuis sa fiche : vérif recommandée.',
+    OperationKind.LOT_REPORT: 'Rapport d\'état d\'un lot imprimé (PDF).',
+    OperationKind.ORDER: 'Commande saisie, modifiée, reçue ou annulée.',
+    OperationKind.CANCEL: 'Opération annulée depuis le journal.',
+    OperationKind.LOGIN: 'Connexion d\'un utilisateur.',
+}
 
 
 # ---- Aides --------------------------------------------------------------------------------------------------------
@@ -526,6 +562,27 @@ def _reports_section(start: datetime, keys: list[str]) -> dict[str, Any]:
     part['charts'].append(chart('Signalements par mois', keys, [
         ('Signalés', by_month(keys, [report.created for report in year]), ORANGE),
         ('Résolus', by_month(keys, [report.resolved for report in resolved if report.resolved]), GREEN)]))
+    # conclusion des signalements resolus : remis en service, desactive, retire de l'inventaire, ou sans suite (lot)
+    if resolved:
+        outcomes = Counter(report.resolution for report in resolved)
+        names = {ReportResolution.OK: 'Remis en service (utilisable)', ReportResolution.DISABLED: 'Désactivé (à remplacer)',
+                 ReportResolution.REMOVED: 'Retiré de l\'inventaire', ReportResolution.NONE: 'Réglé sans retrait (lot, autre)'}
+        part['tables'].append({'title': 'Conclusion des signalements résolus (12 mois)', 'columns': [
+            'Conclusion', 'Signalements', 'Part'], 'rows': [
+            {'cells': [names[code], outcomes[code], f"{percent(outcomes[code], len(resolved))} %"],
+             'level': 'warn' if code in (ReportResolution.DISABLED, ReportResolution.REMOVED) else '', 'lot': ''}
+            for code in (ReportResolution.REMOVED, ReportResolution.DISABLED, ReportResolution.OK, ReportResolution.NONE)
+            if outcomes[code]]})
+        withdrawn = [report for report in resolved
+                     if report.resolution in (ReportResolution.DISABLED, ReportResolution.REMOVED)]
+        if withdrawn:
+            part['tiles'].append(tile(len(withdrawn), pl(len(withdrawn), 'objet retiré', 'objets retirés'),
+                                      f"désactivés ou retirés de l'inventaire, sur {plural(len(resolved), 'résolu', 'résolus')}"))
+            types = Counter(report.item_type.name if report.item_type_id else (report.lot_name or 'Lot')
+                            for report in withdrawn)
+            part['tables'].append({'title': 'Matériel retiré après un signalement (12 mois)', 'columns': [
+                'Matériel', 'Désactivé ou retiré'], 'rows': [
+                {'cells': [name, count], 'level': '', 'lot': ''} for name, count in types.most_common(TOP)]})
     most = Counter(target_name(report) for report in year)
     repeated = [(name, count) for name, count in most.most_common(TOP) if count >= 2]
     if repeated:
@@ -628,7 +685,8 @@ def _software_section(start: datetime, sessions: list[dict[str, Any]], keys: lis
     labels = dict(OperationKind.choices)
     if kinds:
         part['tables'].append({'title': 'Opérations les plus fréquentes (12 mois)', 'columns': ['Opération', 'Nombre'],
-                               'rows': [{'cells': [labels.get(kind, kind), count], 'level': '', 'lot': ''}
+                               'rows': [{'cells': [labels.get(kind, kind), count], 'level': '', 'lot': '',
+                                         'help': OPERATION_HELP.get(kind, '')}
                                         for kind, count in kinds.most_common(TOP)]})
     part['charts'].append(chart('Opérations par mois (journal)', keys, [
         ('Opérations', by_month(keys, Operation.objects.filter(at__gte=start).exclude(
@@ -637,7 +695,7 @@ def _software_section(start: datetime, sessions: list[dict[str, Any]], keys: lis
 
 
 def _fun_section() -> dict[str, Any]:
-    part = section('fun', '🎉', 'Fun facts', 'Les chiffres et records de l\'équipe sur 12 mois (ceux de l\'AG). '
+    part = section('fun', '🎉', 'Fun facts', 'Les chiffres et records de l\'équipe sur 12 mois. '
                    'La page complète les présente en grand, une carte à la fois.', 'stats')
     data = fun_stats.compute('last12')
     totals = data['totals']

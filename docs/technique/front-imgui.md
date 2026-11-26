@@ -348,6 +348,10 @@ PrintQueue (thread) ── AnyPrinter ─┬─ RawLabelPrinter ── TSPL (BIT
   `POST /api/consumables/moves/` (réception ou inventaire), `POST /api/consumables/moves/<id>/delete/`.
   Stock estimé, autonomie et coûts calculés par `database/inventory/consumables.py`. La tâche
   « Commander » (lien `consumables`) n'est ajoutée qu'à `GET /api/tasks/` (poste), pas au web.
+  Rythme : impressions hors mise en place (`SETUP_DAYS`), et pour la catégorie des étiquettes d'items
+  (`item_label_pool`, `PATCH /api/consumables/` ; vide = la plus imprimée) au moins la consommation
+  d'items ; `rate_source`, `measured_monthly` et `planned_monthly` en infobulle. La fenêtre Réception
+  (`inventory_window.cpp`, `draw_consumable_reception`) enregistre aussi une réception de consommables.
 - **Changement de rouleau** : file en pause sur un modèle d'un autre type → `App::draw_roll_change_modal`
   (« Impression en pause ») ; le rouleau en place se choisit aussi en haut de la fenêtre des
   consommables (`App::set_loaded_label_type`, sans avertissement).

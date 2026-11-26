@@ -15,8 +15,18 @@ etiquettes, et les rubans un stock en millimetres. Le stock part du dernier inve
 augmente a chaque reception et baisse avec les impressions comptees (print_counts) a partir du lendemain. Un ruban
 s'use de (hauteur + espace) par etiquette de transfert imprimee, toutes categories de transfert confondues.
 
-Autonomie : stock / consommation par jour des 90 derniers jours (ou depuis le debut du compteur). Sous
-ServerSettings.consumable_alert_days jours, une tache « Commander » apparait dans la Gestion de la TECH du poste.
+Autonomie : stock / consommation par jour. Sous ServerSettings.consumable_alert_days jours, une tache « Commander »
+apparait dans la Gestion de la TECH du poste.
+
+Rythme (consommation par jour), sans se laisser tromper par la mise en place du logiciel, ou tout le materiel deja la
+est etiquete d'un coup :
+- mesure : impressions des 90 derniers jours, mais jamais celles des SETUP_DAYS premiers jours du compteur (mise en
+  place). Tant qu'il n'y a pas MEASURE_MIN_DAYS jours apres la mise en place, pas de rythme mesure ;
+- prevu (categorie des etiquettes d'items seulement, ServerSettings.item_label_pool) : items utilises ou jetes par
+  jour sur les 6 derniers mois, chacun remplace par un item neuf a etiqueter. Ne compte pas les autres etiquettes
+  (lots, emplacements, listes) ni les paquets fermes (une etiquette pour tout le paquet) : c'est un plancher ;
+- rythme retenu : le plus grand des deux. Pendant la mise en place, seulement le prevu, et une alerte des qu'il reste
+  moins de SETUP_FLOOR_ROLLS bobines (ou rouleaux) : on ne commande pas trop tot, sans risquer la rupture.
 """
 
 from __future__ import annotations
@@ -30,7 +40,8 @@ from django.utils import timezone
 
 from .idendity import identity_name
 from .models import (
-    ConsumableKind, ConsumableMove, ConsumableMoveKind, ConsumableRef, LabelSupport, PrintCount, ServerSettings,
+    ConsumableKind, ConsumableMove, ConsumableMoveKind, ConsumableRef, ItemMovement, LabelSupport, MovementKind,
+    PrintCount, ServerSettings, Verifs,
 )
 from .print_counts import category_label, parse_decimal, _number
 
@@ -39,6 +50,10 @@ if TYPE_CHECKING:
 
 RIBBON_GAP_MM = Decimal(3)  # espace entre deux etiquettes sur le ruban (etiquettes pre-decoupees)
 RATE_DAYS = 90              # consommation moyenne sur les 90 derniers jours
+SETUP_DAYS = 56             # mise en place : les 8 premieres semaines du compteur ne comptent pas dans le rythme
+MEASURE_MIN_DAYS = 28       # rythme mesure seulement avec 4 semaines d'impressions apres la mise en place
+SETUP_FLOOR_ROLLS = 2       # pendant la mise en place : alerte sous 2 bobines (ou rouleaux) en stock
+ITEM_RATE_DAYS = 182        # rythme prevu : items utilises ou jetes des 6 derniers mois
 DAYS_PER_MONTH = Decimal('30.44')
 RIBBON_KEY = 'ribbon'
 RECENT_MOVES = 30
@@ -254,14 +269,58 @@ def _stock(key: str, moves: list[ConsumableMove]) -> tuple[int | None, date | No
     return base + received - _consumption(key, since=since), since
 
 
-def _rate(key: str, today: date) -> Decimal:
-    """Consommation par jour (etiquettes ou mm) sur les 90 derniers jours, ou depuis le debut du compteur."""
+def _measured_rate(key: str, today: date) -> tuple[Decimal | None, date | None]:
+    """(consommation mesuree par jour, fin de la mise en place) : impressions des RATE_DAYS derniers jours, hors des
+    SETUP_DAYS premiers jours du compteur. None : pas encore assez de jours apres la mise en place (ou rien imprime)."""
     first = PrintCount.objects.aggregate(first=Min('day'))['first']
     if first is None:
+        return None, None
+    setup_end = first + timedelta(days=SETUP_DAYS - 1)  # dernier jour de la mise en place
+    start = max(today - timedelta(days=RATE_DAYS), setup_end)  # exclu
+    days = (today - start).days
+    if days < MEASURE_MIN_DAYS:
+        return None, setup_end
+    return Decimal(_consumption(key, since=start, until=today)) / days, setup_end
+
+
+def item_rate(today: date) -> Decimal:
+    """Items utilises ou jetes par jour (6 derniers mois, ou depuis la premiere vérif) : autant d'items neufs a
+    etiqueter pour les remplacer."""
+    since = timezone.now() - timedelta(days=ITEM_RATE_DAYS)
+    first = Verifs.objects.aggregate(first=Min('datetime'))['first']
+    if first is None:
         return Decimal(0)
-    days = min(RATE_DAYS, (today - first).days + 1)
-    used = _consumption(key, since=today - timedelta(days=days), until=today)
-    return Decimal(used) / days
+    days = max(30, (timezone.now() - max(since, first)).days)
+    count = ItemMovement.objects.filter(kind__in=(MovementKind.USED, MovementKind.DISCARDED, MovementKind.REPLACED),
+                                        cancelled__isnull=True, at__gte=since).count()
+    return Decimal(count) / days
+
+
+def item_pool_key(settings_row: ServerSettings, keys: list[str]) -> str:
+    """Categorie des etiquettes d'items : celle choisie au poste, sinon la categorie d'etiquettes la plus imprimee."""
+    if settings_row.item_label_pool in keys:
+        return settings_row.item_label_pool
+    labels = [key for key in keys if key != RIBBON_KEY]
+    return max(labels, key=lambda key: (_consumption(key), key), default='')
+
+
+def _rate(key: str, today: date, item_pool: bool, items_per_day: Decimal) -> dict[str, Any]:
+    """Rythme d'une categorie : {rate, measured, planned, setup, setup_end, source} (voir la docstring du module)."""
+    measured, setup_end = _measured_rate(key, today)
+    planned = items_per_day if item_pool else None
+    setup = setup_end is not None and measured is None
+    rate = max(measured or Decimal(0), planned or Decimal(0))
+    parts = []
+    if measured is not None:
+        parts.append('mesuré sur les impressions (hors mise en place)')
+    if planned:
+        parts.append('d\'après la consommation d\'items (une étiquette par item à remplacer)')
+    source = 'Rythme ' + parts[0] if len(parts) == 1 else ''
+    if len(parts) == 2:
+        source = ('Rythme le plus haut entre les impressions mesurées (hors mise en place) et la consommation '
+                  'd\'items (une étiquette par item à remplacer)')
+    return {'rate': rate, 'measured': measured, 'planned': planned, 'setup': setup, 'setup_end': setup_end,
+            'source': source}
 
 
 def _unit_price(refs: list[ConsumableRef], moves: list[ConsumableMove]) -> Decimal | None:
@@ -310,24 +369,36 @@ def pools(today: date | None = None, settings_row: ServerSettings | None = None)
     for move in moves:
         grouped[pool_key(move.ref)]['moves'].append(move)
     year_start = today.replace(month=1, day=1) - timedelta(days=1)
+    item_key = item_pool_key(settings_row, list(grouped))
+    items_per_day = item_rate(today) if item_key else Decimal(0)
     result = []
     for key, pool in grouped.items():
         if all(ref.archived for ref in pool['refs']) and not pool['moves']:
             continue
         stock, since = _stock(key, pool['moves'])
-        rate = _rate(key, today)
+        pace = _rate(key, today, key == item_key, items_per_day)
+        rate = pace['rate']
         price = _unit_price(pool['refs'], pool['moves'])
         autonomy = int(stock / rate) if stock is not None and rate > 0 else None
+        main_ref = next((move.ref for move in reversed(pool['moves'])), None) or pool['refs'][-1]
+        floor = SETUP_FLOOR_ROLLS * roll_units(main_ref)
         if stock is None:
             level, state = 'unknown', 'Stock inconnu : faites un inventaire ou une réception'
         elif stock <= 0:
             level, state = 'bad', 'Épuisé d\'après les impressions : à commander (ou faites un inventaire)'
         elif autonomy is not None and autonomy < alert_days:
             level, state = 'warn', f'À commander : {_duration(autonomy)} de stock'
+        elif pace['setup'] and floor and stock < floor:
+            level, state = 'warn', (f'À commander : moins de {SETUP_FLOOR_ROLLS} '
+                                    f'{"rouleaux" if pool["kind"] == ConsumableKind.RIBBON else "bobines"} en stock')
         else:
             level, state = 'ok', (f'{_duration(autonomy).capitalize()} de stock' if autonomy is not None
                                   else 'Pas encore de consommation')
-        main_ref = next((move.ref for move in reversed(pool['moves'])), None) or pool['refs'][-1]
+        if pace['setup'] and level != 'bad':
+            end = pace['setup_end'] + timedelta(days=MEASURE_MIN_DAYS)
+            state += (f" (mise en place : les impressions comptent dans le rythme à partir du "
+                      f"{end.strftime('%d/%m/%Y')} ; d'ici là, alerte sous {SETUP_FLOOR_ROLLS} "
+                      f"{'rouleaux' if pool['kind'] == ConsumableKind.RIBBON else 'bobines'})")
         year_used = _consumption(key, since=year_start, until=today)
         monthly = rate * DAYS_PER_MONTH
         result.append({
@@ -341,6 +412,10 @@ def pools(today: date | None = None, settings_row: ServerSettings | None = None)
             'year_used': year_used, 'year_used_text': _units_text(pool['kind'], year_used),
             'level': level, 'state': state,
             'refs': [ref.id for ref in pool['refs']],
+            'item_labels': key == item_key,  # categorie des etiquettes d'items (rythme prevu)
+            'setup': pace['setup'], 'rate_source': pace['source'],
+            'measured_monthly': int(pace['measured'] * DAYS_PER_MONTH) if pace['measured'] is not None else None,
+            'planned_monthly': int(pace['planned'] * DAYS_PER_MONTH) if pace['planned'] is not None else None,
         })
     level_rank = {'bad': 0, 'warn': 1, 'unknown': 2, 'ok': 3}
     result.sort(key=lambda pool: (level_rank[pool['level']], pool['kind'] != ConsumableKind.LABELS, pool['label']))
@@ -355,9 +430,21 @@ def summary() -> dict[str, Any]:
         'refs': [ref_dict(ref) for ref in ConsumableRef.objects.all()],
         'moves': [move_dict(move) for move in moves],
         'alert_days': settings_row.consumable_alert_days,
+        # categorie des etiquettes d'items choisie au poste (vide : la plus imprimee, voir item_pool_key)
+        'item_label_pool': settings_row.item_label_pool,
         'ribbon_gap_mm': float(RIBBON_GAP_MM),
         'rate_days': RATE_DAYS,
     }
+
+
+def set_item_label_pool(value: Any) -> None:
+    """Categorie des etiquettes d'items (cle d'une categorie d'etiquettes), vide : automatique."""
+    key = str(value or '')
+    if key and (key == RIBBON_KEY or key not in {pool_key(ref) for ref in ConsumableRef.objects.all()}):
+        raise ConsumableError('Catégorie d\'étiquettes inconnue')
+    settings_row = ServerSettings.get()
+    settings_row.item_label_pool = key
+    settings_row.save(update_fields=['item_label_pool'])
 
 
 def set_alert_days(value: int) -> None:
