@@ -142,7 +142,7 @@ function dashSection(part) {
   const open = dash.open[part.key] !== undefined ? dash.open[part.key] : true;
   const body = [el('p', { class: 'hint' }, part.help), dashTiles(part.tiles)];
   if (part.lines.length) {
-    body.push(el('ul', { class: 'dash-lines' }, ...part.lines.map((row) => el('li', { class: row.level || '' }, row.text))));
+    body.push(el('ul', { class: 'dash-lines' }, ...part.lines.map((row) => el('li', { class: row.level || '' }, row.emoji ? `${row.emoji} ${row.text}` : row.text))));
   }
   for (const chart of part.charts) { const node = dashChart(chart); if (node) body.push(node); }
   body.push(...part.tables.map(dashTable));

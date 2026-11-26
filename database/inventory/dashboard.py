@@ -60,7 +60,7 @@ VALID_WARN = 90    # lots valides (%)
 VALID_BAD = 70
 SCORE_WARN = 75  # scores globaux de fonctionnement : orange en dessous
 SCORE_BAD = 50   # rouge en dessous
-REPORT_ANSWER_HOURS = 48  # signalement : premiere reponse du TECH attendue dans les 48 h
+REPORT_ANSWER_HOURS = 48  # signalement : premiere reponse du TECH attendue dans les 48h
 SHORT_MONTHS = ['janv.', 'févr.', 'mars', 'avr.', 'mai', 'juin', 'juil.', 'août', 'sept.', 'oct.', 'nov.', 'déc.']
 # couleurs des series (memes teintes sur le web et au poste)
 BLUE = '#2463b3'
@@ -115,8 +115,9 @@ def tile(value: str | int, label: str, detail: str = '', level: str = '') -> dic
     return {'value': str(value), 'label': label, 'detail': detail, 'level': level}
 
 
-def line(text: str, level: str = '') -> dict[str, Any]:
-    return {'text': text, 'level': level}
+def line(text: str, level: str = '', emoji: str = '') -> dict[str, Any]:
+    """emoji : a part du texte, le web le met devant ; le poste ne l'affiche pas (sa police n'en a pas)."""
+    return {'text': text, 'level': level, 'emoji': emoji}
 
 
 def section(key: str, emoji: str, title: str, help_text: str, link: str = '') -> dict[str, Any]:
@@ -175,12 +176,12 @@ def chart(title: str, keys: list[str], series: list[tuple[str, list[int] | list[
 
 
 def duration_text(delta: timedelta) -> str:
-    """« 3 h », « 2 jours », « 5 semaines » : un délai lisible d'un coup d'œil."""
+    """« 3h », « 2 jours », « 5 semaines » : un délai lisible d'un coup d'œil."""
     hours = delta.total_seconds() / 3600
     if hours < 1:
         return f"{max(1, round(hours * 60))} min"
     if hours < 48:
-        return f"{round(hours)} h"
+        return f"{round(hours)}h"
     days = round(hours / 24)
     if days < 60:
         return plural(days, 'jour')
@@ -546,8 +547,8 @@ def _reports_section(start: datetime, keys: list[str]) -> dict[str, Any]:
     quick = sum(1 for report in answerable
                 if report.updated and report.updated - report.created <= timedelta(hours=REPORT_ANSWER_HOURS))
     fast = percent(quick, len(answerable))
-    score(part, 'Signalements', fast, f"signalements qui ont eu une réponse du TECH en moins de {REPORT_ANSWER_HOURS} h",
-          [f"{quick} sur {len(answerable)} {pl(len(answerable), 'signalement')} en moins de {REPORT_ANSWER_HOURS} h"]
+    score(part, 'Signalements', fast, f"signalements qui ont eu une réponse du TECH en moins de {REPORT_ANSWER_HOURS}h",
+          [f"{quick} sur {len(answerable)} {pl(len(answerable), 'signalement')} en moins de {REPORT_ANSWER_HOURS}h"]
           if answerable else ['pas encore de signalement'])
     taken = [report for report in year if report.updated]
     if taken:
@@ -710,10 +711,11 @@ def _fun_section() -> dict[str, Any]:
         if award['podium']:
             first = award['podium'][0]
             value = f"{first['value']} {first['unit']}".strip()
-            part['lines'].append(line(f"{award['emoji']} {award['title']} : {first['name']} ({value})"))
+            part['lines'].append(line(f"{award['title']} : {first['name']} ({value})", emoji=award['emoji']))
         elif award['record']:
             record = award['record']
-            part['lines'].append(line(f"{award['emoji']} {award['title']} : {record['name']} ({record['value']})"))
+            part['lines'].append(line(f"{award['title']} : {record['name']} ({record['value']})",
+                                     emoji=award['emoji']))
     if not data['awards']:
         part['lines'].append(line('Pas encore assez de vérifs sur les 12 derniers mois.'))
     return part
