@@ -67,6 +67,11 @@ AppSettings AppSettings::defaults() {
   settings.layout["purchases"] = { false, 0.0f, 0.0f, kWorkWidth, 1.0f };
   settings.layout["dashboard"] = { false, 0.0f, 0.0f, kWorkWidth, 1.0f };
   settings.layout["docs"]      = { false, 0.0f, 0.0f, kWorkWidth, 1.0f };
+  // mode gestion : memes places, sauf l'Etat des lots en haut et le tableau de bord de la TECH en dessous ; la pile
+  // de scans garde sa colonne a droite
+  settings.gestion_layout              = settings.layout;
+  settings.gestion_layout["lots"]      = { true, 0.0f, 0.0f, kWorkWidth, 0.5f };
+  settings.gestion_layout["dashboard"] = { true, 0.0f, 0.5f, kWorkWidth, 0.5f };
   return settings;
 }
 
@@ -132,6 +137,7 @@ void AppSettings::load() {
   std::string   line;
   int           layout_version = 0;
   std::map< std::string, WindowLayout > saved_layout;
+  std::map< std::string, WindowLayout > saved_gestion_layout;
   while (std::getline(input, line)) {
     const std::size_t separator = line.find('=');
     if (separator == std::string::npos || line[0] == '#')
@@ -234,14 +240,15 @@ void AppSettings::load() {
       label_title = unescape_line(value);
     else if (key == "layout_version")
       layout_version = to_int(value, 0);
-    else if (key.rfind("layout.", 0) == 0) {
+    else if (key.rfind("layout.", 0) == 0 || key.rfind("gestion_layout.", 0) == 0) {
+      const bool         gestion = key[0] == 'g';
       WindowLayout       layout;
       int                open = 0;
       std::istringstream stream(value);
       char               comma = 0;
       if (stream >> open >> comma >> layout.x >> comma >> layout.y >> comma >> layout.w >> comma >> layout.h) {
-        layout.open             = open != 0;
-        saved_layout[key.substr(7)] = layout;
+        layout.open = open != 0;
+        (gestion ? saved_gestion_layout : saved_layout)[key.substr(gestion ? 15 : 7)] = layout;
       }
     }
   }
@@ -249,6 +256,10 @@ void AppSettings::load() {
   if (layout_version >= kLayoutVersion)
     for (const auto &[id, window] : saved_layout)
       layout[id] = window;
+  // disposition du mode gestion : enregistree a part depuis cette version (avant, la meme pour les deux modes)
+  if (layout_version >= kLayoutVersion)
+    for (const auto &[id, window] : saved_gestion_layout)
+      gestion_layout[id] = window;
 }
 
 bool AppSettings::save(std::string &error) const {
@@ -321,6 +332,9 @@ bool AppSettings::save(std::string &error) const {
     output << "template." << category << '=' << template_path << '\n';
   for (const auto &[id, window] : layout)
     output << "layout." << id << '=' << (window.open ? 1 : 0) << ',' << window.x << ',' << window.y << ','
+           << window.w << ',' << window.h << '\n';
+  for (const auto &[id, window] : gestion_layout)
+    output << "gestion_layout." << id << '=' << (window.open ? 1 : 0) << ',' << window.x << ',' << window.y << ','
            << window.w << ',' << window.h << '\n';
   output.close();
   if (!output) {

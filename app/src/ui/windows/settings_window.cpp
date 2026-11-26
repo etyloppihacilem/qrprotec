@@ -267,20 +267,28 @@ class SettingsWindow final : public AppWindow {
       }
 
       if (settings_section(app, "Disposition par défaut")) {
-        ImGui::TextWrapped("Fenêtres ouvertes au démarrage et après une réinitialisation. La pile de scans est "
-                           "toujours ouverte.");
+        ImGui::TextWrapped("Fenêtres ouvertes au démarrage, après une réinitialisation et avec Ctrl+Espace. La pile "
+                           "de scans est toujours ouverte. Le mode gestion a sa propre disposition (État des lots en "
+                           "haut, tableau de bord de la TECH en bas) ; la disposition normale sert sans connexion, "
+                           "aux secouristes, aux chefs et en mode normal.");
+        ImGui::RadioButton("Mode normal", &layout_mode_, 0);
+        ImGui::SameLine();
+        ImGui::RadioButton("Mode gestion", &layout_mode_, 1);
+        auto &edited = layout_mode_ == 1 ? settings.gestion_layout : settings.layout;
         for (auto &window : app.windows) {
-          if (window->id == "scan")
+          if (window->id == "scan" || (layout_mode_ == 0 && window->privileged))
             continue;
-          ImGui::Checkbox(window->title.c_str(), &settings.layout[window->id].open);
+          ImGui::Checkbox(window->title.c_str(), &edited[window->id].open);
         }
         if (button("Utiliser la disposition actuelle"))
           app.save_current_layout();
         help_marker("Enregistre la position, la taille et l'ouverture de chaque fenêtre telles qu'elles sont "
-                    "affichées maintenant.");
+                    "affichées maintenant, pour le mode affiché (gestion ou normal).");
         ImGui::SameLine();
         if (button("Disposition d'origine")) {
-          settings.layout = AppSettings::defaults().layout;
+          const AppSettings defaults = AppSettings::defaults();
+          settings.layout            = defaults.layout;
+          settings.gestion_layout    = defaults.gestion_layout;
           app.request_layout_reset();
         }
         ImGui::SameLine();
@@ -909,7 +917,7 @@ class SettingsWindow final : public AppWindow {
             }
             server_rules_ = result.data;
             app.notify("Nouvelles cartes d'invités valables " + std::to_string(server_rules_["guest_hours"].integer(48))
-                       + " h après leur première connexion.");
+                       + "h après leur première connexion.");
           });
         }
         help_marker("Une carte d'invité (secouriste d'une autre antenne sans compte, Utilisateurs > Cartes d'invités ou "
@@ -1164,6 +1172,7 @@ class SettingsWindow final : public AppWindow {
     std::vector< LabelType >                                  label_types_; // types des modeles du dossier
     std::string                                               printer_message_; // derniere commande de maintenance envoyee
     bool                                                      confirm_factory_ = false; // « Réglages d'usine » cliqué une fois
+    int                                                       layout_mode_ = 1; // disposition par defaut modifiee : 0 normal, 1 gestion
     Json                                                      notifications_;
     Json                                                      server_rules_;
     int                                                       warning_days_ = 30;

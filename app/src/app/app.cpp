@@ -199,7 +199,7 @@ App::App(Inateck &inateck_ref) : feedback(inateck_ref), inateck(inateck_ref) {
     remote.feedback_message.clear();
   };
   apply_default_open_state();
-  // session refusee par le serveur (badge renouvele, PIN bloque, 12 h ecoulees) : on redemande le badge
+  // session refusee par le serveur (badge renouvele, PIN bloque, 12h ecoulees) : on redemande le badge
   api.on_login_required = [this]() {
     if (logged_in())
       session_expired();
@@ -357,9 +357,10 @@ void App::file_dropped(const std::string &path) {
 }
 
 void App::apply_default_open_state() {
+  const auto &layout = mode_layout();
   for (auto &window : windows) {
-    const auto found = settings.layout.find(window->id);
-    window->open     = window->id == "scan" || (found != settings.layout.end() && found->second.open);
+    const auto found = layout.find(window->id);
+    window->open     = window->id == "scan" || (found != layout.end() && found->second.open);
     window->place_pending = true;
   }
 }
@@ -376,8 +377,10 @@ void App::work_area(ImVec2 &origin, ImVec2 &size) const {
 void App::save_current_layout() {
   ImVec2 origin, size;
   work_area(origin, size);
+  // disposition du mode affiche (gestion ou normal) : l'autre ne change pas
+  auto &mode = mode_layout();
   for (auto &window : windows) {
-    WindowLayout &layout = settings.layout[window->id];
+    WindowLayout &layout = mode[window->id];
     layout.open          = window->open;
     if (window->last_size.x > 0.0f && size.x > 0.0f && size.y > 0.0f) {
       layout.x = (window->last_pos.x - origin.x) / size.x;
@@ -501,7 +504,9 @@ void App::set_gestion_mode(bool on) {
   if (!manager() || gestion_mode_ == on)
     return;
   // fenetres communes : on garde leur place dans le mode quitte, on reprend celle du mode choisi (sinon la
-  // disposition par defaut : en mode normal, le poste comme pour un secouriste)
+  // disposition par defaut : en mode normal, le poste comme pour un secouriste ; en gestion, l'Etat des lots en haut
+  // et le tableau de bord en bas)
+  const bool first_visit = mode_places_[on ? 1 : 0].empty();
   for (auto &target : windows) {
     if (target->privileged)
       continue;
@@ -521,6 +526,8 @@ void App::set_gestion_mode(bool on) {
     }
   }
   gestion_mode_ = on;
+  if (first_visit) // premier passage dans ce mode depuis la connexion : ses fenetres par defaut s'ouvrent
+    open_mode_windows();
   if (on) {
     refresh_item_types();
     refresh_lot_types();
@@ -1162,8 +1169,9 @@ void App::draw_windows() {
       window->on_open(*this);
     window->reload_pending = false;
     const bool place  = layout_pending_ || window->place_pending;
-    const auto layout = settings.layout.find(window->id);
-    if (layout != settings.layout.end()) {
+    const auto &mode  = mode_layout();
+    const auto layout = mode.find(window->id);
+    if (layout != mode.end()) {
       const ImGuiCond cond = place ? ImGuiCond_Always : ImGuiCond_FirstUseEver;
       ImGui::SetNextWindowPos(
         ImVec2(origin.x + layout->second.x * size.x, origin.y + layout->second.y * size.y), cond
@@ -1204,6 +1212,8 @@ void App::draw_windows() {
     bool              open  = true;
     bool             *p_open = window->can_close(*this) ? &open : nullptr;
     const std::string label = window->title + "###" + window->id;
+    if (!fullscreen_ && can_snap(*window))
+      apply_edge_magnet(*window, label); // glissee ou redimensionnee : ses bords collent aux bords voisins
     if (title_bar_double_clicked(label.c_str()))
       fullscreen_toggled = window.get();
     const bool        visible = ImGui::Begin(label.c_str(), p_open, flags);

@@ -674,9 +674,20 @@ class App {
     void        file_dropped(const std::string &path);
     std::string front_config_path;     // champ « Fichier » de l'import (partage modale / Reglages)
     void        save_current_layout();
-    void        request_layout_reset() {
-      layout_pending_ = true;
-      fullscreen_     = false;
+    // bords et zone collants pendant un glisser ou un redimensionnement (voir apply_edge_magnet)
+    struct EdgeMagnet {
+        std::vector< std::pair< ImVec2, ImVec2 > > others; // autres fenetres : coin haut gauche, coin bas droit
+        ImVec2 screen_min, screen_max;
+        float  threshold = 0.0f;
+        bool   left = false, right = false, top = false, bottom = false; // bords tenus par la souris
+        ImVec2 min_size;
+    };
+    // Ctrl+Espace : fenetres remises a la disposition par defaut du mode (et celles qu'elle ouvre rouvertes)
+    void        request_layout_reset();
+    // disposition par defaut du mode affiche : gestion (Etat des lots en haut, tableau de bord en bas) ou normal
+    std::map< std::string, WindowLayout >       &mode_layout() { return privileged() ? settings.gestion_layout : settings.layout; }
+    const std::map< std::string, WindowLayout > &mode_layout() const {
+      return privileged() ? settings.gestion_layout : settings.layout;
     }
     // Plein ecran : chaque fenetre ouverte occupe toute la zone sous la barre de menu, on passe de l'une a
     // l'autre avec Ctrl+Tab, les raccourcis ou le menu Fenetres. Ctrl+F11 bascule.
@@ -787,6 +798,13 @@ class App {
     void snap_window(AppWindow &target, int h, int v);
     void snap_focused(int dh, int dv);
     void update_snap_drag(AppWindow *moving);
+    // Magnetisme : fenetre glissee ou redimensionnee a la souris, ses bords collent a ceux des autres fenetres et de
+    // la zone de travail quand ils en sont tout pres. Avant Begin() : position (SetNextWindowPos) et taille (contrainte
+    // de taille, appliquee par ImGui pendant le redimensionnement).
+    EdgeMagnet edge_magnet_;
+    void apply_edge_magnet(AppWindow &target, const std::string &label);
+    // fenetres ouvertes dans la disposition par defaut du mode : rouvertes (connexion, Ctrl+Espace)
+    void open_mode_windows();
     void draw_login_modal();
     void draw_name_login();
     void send_name_login();
