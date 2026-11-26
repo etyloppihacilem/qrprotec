@@ -79,8 +79,10 @@ struct AppSettings {
     bool               flash_in_sdk_mode = true;
     ScannerErrorSignal scanner_signal;
 
-    // Disposition par defaut (restauree a la reinitialisation)
+    // Disposition par defaut (restauree a la reinitialisation) : layout en mode normal (et sans connexion),
+    // gestion_layout en mode gestion (Etat des lots en haut, tableau de bord de la TECH en bas)
     std::map< std::string, WindowLayout > layout;
+    std::map< std::string, WindowLayout > gestion_layout;
     static constexpr int                  kLayoutVersion = 3; // les dispositions plus anciennes sont ignorees
 
     static AppSettings           defaults();

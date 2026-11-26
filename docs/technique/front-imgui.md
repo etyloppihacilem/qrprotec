@@ -127,7 +127,7 @@ Le réglage `shared_machine` (« Machine partagée », coché par défaut) est l
 n'y a plus de réinitialisation après inactivité, et la dernière connexion (matricule et clé du badge,
 ou nom et prénom après une connexion sans badge) est gardée dans `~/.config/qrprotec/session.conf`
 (droits `0600`). Au démarrage, dès que le serveur répond, `restore_login()` se reconnecte avec : le
-serveur redemande le PIN si l'utilisateur en a un. Même chose quand le jeton de 12 h expire en cours
+serveur redemande le PIN si l'utilisateur en a un. Même chose quand le jeton de 12h expire en cours
 d'utilisation. Seul « Se déconnecter » (`manual_logout()`) ou un badge refusé efface ce fichier, ainsi
 que le fait de recocher « Machine partagée ».
 
@@ -198,6 +198,15 @@ décorations : sinon libdecor réserve une barre de titre que Cage n'affiche pas
   (`AppWindow::shortcut`, rappelé dans les menus). `App::handle_shortcuts` les traite hors fenêtre
   modale ; la touche d'une fenêtre déjà au premier plan la ferme. `Ctrl+W` ferme la fenêtre active, `Ctrl+Espace` remet les fenêtres en place (`request_layout_reset`), `Super+L` déconnecte (même pendant une fenêtre modale),
   `Ctrl+Tab` est celui d'ImGui (`NavEnableKeyboard`).
+- **Disposition par défaut** : deux, `AppSettings::layout` (sans connexion, secouristes, chefs, mode normal) et
+  `AppSettings::gestion_layout` (mode gestion : État des lots sur la moitié haute, Tableau de bord de la TECH en
+  dessous, pile de scans à droite), lues par `App::mode_layout()`. Connexion d'un gestionnaire, premier passage dans un
+  mode et `Ctrl+Espace` rouvrent les fenêtres que la disposition du mode ouvre (`open_mode_windows`) ; à la
+  déconnexion, les fenêtres communes reprennent la disposition normale.
+- **Magnétisme** : fenêtre glissée ou redimensionnée à la souris, ses bords collent à ceux des autres fenêtres
+  ouvertes (en face d'eux) et de la zone de travail à moins de ¾ de la taille de police (`App::apply_edge_magnet`,
+  avant `Begin()` : `SetNextWindowPos` pour un déplacement, contrainte de taille pour un redimensionnement). Le
+  rangement en moitié / quart (bord ou coin de l'écran sous la souris, `Super+flèches`) reste prioritaire.
 - **Dialogues** : `escape_pressed()` à côté du bouton Annuler, `enter_pressed()` juste après le
   bouton principal (`button("Imprimer") || enter_pressed()`), qui l'entoure d'un liseré. `enter_pressed()`
   est faux si le bouton est désactivé, si le dialogue n'a pas le focus, à son ouverture, pendant un texte
@@ -324,7 +333,7 @@ PrintQueue (thread) ── AnyPrinter ─┬─ RawLabelPrinter ── TSPL (BIT
   l'envoie en image 1 bit base64 (`encode_raster_bits`) par `POST /api/label-prints/send/`, par lots de
   1,5 Mo au plus. Le poste la reçoit comme une demande (`kind` labels) et l'imprime telle quelle
   (`PrintJob::image`, recadrée à son étiquette physique par `fit_to_label`). Seul le poste (sans clé
-  de front) interroge la file. Une demande pas imprimée expire en 24 h.
+  de front) interroge la file. Une demande pas imprimée expire en 24h.
 - **Files d'impression** : la réponse de `/api/label-prints/pending/` groupe les demandes en `queues`
   (une par `LabelPrint.queue` : identité de qui demande, sinon `front:<ordinateur>`), avec le matricule
   pour retrouver la file d'un badge. Plusieurs files : choix par bouton radio ou par badge

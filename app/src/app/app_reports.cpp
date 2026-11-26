@@ -736,8 +736,13 @@ void App::refresh_report_counts() {
 }
 
 void App::open_reports_beside_lots() {
-  // place pour la session (la disposition enregistree ne change pas) : Lots a gauche, Signalements a droite
-  const auto place = [this](const std::string &id, float x, float width) {
+  // place pour la session (la disposition enregistree ne change pas) : Lots a gauche, Signalements a droite, a la
+  // hauteur des Lots dans la disposition (en gestion, le tableau de bord reste visible en dessous)
+  const auto &mode = mode_layout();
+  const auto  lots = mode.find("lots");
+  const float top    = lots != mode.end() ? lots->second.y : 0.0f;
+  const float height = lots != mode.end() && lots->second.h > 0.0f ? lots->second.h : 1.0f;
+  const auto place = [this, top, height](const std::string &id, float x, float width) {
     AppWindow *target = window(id);
     if (!target)
       return;
@@ -746,11 +751,11 @@ void App::open_reports_beside_lots() {
       return;
     target->place_pending  = false;
     target->resize_pending = true;
-    target->last_pos       = ImVec2(last_work_origin_.x + x * last_work_size_.x, last_work_origin_.y);
-    target->last_size      = ImVec2(width * last_work_size_.x, last_work_size_.y);
+    target->last_pos  = ImVec2(last_work_origin_.x + x * last_work_size_.x, last_work_origin_.y + top * last_work_size_.y);
+    target->last_size = ImVec2(width * last_work_size_.x, height * last_work_size_.y);
   };
-  const auto  scan = settings.layout.find("scan");
-  const float work = scan != settings.layout.end() && scan->second.x > 0.0f ? scan->second.x : 0.72f;
+  const auto  scan = mode.find("scan");
+  const float work = scan != mode.end() && scan->second.x > 0.0f ? scan->second.x : 0.72f;
   reports_beside_lots_ = true;
   place("lots", 0.0f, work * 0.5f);
   place("reports", work * 0.5f, work * 0.5f);

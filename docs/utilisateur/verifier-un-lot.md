@@ -66,7 +66,7 @@ Tout se fait sans souris :
 | `Ctrl+F11` | plein écran : une seule fenêtre visible, sur tout l'écran |
 | `Ctrl+Tab` | passer à la fenêtre suivante |
 | `Ctrl+W` | fermer la fenêtre active |
-| `Ctrl+Espace` | remettre les fenêtres en place (disposition par défaut, sort du plein écran) |
+| `Ctrl+Espace` | remettre les fenêtres en place (disposition par défaut, sort du plein écran ; en mode gestion, état des lots en haut et tableau de bord en bas) |
 | `Super+L` | se déconnecter (touche Windows + L) |
 | flèches, `Entrée`, `Espace` | se déplacer dans la fenêtre et valider l'élément choisi |
 

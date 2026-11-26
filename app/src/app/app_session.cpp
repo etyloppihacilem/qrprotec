@@ -226,6 +226,11 @@ void App::logout(const std::string &reason) {
   if (std::exchange(reports_beside_lots_, false))
     if (AppWindow *lots = window("lots"))
       lots->place_pending = true; // fenetre Lots retrecie pour les Signalements : disposition par defaut
+  // sortie du mode gestion : les fenetres communes (Lots...) reprennent la disposition sans connexion
+  if (privileged_session && gestion_mode_)
+    for (auto &target : windows)
+      if (!target->privileged)
+        target->place_pending = true;
   if (privileged_session)
     refresh_lots(); // la liste ne garde pas les cles des lots apres la deconnexion
   pending_action_ = nullptr;
@@ -454,6 +459,12 @@ void App::complete_login(const Json &data) {
   gestion_mode_       = true; // un gestionnaire arrive en mode gestion, il peut passer en mode normal
   mode_places_[0].clear();
   mode_places_[1].clear();
+  // disposition du mode gestion : Etat des lots en haut, tableau de bord de la TECH en bas, pile de scans a droite
+  if (session.privileged) {
+    open_mode_windows();
+    for (auto &target : windows)
+      target->place_pending = true;
+  }
   api.set_session(data["session"].str());
   // volume de la douchette propre a l'utilisateur (sinon celui par defaut du serveur)
   if (const Json &volume = data["scanner_volume"]; volume.is_number())
