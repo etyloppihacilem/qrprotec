@@ -86,6 +86,7 @@ async function passkeyLogin({ quiet = false } = {}) {
       },
     } });
     if ($('#name-login').open) $('#name-login').close();
+    if (user.poste_otp) user.poste_otp.received_at = Date.now(); // ecart d'horloge pour les codes du QR poste
     loggedIn({ ...user, loginAt: Date.now() });
     return true;
   } catch (e) {
@@ -198,57 +199,67 @@ async function deletePasskey(row) {
   renderPasskeySettings();
 }
 
-// QR code de connexion au poste : seulement pour une session ouverte avec une passkey (Hippolyte, 2026-11-20). Le
-// secouriste qui n'a plus de nom + PIN le montre a la douchette du poste ; 5 min, une seule fois.
-const posteQrAllowed = () => !!(state.user && state.user.passkey_session); // admins compris (2026-11-27)
+// QR code de connexion au poste : seulement pour une session ouverte avec une passkey, admins compris (Hippolyte,
+// 2026-11-20 et 2026-11-27). A la connexion, le serveur remet une cle OTP (state.user.poste_otp, valable autant que la
+// session web) : le telephone en tire un code toutes les 30 s, meme hors connexion (TOTP, RFC 6238), et affiche
+// badge?m=...&o=ID&c=CODE. Le poste l'envoie au serveur, qui accepte un code une seule fois.
+const posteQrAllowed = () => !!(state.user && state.user.passkey_session && state.user.poste_otp);
 let posteQrTimer = null;
 
-// Admin (Hippolyte, 2026-11-27) : code tournant, le serveur donne `refresh` (30 s) et chaque code vaut 40 s ; le
-// telephone en redemande un tant que la fenetre est ouverte, 5 min au plus.
-const POSTE_QR_ROTATION_MS = 5 * 60 * 1000;
+async function totpCode(secret, step, digits) {
+  const key = await crypto.subtle.importKey('raw', b64urlToBuffer(secret), { name: 'HMAC', hash: 'SHA-1' }, false, ['sign']);
+  const counter = new DataView(new ArrayBuffer(8));
+  counter.setUint32(0, Math.floor(step / 2 ** 32));
+  counter.setUint32(4, step >>> 0);
+  const digest = new Uint8Array(await crypto.subtle.sign('HMAC', key, counter.buffer));
+  const offset = digest[digest.length - 1] & 0x0f;
+  const value = ((digest[offset] & 0x7f) << 24) | (digest[offset + 1] << 16) | (digest[offset + 2] << 8) | digest[offset + 3];
+  return String(value % 10 ** digits).padStart(digits, '0');
+}
 
-async function showPosteQr(rotationStart = 0) {
+function posteQrUrl(otp, code) {
+  const params = new URLSearchParams({ m: state.user.matricule, o: otp.id, c: code });
+  return `${location.origin}/badge?${params}`;
+}
+
+function showPosteQr() {
   const dialog = $('#poste-qr');
   const body = $('#poste-qr-body');
+  const otp = state.user && state.user.poste_otp;
   clearInterval(posteQrTimer);
-  const started = typeof rotationStart === 'number' && rotationStart ? rotationStart : Date.now();
-  const expired = () => {
-    clearInterval(posteQrTimer);
-    body.replaceChildren(el('h2', {}, 'Connexion au poste'), el('p', {}, 'QR code expiré.'),
-      el('button', { type: 'button', class: 'primary', onclick: () => showPosteQr() }, icon('refresh'), 'Nouveau QR code'));
-  };
-  if (!body.querySelector('.debug-qr')) body.replaceChildren(el('h2', {}, 'Connexion au poste'), el('p', { class: 'hint' }, 'Création du QR code…'));
   if (!dialog.open) dialog.showModal();
-  try {
-    const data = await api('me/poste-login/', { user: credentials() });
-    if (!dialog.open) return; // fermee pendant la demande
-    const until = Date.now() + data.seconds * 1000;
-    const next = data.refresh ? Date.now() + data.refresh * 1000 : 0;
-    const left = el('p', { class: 'hint' });
-    const tick = () => {
-      if (next && Date.now() >= next) {
-        if (Date.now() - started >= POSTE_QR_ROTATION_MS) { expired(); return; }
-        clearInterval(posteQrTimer);
-        showPosteQr(started); // code suivant ; celui-ci reste valable quelques secondes
-        return;
-      }
-      const seconds = Math.max(0, Math.round(((next || until) - Date.now()) / 1000));
-      if (!next && !seconds) { expired(); return; }
-      left.textContent = next ? `Nouveau code dans ${seconds} s. Une seule connexion.`
-        : `Valable encore ${Math.floor(seconds / 60)} min ${String(seconds % 60).padStart(2, '0')} s, une seule fois.`;
-    };
-    body.replaceChildren(el('h2', {}, 'Connexion au poste'), debugQr(data.url),
-      el('p', {}, el('b', {}, 'Scannez ce QR code avec la douchette du poste.')), left);
-    tick();
-    posteQrTimer = setInterval(tick, 1000);
-  } catch (e) {
-    body.replaceChildren(el('h2', {}, 'Connexion au poste'), el('p', { class: 'pin-error' }, e.message));
-    if (e.status === 403 && e.data && e.data.pin_required) { state.user = null; save(); render(); }
+  if (!otp || !window.crypto || !crypto.subtle) {
+    body.replaceChildren(el('h2', {}, 'Connexion au poste'), el('p', { class: 'pin-error' }, 'QR code indisponible sur ce navigateur.'));
+    return;
   }
+  // ecart d'horloge du telephone, mesure a la connexion : le serveur compte en temps serveur
+  const skew = otp.server_time && otp.received_at ? otp.server_time - otp.received_at : 0;
+  const left = el('p', { class: 'hint' });
+  let shown = -1;
+  const tick = async () => {
+    const now = Date.now() + skew;
+    if (otp.expires && now >= otp.expires) {
+      clearInterval(posteQrTimer);
+      body.replaceChildren(el('h2', {}, 'Connexion au poste'),
+        el('p', {}, 'Session passkey expirée : reconnectez-vous avec votre passkey pour un nouveau QR code.'));
+      return;
+    }
+    const step = Math.floor(now / 1000 / otp.step);
+    left.textContent = `Nouveau code dans ${Math.max(1, Math.ceil((step + 1) * otp.step - now / 1000))} s. Fonctionne aussi hors connexion.`;
+    if (step === shown) return;
+    shown = step;
+    const code = await totpCode(otp.secret, step, otp.digits || 6);
+    if (!dialog.open || shown !== step) return;
+    body.replaceChildren(el('h2', {}, 'Connexion au poste'), debugQr(posteQrUrl(otp, code)),
+      el('p', {}, el('b', {}, 'Scannez ce QR code avec la douchette du poste.')), left);
+  };
+  body.replaceChildren(el('h2', {}, 'Connexion au poste'), left);
+  tick();
+  posteQrTimer = setInterval(tick, 1000);
 }
 $('#poste-qr-close').addEventListener('click', () => $('#poste-qr').close());
 $('#poste-qr').addEventListener('close', () => clearInterval(posteQrTimer));
-$('#home-poste-qr').addEventListener('click', () => showPosteQr());
+$('#home-poste-qr').addEventListener('click', showPosteQr);
 
 $('#login-gate-passkey').addEventListener('click', () => passkeyLogin());
 $('#name-login-passkey').addEventListener('click', () => passkeyLogin());

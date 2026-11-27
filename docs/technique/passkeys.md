@@ -40,13 +40,17 @@ Fichiers concernés :
   avant d'ouvrir la fenêtre des autres moyens (carte, nom + PIN). Annulée ou refusée, la fenêtre
   s'ouvre comme d'habitude ; une passkey inconnue du serveur (supprimée) n'est plus essayée d'abord.
 - **QR code de connexion au poste** : le petit bouton ▦ à côté du nom, sur l'accueil, n'apparaît que
-  pour une session **ouverte avec une passkey** (jeton de session marqué `pk`). Il affiche
-  `badge?m=…&t=…`, valable 5 min, une seule fois, accepté seulement par un poste (douchette). Le poste
-  ouvre une session normale. Aussi pour un admin connecté avec sa passkey, avec un **code tournant** :
-  nouveau QR code toutes les 30 s (`refresh`), chacun valable 40 s (le précédent marche encore 10 s,
-  pour un scan juste avant le changement), 5 min de rotation au plus. Après une connexion réussie, les
-  codes créés avant elle sont refusés (`n`, heure de création dans le jeton). Le QR code de dépannage
-  du TECH, lui, n'est jamais pour un admin.
+  pour une session **ouverte avec une passkey** (jeton de session marqué `pk`), admins compris. À cette
+  connexion, le serveur remet au téléphone une **clé OTP** (`poste_otp` de la réponse,
+  `sessions.poste_otp`), valable autant que la session web (12 h). Le téléphone en tire un code à 6
+  chiffres toutes les 30 s (TOTP, RFC 6238, HMAC-SHA1), **même hors connexion**, et affiche
+  `badge?m=…&o=CLE&c=CODE`. La clé `o` est un jeton signé (matricule, badge, nonce) ; le secret en est
+  tiré par la clé secrète du serveur, rien n'est gardé dans la base. Le serveur accepte la période en
+  cours, la précédente pendant 10 s (scan juste avant le changement) et la suivante 10 s avant son début
+  (horloge du téléphone en avance ; l'écart mesuré à la connexion est corrigé). Un code ne sert qu'une
+  fois, et après une connexion plus aucun code de la même période ou d'avant. Accepté seulement par un
+  poste (douchette), qui ouvre une session normale. Renouveler le badge ou supprimer les passkeys
+  invalide la clé.
 
 ## Domaine (RP ID)
 
@@ -84,8 +88,8 @@ auto-signé de `manage.py serve --https` (Chrome refuse WebAuthn après une erre
 | Route | Corps | Réponse |
 |---|---|---|
 | `POST /api/auth/passkey/options/` | `{}` | `{"publicKey"}` pour `navigator.credentials.get()` |
-| `POST /api/auth/passkey/` | `{"credential"}` | comme `/api/auth/`, avec `passkey_session` |
+| `POST /api/auth/passkey/` | `{"credential"}` | comme `/api/auth/`, avec `passkey_session` et `poste_otp` |
 | `POST /api/me/passkeys/` | `{"user", "action": list\|options\|create\|delete, "credential"?, "id"?}` | `{"passkeys"}` (ou `{"publicKey"}`) |
-| `POST /api/me/poste-login/` | `{"user"}` (session passkey) | `{"url", "expires", "seconds"}` |
+| `POST /api/auth/temp/` (poste) | `{"matricule", "token": o, "code": c}` | comme `/api/auth/` (QR code du téléphone) |
 | `POST /api/debug/passkeys/` | `{"user"` (admin)`, "matricule", "action"?: list\|delete}` | `{"passkeys"}` |
 | `PATCH /api/users/<matricule>/` (poste) | `{"delete_passkeys": true}` | la fiche (`passkeys` : nombre) |

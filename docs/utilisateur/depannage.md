@@ -96,8 +96,9 @@ remarchent.
 
 **Me connecter au poste sans carte (passkey).**
 Connecté au téléphone avec votre passkey, touchez le petit bouton QR code à côté de votre prénom sur
-l'accueil et scannez le QR code avec la douchette du poste. Il vaut 5 minutes, une seule fois. Pour
-un administrateur, le QR code change toutes les 30 secondes.
+l'accueil et scannez le QR code avec la douchette du poste. Le code change toutes les 30 secondes et ne
+sert qu'une fois. Il marche même sans réseau sur le téléphone, pendant 12 heures après votre connexion
+avec la passkey ; ensuite, reconnectez-vous avec elle.
 
 **Le poste m'a déconnecté et a vidé la pile.**
 Après 15 minutes sans activité, le poste revient à son état de départ (réglable par le TECH).

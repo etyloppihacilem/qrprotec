@@ -9,12 +9,13 @@
 # ######################################################################################################################
 
 """Passkeys du front web (voir inventory/passkeys.py) : connexion, gestion par le secouriste, suppression par un
-admin, QR code de connexion au poste montre par un secouriste connecte avec sa passkey."""
+admin. Le QR code de connexion au poste est calcule par le telephone (cle OTP remise a la connexion, voir
+sessions.poste_otp)."""
 
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from .. import passkeys as webauthn
 from .common import *  # noqa: F401,F403
@@ -154,33 +155,6 @@ def my_passkeys(request: Request) -> Response:
     elif action != 'list':
         raise ApiError('action : list, options, create ou delete')
     return Response({'passkeys': passkey_rows(user), 'has_pin': user.has_pin})
-
-
-@api_view(['POST'])
-@handle_errors
-def my_poste_login(request: Request) -> Response:
-    """QR code de connexion au poste, montre sur le telephone d'un secouriste connecte avec sa passkey :
-    {"user": {"matricule", "session"}} -> lien badge?m=...&t=... valable 5 min, une seule fois, a scanner a la douchette
-    d'un poste (qui ouvre une session normale). Seulement pour une session ouverte avec une passkey, admins compris
-    (Hippolyte, 2026-11-27) ; pour un admin, code tournant : `refresh` (30 s), chaque code valable 40 s."""
-    user = badge_user(request, ALL_ROLES)
-    credentials = request.data.get('user') or {}
-    if not passkey_session(user, credentials.get('session')):
-        raise ApiError("Réservé aux connexions avec une passkey", status.HTTP_403_FORBIDDEN)
-    if user.role == Role.ADMIN:  # admin : code tournant, nouveau toutes les 30 s, chacun valable 40 s
-        seconds = PASSKEY_ADMIN_QR_MAX_AGE
-        token = temp_login_token(user, passkey=True, max_age=seconds)
-    else:
-        seconds = PASSKEY_POSTE_LOGIN_MAX_AGE
-        token = temp_login_token(user, passkey=True)
-    data: dict[str, Any] = {
-        'url': ser.public_url('badge', m=user.matricule, t=token),
-        'expires': (timezone.now() + timedelta(seconds=seconds)).isoformat(),
-        'seconds': seconds,
-    }
-    if user.role == Role.ADMIN:
-        data['refresh'] = PASSKEY_ADMIN_QR_REFRESH  # le web redemande un code a ce rythme
-    return Response(data)
 
 
 @api_view(['POST'])

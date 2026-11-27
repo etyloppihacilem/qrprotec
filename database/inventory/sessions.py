@@ -16,9 +16,15 @@ telephone n'a pas la cle du badge : le jeton la remplace dans les identifiants {
 
 from __future__ import annotations
 
+import base64
+import hashlib
+import hmac
+import secrets
+import struct
 import time
 from typing import TYPE_CHECKING, Any
 
+from django.conf import settings
 from django.core import signing
 
 from .models import Secouristes
@@ -34,13 +40,14 @@ TEMP_LOGIN_SALT = 'qrprotec.temp-login'
 TEMP_LOGIN_MAX_AGE = 3600
 TEMP_SESSION_SALT = 'qrprotec.temp-session'
 TEMP_SESSION_MAX_AGE = 24 * 3600
-# QR code de connexion au poste montre par un secouriste connecte au web avec sa passkey : 5 min seulement (il est a
-# l'ecran du telephone, on le scanne tout de suite), il ouvre une session normale sur le poste
-PASSKEY_POSTE_LOGIN_MAX_AGE = 300
-# Le meme QR code pour un admin (Hippolyte, 2026-11-27) : nouveau code toutes les 30 s, chacun valable 40 s (celui
-# d'avant marche encore 10 s, pour un scan juste avant le changement)
-PASSKEY_ADMIN_QR_MAX_AGE = 40
-PASSKEY_ADMIN_QR_REFRESH = 30
+# QR code de connexion au poste montre par le telephone d'un secouriste connecte au web avec sa passkey (Hippolyte,
+# 2026-11-27) : a la connexion, le serveur lui remet une cle OTP valable autant que la session web ; le telephone en
+# tire un code toutes les 30 s, meme hors connexion (TOTP, RFC 6238). Le QR code badge?m=...&o=ID&c=CODE ouvre une
+# session normale sur le poste. Le code precedent marche encore 10 s (scan juste avant le changement).
+POSTE_OTP_SALT = 'qrprotec.poste-otp'
+POSTE_OTP_STEP = 30
+POSTE_OTP_GRACE = 10
+POSTE_OTP_DIGITS = 6
 
 
 # Moyens de connexion, gardes dans le jeton de session (`a`) et notes au journal des operations (details.auth)
@@ -58,7 +65,7 @@ AUTH_METHODS = {
 
 def session_token(user: Secouristes, temporary: bool = False, passkey: bool = False, method: str = '') -> str:
     # lie au badge courant : renouveler le badge invalide les sessions. `pk` : session ouverte avec une passkey (le
-    # web propose alors le QR code de connexion au poste). `a` : moyen de connexion (AUTH_METHODS), pour le journal
+    # web a alors une cle OTP pour le QR code de connexion au poste, voir poste_otp). `a` : moyen de connexion (AUTH_METHODS), pour le journal
     data = {'m': user.matricule, 'k': user.key_hash[-8:]}
     if passkey:
         data['pk'] = 1
@@ -118,33 +125,78 @@ def _session_data(token: str | None) -> dict[str, Any] | None:
     return None
 
 
-def temp_login_token(user: Secouristes, passkey: bool = False, max_age: int | None = None) -> str:
-    """Jeton du QR code de connexion de depannage (1h), lie au badge courant comme les sessions. `passkey` : QR code
-    de connexion au poste montre par le secouriste lui-meme, connecte avec sa passkey (5 min, ou `max_age` secondes
-    si c'est moins : 40 s pour un admin). `n` : heure de creation, pour refuser les codes crees avant une connexion
-    reussie (views.public.auth_temp)."""
-    data: dict[str, Any] = {'m': user.matricule, 'k': user.key_hash[-8:]}
-    if passkey:
-        data['pk'] = 1
-        data['n'] = time.time()
-        if max_age is not None:
-            data['s'] = max_age
-    return signing.dumps(data, salt=TEMP_LOGIN_SALT)
+def temp_login_token(user: Secouristes) -> str:
+    """Jeton du QR code de connexion de depannage (1h), lie au badge courant comme les sessions."""
+    return signing.dumps({'m': user.matricule, 'k': user.key_hash[-8:]}, salt=TEMP_LOGIN_SALT)
 
 
 def temp_login_data(token: str) -> dict[str, Any] | None:
-    """Contenu d'un jeton de QR code de connexion valide (1h ; 5 min s'il vient d'une passkey, 40 s pour un admin), None
-    sinon."""
+    """Contenu d'un jeton de QR code de connexion de depannage valide (1h), None sinon."""
     try:
-        data = signing.loads(str(token or ''), salt=TEMP_LOGIN_SALT, max_age=TEMP_LOGIN_MAX_AGE)
-        if data.get('pk') == 1:
-            seconds = data.get('s')
-            max_age = (min(seconds, PASSKEY_POSTE_LOGIN_MAX_AGE) if isinstance(seconds, int)
-                       else PASSKEY_POSTE_LOGIN_MAX_AGE)
-            signing.loads(str(token or ''), salt=TEMP_LOGIN_SALT, max_age=max_age)
+        return signing.loads(str(token or ''), salt=TEMP_LOGIN_SALT, max_age=TEMP_LOGIN_MAX_AGE)
     except signing.BadSignature:
         return None
-    return data
+
+
+def _poste_otp_secret(nonce: str) -> bytes:
+    """Cle OTP d'une connexion passkey : tiree de la cle secrete du serveur, rien a garder dans la base."""
+    return hmac.new(settings.SECRET_KEY.encode(), b'qrprotec.poste-otp:' + nonce.encode(), hashlib.sha256).digest()
+
+
+def totp(secret: bytes, step: int) -> str:
+    """Code a 6 chiffres de la periode `step` (RFC 6238 / RFC 4226, HMAC-SHA1), comme le telephone le calcule."""
+    digest = hmac.new(secret, struct.pack('>Q', step), hashlib.sha1).digest()
+    offset = digest[-1] & 0x0F
+    value = struct.unpack('>I', digest[offset:offset + 4])[0] & 0x7FFFFFFF
+    return str(value % 10 ** POSTE_OTP_DIGITS).zfill(POSTE_OTP_DIGITS)
+
+
+def poste_otp(user: Secouristes) -> dict[str, Any]:
+    """Cle OTP remise a une connexion passkey : `id` (jeton signe, lie au badge, valable autant qu'une session web),
+    `secret` (base64url, pour le telephone) et de quoi calculer les codes hors connexion."""
+    nonce = secrets.token_urlsafe(9)
+    key_id = signing.dumps({'m': user.matricule, 'k': user.key_hash[-8:], 'o': nonce}, salt=POSTE_OTP_SALT)
+    now = time.time()
+    return {
+        'id': key_id,
+        'secret': base64.urlsafe_b64encode(_poste_otp_secret(nonce)).decode().rstrip('='),
+        'step': POSTE_OTP_STEP,
+        'digits': POSTE_OTP_DIGITS,
+        'server_time': int(now * 1000),  # le telephone corrige l'ecart de son horloge
+        'expires': int((now + SESSION_MAX_AGE) * 1000),
+    }
+
+
+def poste_otp_check(matricule: str, key_id: str, code: str,
+                    now: float | None = None) -> tuple[Secouristes, str, int] | None:
+    """Utilisateur, nonce et periode d'un code OTP valable (cle de moins de 12 h, meme badge, passkey toujours
+    enregistree, PIN non bloque) : periode en cours, la precedente pendant ses 10 premieres secondes de retard, la
+    suivante 10 s avant son debut (horloge du telephone en avance). None sinon. L'usage unique est verifie par
+    l'appelant (views.public.auth_temp)."""
+    try:
+        data = signing.loads(str(key_id or ''), salt=POSTE_OTP_SALT, max_age=SESSION_MAX_AGE)
+    except signing.BadSignature:
+        return None
+    code = str(code or '')
+    nonce = str(data.get('o') or '')
+    if not nonce or len(code) != POSTE_OTP_DIGITS or not code.isdigit():
+        return None
+    user = Secouristes.objects.filter(matricule=str(data.get('m', ''))[:16]).first()
+    if (user is None or user.matricule != str(matricule or '') or data.get('k') != user.key_hash[-8:]
+            or not user.badge_valid() or user.pin_blocked is not None or not user.passkeys.exists()):
+        return None
+    now = time.time() if now is None else now
+    current = int(now // POSTE_OTP_STEP)
+    steps = [current]
+    if now - current * POSTE_OTP_STEP < POSTE_OTP_GRACE:
+        steps.append(current - 1)
+    if (current + 1) * POSTE_OTP_STEP - now < POSTE_OTP_GRACE:
+        steps.append(current + 1)
+    secret = _poste_otp_secret(nonce)
+    for step in steps:
+        if hmac.compare_digest(totp(secret, step), code):
+            return user, nonce, step
+    return None
 
 
 def temp_login_user(matricule: str, token: str) -> Secouristes | None:

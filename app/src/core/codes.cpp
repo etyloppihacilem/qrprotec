@@ -569,6 +569,10 @@ ParsedScan parse_scan(const std::string &input) {
     scan.id   = params["m"];
     scan.key  = params["key"];
     scan.temp = params["t"];
+    if (!params["o"].empty() && !params["c"].empty()) { // QR code du telephone (passkey) : cle OTP et code de 30 s
+      scan.temp = params["o"];
+      scan.otp  = params["c"];
+    }
   } else if (route == "seal" && !params["lot"].empty() && !params["s"].empty()) {
     scan.kind = ScanKind::LotSeal;
     scan.id   = params["lot"];

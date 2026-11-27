@@ -4,6 +4,7 @@ code de connexion au poste depuis une session passkey, suppression par un admin.
 
 from __future__ import annotations
 
+import base64
 import hashlib
 import json
 import struct
@@ -18,7 +19,7 @@ from django.core.cache import cache
 from django.test import override_settings
 
 from .. import passkeys as webauthn
-from .. import views
+from .. import sessions, views
 from ..models import Operation, Passkey, Role
 from .base import ApiTestCase, quiet_stderr
 
@@ -246,62 +247,84 @@ class PasskeyTests(ApiTestCase):
                                     content_type='application/json', HTTP_HOST='localhost:8000')
         self.assertEqual(response.status_code, 200, response.content)
 
-    def test_poste_login_qr_for_an_admin(self) -> None:
+    def otp_scan(self, otp: dict[str, Any], at: float, code: str | None = None, local: bool = True,
+                 matricule: str = 'M001') -> tuple[int, Any]:
+        """Scan au poste du QR code que le telephone calcule a l'heure `at` (badge?m=...&o=ID&c=CODE)."""
+        if code is None:
+            secret = base64.urlsafe_b64decode(otp['secret'] + '=' * (-len(otp['secret']) % 4))
+            code = sessions.totp(secret, int(at // otp['step']))
+        body = {'matricule': matricule, 'token': otp['id'], 'code': code}
+        with mock.patch('inventory.sessions.time.time', return_value=at):
+            if local:
+                return self.call('POST', '/api/auth/temp/', body, session=False)
+            return self.call('POST', '/api/auth/temp/', body, local=False)
+
+    def test_poste_otp_only_from_a_passkey_session(self) -> None:
+        self.register()
+        # connexion par la carte : pas de cle OTP
+        code, card = self.call('POST', '/api/auth/', {'matricule': 'M001', 'key': self.user.new_key, 'pin': '432100'},
+                               local=False)
+        self.assertEqual(code, 200, card)
+        self.assertNotIn('poste_otp', card)
+        _, user = self.login()
+        otp = user['poste_otp']
+        self.assertEqual((otp['step'], otp['digits']), (30, 6))
+        self.assertGreater(otp['expires'], otp['server_time'] + 11 * 3600 * 1000)  # autant que la session web
+        start = (int(time.time()) // 30 + 1) * 30 + 15.0  # milieu d'une periode
+        # un telephone ne s'en sert pas : c'est pour la douchette d'un poste
+        code, _ = self.otp_scan(otp, start, local=False)
+        self.assertEqual(code, 403)
+        # mauvais code, autre matricule, cle modifiee
+        self.assertEqual(self.otp_scan(otp, start, code='000000')[0], 403)
+        self.assertEqual(self.otp_scan(otp, start, matricule='P001')[0], 403)
+        self.assertEqual(self.otp_scan({**otp, 'id': otp['id'][:-2] + 'xx'}, start)[0], 403)
+        cache.clear()
+        code, poste = self.otp_scan(otp, start)
+        self.assertEqual(code, 200, poste)
+        self.assertNotIn('temporary', poste)  # session normale du poste
+        self.assertEqual(poste['nom'], 'Dupont')
+        login = Operation.objects.filter(kind='login').latest('id')
+        self.assertEqual(login.details['auth'], 'Poste principal : QR code du téléphone (passkey)')
+        # une seule fois, et plus aucun code d'avant
+        self.assertEqual(self.otp_scan(otp, start)[0], 403)
+        # code suivant (30 s plus tard) : accepte
+        self.assertEqual(self.otp_scan(otp, start + 30)[0], 200)
+
+    def test_poste_otp_timing(self) -> None:
+        self.register()
+        _, user = self.login()
+        otp = user['poste_otp']
+        secret = base64.urlsafe_b64decode(otp['secret'] + '=' * (-len(otp['secret']) % 4))
+        base = (int(time.time()) // 30 + 2) * 30.0  # debut d'une periode
+        previous = sessions.totp(secret, int(base // 30) - 1)
+        # le code precedent marche encore 10 s apres le changement, pas au-dela
+        self.assertEqual(self.otp_scan(otp, base + 12, code=previous)[0], 403)
+        cache.clear()
+        self.assertEqual(self.otp_scan(otp, base + 8, code=previous)[0], 200)
+        # horloge du telephone en avance : le code suivant, 10 s avant son debut
+        cache.clear()
+        following = sessions.totp(secret, int(base // 30) + 2)
+        self.assertEqual(self.otp_scan(otp, base + 30 + 25, code=following)[0], 200)
+        # cle d'une session de plus de 12 h : refusee
+        cache.clear()
+        self.assertEqual(self.otp_scan(otp, base + 13 * 3600 + 15)[0], 403)  # time.time de signing aussi
+        # passkey supprimee : la cle ne sert plus
+        cache.clear()
+        self.user.passkeys.all().delete()
+        self.assertEqual(self.otp_scan(otp, base + 180)[0], 403)
+
+    def test_poste_otp_for_an_admin(self) -> None:
         # admin connecte avec sa passkey : QR code de connexion au poste aussi (Hippolyte, 2026-11-27)
         self.user.role = Role.ADMIN
         self.user.save()
         self.register()
         _, user = self.login()
-        credentials = {'matricule': 'M001', 'session': user['session']}
-        # code tournant : nouveau toutes les 30 s, chacun valable 40 s
-        code, body = self.call('POST', '/api/me/poste-login/', {'user': credentials}, local=False)
-        self.assertEqual(code, 200, body)
-        self.assertEqual((body['seconds'], body['refresh']), (40, 30))
-        older = parse_qs(urlparse(body['url']).query)['t'][0]
-        _, body = self.call('POST', '/api/me/poste-login/', {'user': credentials}, local=False)
-        token = parse_qs(urlparse(body['url']).query)['t'][0]
-        with mock.patch('django.core.signing.time.time', return_value=time.time() + 45):
-            code, _ = self.call('POST', '/api/auth/temp/', {'matricule': 'M001', 'token': token}, session=False)
-        self.assertEqual(code, 403)  # plus de 40 s
-        with mock.patch('django.core.signing.time.time', return_value=time.time() + 35):
-            code, poste = self.call('POST', '/api/auth/temp/', {'matricule': 'M001', 'token': token}, session=False)
+        code, poste = self.otp_scan(user['poste_otp'], (int(time.time()) // 30 + 1) * 30 + 15.0)
         self.assertEqual(code, 200, poste)
         self.assertEqual(poste['role'], 'admin')
-        # le code d'avant, encore dans ses 40 s, ne sert plus apres une connexion reussie
-        code, _ = self.call('POST', '/api/auth/temp/', {'matricule': 'M001', 'token': older}, session=False)
-        self.assertEqual(code, 403)
         # le QR code de depannage du TECH, lui, n'est jamais pour un admin
         code, _ = self.call('POST', '/api/auth/temp/', {'matricule': 'M001', 'token': views.temp_login_token(self.user)},
                             local=False)
-        self.assertEqual(code, 403)
-
-    def test_poste_login_qr_only_from_a_passkey_session(self) -> None:
-        self.register()
-        # session par la carte : pas de QR code
-        code, _ = self.call('POST', '/api/me/poste-login/', {'user': self.card()}, local=False)
-        self.assertEqual(code, 403)
-        _, user = self.login()
-        credentials = {'matricule': 'M001', 'session': user['session']}
-        code, body = self.call('POST', '/api/me/poste-login/', {'user': credentials}, local=False)
-        self.assertEqual(code, 200, body)
-        self.assertEqual(body['seconds'], 300)
-        query = parse_qs(urlparse(body['url']).query)
-        token = query['t'][0]
-        self.assertEqual(query['m'][0], 'M001')
-        # un telephone ne s'en sert pas : c'est pour la douchette d'un poste
-        code, _ = self.call('POST', '/api/auth/temp/', {'matricule': 'M001', 'token': token}, local=False)
-        self.assertEqual(code, 403)
-        # 5 min seulement
-        with mock.patch('django.core.signing.time.time', return_value=time.time() + 400):
-            code, _ = self.call('POST', '/api/auth/temp/', {'matricule': 'M001', 'token': token}, session=False)
-        self.assertEqual(code, 403)
-        code, poste = self.call('POST', '/api/auth/temp/', {'matricule': 'M001', 'token': token}, session=False)
-        self.assertEqual(code, 200, poste)
-        self.assertNotIn('temporary', poste)  # session normale du poste
-        self.assertEqual(poste['nom'], 'Dupont')
-        self.assertTrue(Operation.objects.filter(summary__contains='QR code de son téléphone').exists())
-        # une seule fois
-        code, _ = self.call('POST', '/api/auth/temp/', {'matricule': 'M001', 'token': token}, session=False)
         self.assertEqual(code, 403)
 
     def test_admin_deletes_passkeys(self) -> None:
