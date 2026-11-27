@@ -285,6 +285,7 @@ def login_response(request: Request, user: Secouristes, temporary: bool = False,
     data['session'] = session_token(user, temporary, passkey=passkey, method=method)
     if passkey:
         data['passkey_session'] = True  # le web montre le bouton du QR code de connexion au poste
+        data['poste_otp'] = poste_otp(user)  # cle OTP de ce QR code, calcule par le telephone meme hors connexion
     # le web propose d'en creer une apres la connexion (jamais pour une carte d'invite)
     data['has_passkey'] = user.passkeys.exists()
     if temporary:
@@ -388,41 +389,46 @@ def auth_name(request: Request) -> Response:
 @api_view(['POST'])
 @handle_errors
 def auth_temp(request: Request) -> Response:
-    """Connexion de depannage : {"matricule", "token"} d'un QR code temporaire montre par un admin (outil de debug)
-    a un secouriste qui a oublie sa carte. Le QR code vaut 1h ; la session ouverte (sans cle de badge ni PIN, l'admin
-    s'en porte garant) vaut 24h."""
+    """Connexion par un QR code sans carte :
+    - {"matricule", "token"} : QR code temporaire montre par un admin (outil de debug) a un secouriste qui a oublie
+      sa carte. Le QR code vaut 1h ; la session ouverte (sans cle de badge ni PIN, l'admin s'en porte garant) vaut 24h.
+    - {"matricule", "token", "code"} : QR code du telephone d'un secouriste (admins compris) connecte au web avec sa
+      passkey, badge?m=...&o=ID&c=CODE (sessions.poste_otp) : code OTP de 30 s calcule par le telephone, meme hors
+      connexion, une seule fois. Seulement a la douchette d'un poste, qui ouvre une session normale."""
     check_login_address(request)
     token = request.data.get('token')
+    if request.data.get('code') is not None:
+        return otp_login(request, str(token or ''), str(request.data.get('code') or ''))
     user = temp_login_user(request.data.get('matricule'), token)
-    data = temp_login_data(token) or {}
-    from_passkey = data.get('pk') == 1
-    if from_passkey and user is not None and not is_front(request):
-        raise ApiError("Ce QR code se scanne avec la douchette d'un poste", status.HTTP_403_FORBIDDEN)
-    # QR de depannage du TECH : jamais pour un admin ; QR montre depuis une session passkey : admins compris
-    # QR montre depuis une session passkey : une seule fois, et plus aucun code cree avant une connexion reussie
-    # (codes tournants d'un admin encore valables)
-    used_key = f'qrprotec.poste-login-used.{user.matricule}' if user is not None else ''
-    if (user is None or (user.role == Role.ADMIN and not from_passkey)
-            or (from_passkey and not isinstance(data.get('n'), (int, float)))
-            or (from_passkey and data['n'] <= cache.get(used_key, -1))
-            or (from_passkey and not cache.add('qrprotec.poste-login.' + hashlib.sha256(str(token).encode()).hexdigest(),
-                                               1, PASSKEY_POSTE_LOGIN_MAX_AGE + 60))):
+    if user is None or user.role == Role.ADMIN:
         reserve_login_attempt(login_address_key(request))
-        raise ApiError("QR code de connexion expiré ou invalide : affichez-en un nouveau sur votre téléphone"
-                       if from_passkey else "QR code de connexion expiré ou invalide : demandez-en un nouveau au TECH",
+        raise ApiError("QR code de connexion expiré ou invalide : demandez-en un nouveau au TECH",
                        status.HTTP_403_FORBIDDEN)
-    request.qrprotec_auth = 'passkey_qr' if from_passkey else 'temp_qr'
-    if from_passkey:
-        cache.set(used_key, data['n'], PASSKEY_POSTE_LOGIN_MAX_AGE + 60)
-        # le secouriste montre lui-meme le QR code depuis sa session passkey : session normale sur le poste
-        journal.record(OperationKind.USER, f'{SOURCE_VERIFIED}:{user.matricule}',
-                       f'connexion de {user} ({user.matricule}) au poste par le QR code de son téléphone (passkey)',
-                       matricule=user.matricule)
-        return Response(login_response(request, user, method='passkey_qr'))
+    request.qrprotec_auth = 'temp_qr'
     journal.record(OperationKind.USER, f'{SOURCE_VERIFIED}:{user.matricule}',
                    f'connexion de dépannage de {user} ({user.matricule}) par QR code temporaire',
                    matricule=user.matricule)
     return Response(login_response(request, user, temporary=True, method='temp_qr'))
+
+
+def otp_login(request: Request, key_id: str, code: str) -> Response:
+    """QR code du telephone (cle OTP d'une connexion passkey) scanne a un poste. Un code ne sert qu'une fois, et apres
+    une connexion, plus aucun code de la meme periode ou d'avant."""
+    checked = poste_otp_check(request.data.get('matricule'), key_id, code)
+    if checked is not None and not is_front(request):
+        raise ApiError("Ce QR code se scanne avec la douchette d'un poste", status.HTTP_403_FORBIDDEN)
+    if checked is not None:
+        user, nonce, step = checked
+        used_key = f'qrprotec.poste-otp-used.{nonce}'
+        if step <= cache.get(used_key, -1) or not cache.add(f'qrprotec.poste-otp.{nonce}.{step}', 1, 120):
+            checked = None
+        else:
+            cache.set(used_key, step, SESSION_MAX_AGE)
+    if checked is None:
+        reserve_login_attempt(login_address_key(request))
+        raise ApiError("QR code de connexion expiré ou déjà utilisé : attendez le code suivant sur votre téléphone",
+                       status.HTTP_403_FORBIDDEN)
+    return Response(login_response(request, user, method='passkey_qr'))
 
 
 def check_login_address(request: Request) -> None:

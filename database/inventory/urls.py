@@ -24,7 +24,6 @@ public_patterns = [
     path('pin-forgot/', views.pin_forgot),
     path('me/pin/', views.my_pin),               # PIN choisi, change ou supprime dans les reglages web
     path('me/passkeys/', views.my_passkeys),     # passkeys de l'utilisateur (liste, creation, suppression)
-    path('me/poste-login/', views.my_poste_login),  # QR code de connexion au poste (session passkey)
     path('me/prefs/', views.my_prefs),           # reglages du front web (ligne d'info, explication de la vérif)
     path('items/out/', views.items_out),         # avant items/<iid>/
     path('items/<str:iid>/', views.item_detail),

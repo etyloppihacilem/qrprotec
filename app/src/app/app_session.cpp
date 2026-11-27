@@ -336,19 +336,23 @@ void App::require_login(const std::string &what, std::function< void() > action,
 void App::login_with_badge(const ParsedScan &scan, ScanSource source) {
   pin_ = PinPrompt{};
   if (!scan.temp.empty() && scan.key.empty()) {
-    send_temp_login(scan.id, scan.temp, source);
+    send_temp_login(scan.id, scan.temp, scan.otp, source);
     return;
   }
   send_auth(scan.id, scan.key, "", "", source);
 }
 
-// QR code de connexion temporaire (badge?m=...&t=...) : celui du TECH pour un secouriste qui a oublie sa carte, ou
-// celui qu'affiche le telephone d'un secouriste connecte au web avec sa passkey (5 min, une seule fois). Ni cle ni
-// PIN : le serveur verifie le jeton. La connexion n'est pas gardee au redemarrage (pas de carte a rescanner).
-void App::send_temp_login(const std::string &matricule, const std::string &token, ScanSource source) {
+// QR code de connexion sans carte : celui du TECH pour un secouriste qui a oublie sa carte (badge?m=...&t=...), ou
+// celui qu'affiche le telephone d'un secouriste connecte au web avec sa passkey (badge?m=...&o=...&c=..., code OTP
+// de 30 s, une seule fois). Ni cle ni PIN : le serveur verifie le jeton. La connexion n'est pas gardee au redemarrage
+// (pas de carte a rescanner).
+void App::send_temp_login(const std::string &matricule, const std::string &token, const std::string &otp,
+                          ScanSource source) {
   Json body;
   body["matricule"] = matricule;
   body["token"]     = token;
+  if (!otp.empty())
+    body["code"] = otp;
   pin_.busy         = true;
   api.post("/api/auth/temp/", body, [this, source](const ApiResult &result) {
     pin_.busy = false;

@@ -102,9 +102,13 @@ static void test_scans() {
   assert(lot_public.kind == ScanKind::Lot && lot_public.key.empty());
   const ParsedScan badge = parse_scan("https://example.com/badge?m=M001&key=K");
   assert(badge.kind == ScanKind::User && badge.id == "M001" && badge.key == "K" && badge.temp.empty());
-  // QR code de connexion temporaire (depannage du TECH, ou telephone connecte avec sa passkey)
+  // QR code de connexion temporaire (depannage du TECH)
   const ParsedScan temp = parse_scan("https://example.com/badge?m=M001&t=eyJtIjoiTTAwMSJ9%3A1vW%3Aab-c_d");
   assert(temp.kind == ScanKind::User && temp.id == "M001" && temp.key.empty() && temp.temp == "eyJtIjoiTTAwMSJ9:1vW:ab-c_d");
+  assert(temp.otp.empty());
+  // QR code du telephone connecte avec sa passkey : cle OTP et code de 30 s
+  const ParsedScan otp = parse_scan("https://example.com/badge?m=M001&o=eyJvIjoiYWIifQ%3A1vW%3Axy&c=012345");
+  assert(otp.kind == ScanKind::User && otp.id == "M001" && otp.temp == "eyJvIjoiYWIifQ:1vW:xy" && otp.otp == "012345");
   const ParsedScan pack = parse_scan("https://example.com/pack?id=0000002B");
   assert(pack.kind == ScanKind::SealedPack && pack.id == "0000002B");
   assert(pack.key.empty());

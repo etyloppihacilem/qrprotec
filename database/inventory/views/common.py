@@ -69,8 +69,8 @@ from .. import webpush
 from ..idendity import SOURCE_VERIFIED, format_identity_verified, guest_identity, identity_from_request, identity_name, short_name
 from ..remote_scanner import hub as scanner_hub
 from ..sessions import (  # noqa: F401 (tests)
-    PASSKEY_ADMIN_QR_MAX_AGE, PASSKEY_ADMIN_QR_REFRESH, PASSKEY_POSTE_LOGIN_MAX_AGE, TEMP_LOGIN_MAX_AGE, TEMP_SESSION_MAX_AGE, credentials_user, passkey_session,
-    session_token, session_user, session_valid, temp_login_data, temp_login_token, temp_login_user,
+    SESSION_MAX_AGE, TEMP_LOGIN_MAX_AGE, TEMP_SESSION_MAX_AGE, credentials_user, passkey_session, poste_otp,
+    poste_otp_check, session_token, session_user, session_valid, temp_login_data, temp_login_token, temp_login_user,
 )
 from ..models import (
     DEFAULT_FONCTION, PIN_OPTIONAL_ROLES, PUSH_TYPES, WEB_PREFS, STOCK_LOT_TYPE, ProblemReport, TYPE_LENGTH, Items, ItemsPacks, ItemStatus, ItemType, KeyExpiry, LabelStyle, LotContent, LotRequirements, Lots, LotType, LotTypeSlot,

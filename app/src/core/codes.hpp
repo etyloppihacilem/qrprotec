@@ -56,8 +56,9 @@ enum class ScanKind { Item, Lot, User, SealedPack, LotSeal, LotSealOpen, Checkli
 //   taches    : <base>/task?id=IID (etiquette de taches : item dont les taches sont a cocher a la verif)
 //   lot       : <base>/verif?lot=ID[&key=CLE]
 //   user      : <base>/badge?m=MATRICULE&key=CLE, ou le matricule seul (sans cle : PIN obligatoire) ;
-//               <base>/badge?m=MATRICULE&t=JETON : QR code de connexion temporaire (depannage du TECH, ou montre par
-//               un secouriste connecte au web avec sa passkey), envoye a /api/auth/temp/
+//               <base>/badge?m=MATRICULE&t=JETON : QR code de connexion temporaire (depannage du TECH) ;
+//               <base>/badge?m=MATRICULE&o=CLE&c=CODE : QR code du telephone d'un secouriste connecte au web avec sa
+//               passkey (cle OTP, code de 30 s) ; tous deux envoyes a /api/auth/temp/
 //   sealed    : <base>/pack?id=ID ; <base>/pack?id=ID&o=CLE : etiquette de paquet ouvert (paquet pre-etiquete,
 //               contenu deja etiquete : elle compte en verif les items qu'elle couvre tant qu'elle est valable)
 //   lot seal  : <base>/seal?lot=ID&s=CODE (lot scelle : valide sans verif)
@@ -72,7 +73,8 @@ struct ParsedScan {
     std::string           id;  // iid, id de lot, matricule, id de paquet ou de liste
     std::string           key; // cle du lot (etiquette privee), du badge, code du scelle (ou de son etiquette
                                // d'ouverture), ou cle de l'etiquette de paquet ouvert
-    std::string           temp; // badge : jeton du QR code de connexion temporaire (badge?m=...&t=...)
+    std::string           temp; // badge : jeton du QR code de connexion temporaire (t), ou cle OTP du telephone (o)
+    std::string           otp;  // badge : code OTP du QR code du telephone (c)
     std::string           item_type;
     std::optional< Date > peremption; // items dates uniquement
     bool                  task = false; // item scanne par son etiquette de taches (TaskItem)
