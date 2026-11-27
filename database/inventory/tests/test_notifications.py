@@ -258,10 +258,23 @@ class WebPushTests(ApiTestCase):
         public.verify(der, f'{header}.{claims}'.encode(), ec.ECDSA(hashes.SHA256()))  # leve si invalide
 
     def test_gestion_and_admins_subscribe(self) -> None:
+        # un secouriste avec une passkey s'abonne aussi, mais ne recoit que les demandes de connexion (Hippolyte,
+        # 2026-11-27) ; sans passkey, rien
+        from .. import views
+        secouriste = {'matricule': 'M001', 'key': self.user.new_key, 'session': views.session_token(self.user)}
         code, body = self.call('POST', '/api/push/subscription/',
-                               {'user': {'matricule': 'M001', 'key': self.user.new_key}, 'subscription': self.subscription()},
-                               local=False)
-        self.assertEqual((code, body['error']), (403, 'Réservé aux rôles gestion et admin'))
+                               {'user': secouriste, 'subscription': self.subscription()}, local=False)
+        self.assertEqual((code, body['error']), (403, 'Pas de notification pour votre compte'))
+        models.Passkey.objects.create(user=self.user, credential_id='cred', public_key=b'x')
+        code, body = self.call('POST', '/api/push/subscription/',
+                               {'user': secouriste, 'subscription': self.subscription()}, local=False)
+        self.assertEqual(code, 200, body)
+        self.assertEqual([row['type'] for row in body['types']], ['login_request'])
+        # carte d'invite : aucune notification
+        Secouristes.objects.filter(matricule='M001').update(guest=True)
+        code, body = self.call('POST', '/api/push/subscription/',
+                               {'user': secouriste, 'subscription': self.subscription()}, local=False)
+        self.assertEqual(code, 403)
         # sans jeton de session (PIN), refuse aussi
         code, _ = self.call('POST', '/api/push/subscription/',
                             {'user': {'matricule': 'A001', 'key': self.admin.new_key}, 'subscription': self.subscription()},
@@ -275,6 +288,32 @@ class WebPushTests(ApiTestCase):
         """Appel dont les notifications partent tout de suite (envoyees a la validation de la transaction)."""
         with self.captureOnCommitCallbacks(execute=True):
             return function(*args, **kwargs)
+
+    def test_login_request_from_the_app(self) -> None:
+        # l'application d'un ordinateur demande a connecter M001 (passkey) : notification sur ses appareils
+        from .. import views
+        self.user.set_pin('432100')
+        self.user.save()
+        models.Passkey.objects.create(user=self.user, credential_id='cred', public_key=b'x')
+        secouriste = {'matricule': 'M001', 'key': self.user.new_key, 'session': views.session_token(self.user)}
+        code, _ = self.call('POST', '/api/push/subscription/', {'user': secouriste, 'subscription': self.subscription()},
+                            local=False)
+        self.assertEqual(code, 200)
+        with self.captureOnCommitCallbacks(execute=True):
+            code, start = self.call('POST', '/api/auth/poste-browser/', {'matricule': 'M001'}, session=False)
+        self.assertEqual((code, start['notified']), (200, 1))
+        [message] = self.messages()
+        self.assertEqual(message['title'], 'QRProtec : demande de connexion')
+        self.assertIn(start['code'], message['body'])
+        self.assertEqual((message['url'], message['tab']), (f"../poste?r={start['request']}", 'poste'))
+        # une notification par personne toutes les 20 s au plus ; rien pour un matricule sans passkey
+        with self.captureOnCommitCallbacks(execute=True):
+            code, again = self.call('POST', '/api/auth/poste-browser/', {'matricule': 'M001'}, session=False)
+            _, admin = self.call('POST', '/api/auth/poste-browser/', {'matricule': 'A001'}, session=False)
+        self.assertEqual((again['notified'], admin['notified'], len(self.sent)), (0, 0, 1))
+        # depuis le web : pas de demande du tout
+        code, _ = self.call('POST', '/api/auth/poste-browser/', {'matricule': 'M001'}, local=False)
+        self.assertEqual(code, 403)
 
     def test_server_problem_off_by_default_admins_only(self) -> None:
         from .. import notifications
@@ -459,7 +498,7 @@ class WebPushTests(ApiTestCase):
         self.assertEqual(code, 200)
         self.assertEqual([(row['device'], row['current']) for row in body['devices']],
                          [('Firefox · Linux', False), ('Navigateur', True)])
-        self.assertEqual(len(body['types']), 14)
+        self.assertEqual(len(body['types']), 14)  # sans les demandes de connexion (pas de passkey)
         # alertes d'un autre appareil, puis desabonnement a distance
         code, body = self.call('POST', f'/api/push/devices/{other.id}/', {'user': self.badge, 'stock_low': False},
                                local=False)

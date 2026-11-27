@@ -23,7 +23,7 @@ function openWelcomeBeforeLogin(matricule, key, data) {
   openWelcome({
     before: { matricule, key },
     prenom: data.prenom || '',
-    steps: ['passkey', 'pin'],
+    steps: ['passkey', 'pin', ...(pushSupported() ? ['notify'] : [])],
     pinAtLoginDefault: data.pin_at_login_default !== false || !!data.pin_at_login_locked,
     pinAtLoginLocked: !!data.pin_at_login_locked,
   });
@@ -34,13 +34,18 @@ function openWelcomeBeforeLogin(matricule, key, data) {
 // connexion sans code. Remplace l'ancienne proposition de passkey en popup.
 function welcomeAfterLogin(user) {
   if (welcomeOpen() && welcome.before) {
-    finishWelcome();
+    // connecte avec le code choisi : reste l'etape des notifications, si la passkey a ete creee
+    welcome.before = null;
+    welcome.busy = false;
+    if (welcome.steps[welcome.step + 1] === 'notify' && welcome.created) nextWelcomeStep();
+    else finishWelcome();
     return;
   }
   if (!user || user.guest || user !== state.user || verifInProgress()) return;
   if (!passkeyCanOffer() || user.has_passkey || user.passkey_session || webPref('passkey_offered')) return;
   const steps = ['passkey'];
   if (user.pin_mandatory && !user.has_pin) steps.push('pin');
+  if (pushSupported()) steps.push('notify');
   openWelcome({
     before: null,
     prenom: user.prenom || '',
@@ -74,6 +79,9 @@ function finishWelcome() {
 
 function nextWelcomeStep() {
   welcome.error = '';
+  // notifications des demandes de connexion : seulement avec une passkey (c'est elle qui valide)
+  if (welcome.steps[welcome.step + 1] === 'notify' && !welcome.created && !welcome.before) { finishWelcome(); return; }
+  if (welcome.steps[welcome.step + 1] === 'notify' && welcome.before) return; // la connexion (code) passe d'abord
   if (welcome.step + 1 >= welcome.steps.length) {
     // apres la connexion, plus rien a faire ; avant, la derniere etape (le code) connecte, voir welcomeAfterLogin
     if (!welcome.before) finishWelcome();
@@ -100,9 +108,11 @@ function renderWelcome() {
     parts.push(el('ol', { class: 'welcome-steps', 'aria-label': `Étape ${welcome.step + 1} sur ${count}` },
       ...welcome.steps.map((name, index) => el('li', {
         class: index < welcome.step ? 'done' : index === welcome.step ? 'current' : '',
-      }, el('span', {}, index < welcome.step ? '✓' : String(index + 1)), name === 'passkey' ? 'Passkey' : 'Code PIN'))));
+      }, el('span', {}, index < welcome.step ? '✓' : String(index + 1)),
+      name === 'passkey' ? 'Passkey' : name === 'pin' ? 'Code PIN' : 'Notifications'))));
   }
   if (step === 'passkey') parts.push(...welcomePasskeyStep());
+  else if (step === 'notify') parts.push(...welcomeNotifyStep());
   else parts.push(...welcomePinStep());
   body.replaceChildren(...parts);
   if (step === 'pin') setTimeout(() => { if ($('#welcome-pin')) $('#welcome-pin').focus(); }, 50);
@@ -131,6 +141,43 @@ async function welcomeCreatePasskey() {
   welcome.busy = false;
   if (!welcomeOpen()) return;
   if (done) { welcome.created = true; nextWelcomeStep(); } else renderWelcome();
+}
+
+// Notifications des demandes de connexion (Hippolyte, 2026-11-27) : l'application QRProtec d'un ordinateur demande a
+// vous connecter avec votre passkey, ce telephone le signale ; le clic ouvre la page de validation (passkey.js,
+// openPosteBrowserLogin). Proposees juste apres la creation de la passkey, une fois connecte.
+function welcomeNotifyStep() {
+  return [
+    welcome.created ? el('p', { class: 'welcome-done' }, '✔ Passkey créée') : '',
+    el('div', { class: 'welcome-icon' }, icon('bell')),
+    el('h2', { id: 'welcome-title' }, 'Recevez les demandes de connexion'),
+    el('p', {}, 'Quand l\'application QRProtec d\'un ordinateur demande à vous connecter, ce téléphone vous prévient : '
+      + 'touchez la notification et validez avec votre passkey.'),
+    el('p', { class: 'hint' }, 'Seules ces demandes sont activées ici ; le reste se règle dans ⚙ Réglages > Notifications.'),
+    el('p', { class: 'pin-error' }, welcome.error || ''),
+    el('div', { class: 'welcome-buttons' },
+      el('button', { type: 'button', class: 'primary', disabled: welcome.busy || null, onclick: welcomeEnableNotify },
+        icon('bell'), welcome.busy ? 'Activation…' : 'Activer les notifications'),
+      el('button', { type: 'button', class: 'secondary', disabled: welcome.busy || null,
+        onclick: () => finishWelcome() }, 'Plus tard')),
+  ];
+}
+
+function welcomeEnableNotify() {
+  if (welcome.busy) return;
+  // la demande d'autorisation part pendant le clic (sinon Firefox et Safari la refusent sans rien afficher)
+  const asked = Date.now();
+  const permission = askPermission();
+  welcome.busy = true;
+  welcome.error = '';
+  renderWelcome();
+  subscribePush({ login_request: true }, permission, asked).then(() => {
+    welcome.busy = false;
+    if (!welcomeOpen()) return;
+    if (state.pushError) { welcome.error = state.pushError; renderWelcome(); return; }
+    if (state.user) state.user.notifications = true; // ⚙ Reglages > Notifications s'affiche desormais
+    finishWelcome();
+  });
 }
 
 function welcomePinStep() {
@@ -185,7 +232,8 @@ async function welcomeSavePin(pinInput, confirmInput, atLoginInput) {
     save();
     toast('Code PIN enregistré.');
     welcome.busy = false;
-    finishWelcome();
+    if (welcome.steps[welcome.step + 1] === 'notify' && welcome.created) nextWelcomeStep();
+    else finishWelcome();
   } catch (e) {
     feedback.bad();
     welcomePinError(e.message);

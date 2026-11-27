@@ -360,6 +360,12 @@ if ('serviceWorker' in navigator) {
       if (params.get('m') && params.get('t')) startPinReset(params.get('m'), params.get('t'));
       return;
     }
+    if (event.data && event.data.tab === 'poste' && event.data.url) {
+      // demande de connexion de l'application d'un ordinateur : page de validation avec la passkey
+      const request = new URL(event.data.url, location.href).searchParams.get('r');
+      if (request) openPosteBrowserLogin(request);
+      return;
+    }
     if (event.data && event.data.tab === 'stock' && canSeeStock()) { showHome('stock'); loadStock(); }
     if (event.data && event.data.tab === 'reports' && state.user) showHome('reports');
     if (event.data && event.data.tab === 'lot' && event.data.url) {

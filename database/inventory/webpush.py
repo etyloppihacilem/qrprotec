@@ -41,7 +41,7 @@ from typing import TYPE_CHECKING, Any
 from django.db import IntegrityError, close_old_connections, transaction
 from django.utils import timezone
 
-from .models import PushKeys, PushSubscription, Role, qrprotec_setting
+from .models import PushKeys, PushSubscription, Role, Secouristes, qrprotec_setting
 
 if TYPE_CHECKING:
     from cryptography.hazmat.primitives.asymmetric import ec
@@ -312,6 +312,22 @@ def notify_event(field: str, title: str, body: str, url: str = '../', tag: str =
     if tab:
         message['tab'] = tab
     return queue([(subscription.id, dict(message)) for subscription in subscriptions_for(field)])
+
+
+def notify_login_request(user: Secouristes, request_id: str, code: str, poste: str) -> int:
+    """L'application d'un ordinateur demande a connecter `user` avec sa passkey (views/passkeys.py) : notification sur
+    ses appareils abonnes a ce type, le clic ouvre la page de validation (code a comparer avec l'application)."""
+    if not user.active or 'login_request' not in user.push_types():
+        return 0
+    message = {
+        'title': 'QRProtec : demande de connexion',
+        'body': f"L'application QRProtec ({poste}) demande à vous connecter. Code {code} : touchez pour valider "
+                'avec votre passkey.',
+        'tag': 'login-request',
+        'url': '../poste?' + urllib.parse.urlencode({'r': request_id}),
+        'tab': 'poste',
+    }
+    return queue([(subscription.id, dict(message)) for subscription in user.push_subscriptions.filter(login_request=True)])
 
 
 def device_name(user_agent: str | None) -> str:

@@ -106,6 +106,9 @@ avec une passkey** dans la fenêtre de connexion. Le navigateur s'ouvre : vérif
 chiffres est le même que dans l'application, puis **Valider avec ma passkey** (clé USB, Bitwarden,
 trousseau du Mac ou téléphone). L'application se connecte d'elle-même. Si la case « Machine
 partagée » est décochée, l'application propose la passkey en premier à chaque ouverture : Entrée suffit.
+Si vous avez activé les notifications des demandes de connexion (proposées après la création de la
+passkey, ou dans ⚙ Réglages > Notifications), votre téléphone reçoit aussi la demande : touchez-la et
+validez avec la passkey du téléphone.
 
 **Le poste m'a déconnecté et a vidé la pile.**
 Après 15 minutes sans activité, le poste revient à son état de départ (réglable par le TECH).

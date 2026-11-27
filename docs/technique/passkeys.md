@@ -68,6 +68,14 @@ Fichiers concernés :
   Machine non partagée : `session.conf` garde `matricule` + `passkey=1` (rien de secret) ; au
   redémarrage, ou à l'expiration de la session, la fenêtre de connexion propose la passkey en premier et
   Entrée la lance.
+- **Notification « Demande de connexion »** (Hippolyte, 2026-11-27) : type de notification web
+  `login_request` (`PUSH_TYPES`), pour **tous les rôles** pourvu qu'ils aient une passkey (jamais une
+  carte d'invité). Proposé par l'écran de première connexion juste après la création de la passkey
+  (étape « Notifications », une fois connecté), sinon dans ⚙ Réglages > Notifications. Le poste envoie
+  à `auth/poste-browser/` le matricule de la dernière personne connectée (`session.conf` ou mémoire) :
+  ses appareils abonnés reçoivent « QRProtec : demande de connexion » avec le code, au plus une fois
+  toutes les 20 s par personne. Le clic ouvre la même page `poste?r=…` sur le téléphone, où la passkey
+  du téléphone valide. Le poste affiche « Ou touchez la notification reçue sur votre téléphone ».
 
 ## Domaine (RP ID)
 

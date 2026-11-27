@@ -147,6 +147,7 @@ struct PasskeyBrowser {
     std::string poll;
     std::string code;
     std::string url;
+    int         notified  = 0; // appareils (telephone...) prevenus par une notification de demande de connexion
     double      next_poll = 0.0;
     double      expires   = 0.0;
     std::string error;
