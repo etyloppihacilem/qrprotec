@@ -397,7 +397,12 @@ void App::start_passkey_browser() {
     return;
   passkey_      = PasskeyBrowser{};
   passkey_.busy = true;
-  api.post("/api/auth/poste-browser/", Json::object(), [this](const ApiResult &result) {
+  // derniere personne connectee sur ce poste : ses telephones abonnes recoivent une notification « Demande de
+  // connexion », a valider avec la passkey du telephone (sans le navigateur de l'ordinateur)
+  Json body = Json::object();
+  if (!last_login_.matricule.empty())
+    body["matricule"] = last_login_.matricule;
+  api.post("/api/auth/poste-browser/", body, [this](const ApiResult &result) {
     passkey_.busy = false;
     if (!result.ok) {
       passkey_.error = result.error;
@@ -407,6 +412,7 @@ void App::start_passkey_browser() {
     passkey_.poll      = result.data["poll"].str();
     passkey_.code      = result.data["code"].str();
     passkey_.url       = result.data["url"].str();
+    passkey_.notified  = static_cast< int >(result.data["notified"].integer());
     passkey_.expires   = ImGui::GetTime() + static_cast< double >(result.data["seconds"].integer());
     passkey_.next_poll = ImGui::GetTime() + 2.0;
     passkey_.active    = true;
@@ -474,12 +480,14 @@ void App::draw_passkey_browser() {
     return;
   }
   ImGui::SeparatorText("Passkey");
-  ImGui::TextUnformatted("Validez dans le navigateur avec ce code :");
+  ImGui::TextUnformatted("Validez avec votre passkey et ce code :");
   ImGui::PushFont(nullptr, ImGui::GetStyle().FontSizeBase * 2.0f);
   ImGui::TextUnformatted(passkey_.code.c_str());
   ImGui::PopFont();
   const int left = std::max(0, static_cast< int >(passkey_.expires - ImGui::GetTime()));
-  ImGui::TextDisabled("En attente du navigateur... (encore %d min %02d s)", left / 60, left % 60);
+  if (passkey_.notified > 0)
+    ImGui::TextUnformatted("Ou touchez la notification reçue sur votre téléphone.");
+  ImGui::TextDisabled("En attente de la validation... (encore %d min %02d s)", left / 60, left % 60);
   if (!passkey_.error.empty()) {
     ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + 360.0f);
     ImGui::TextColored(colors::red, "%s", passkey_.error.c_str());

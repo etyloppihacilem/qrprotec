@@ -35,7 +35,9 @@ self.addEventListener('notificationclick', (event) => {
     const windows = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
     const open = windows.find((client) => new URL(client.url).origin === self.location.origin);
     if (open) {
-      open.postMessage({ tab, url }); // la page affiche la gestion de la TECH, ou le deblocage d'un PIN (web/app/settings.js)
+      // la page affiche la gestion de la TECH, le deblocage d'un PIN ou la validation d'une demande de connexion (poste)
+      // (web/app/settings.js)
+      open.postMessage({ tab, url });
       return open.focus();
     }
     return self.clients.openWindow(url || '../');

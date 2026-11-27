@@ -1570,7 +1570,15 @@ def events_list(request: Request) -> Response:
     return Response(tasks.events(days=_events_days(request.query_params.get('days'))))
 
 
-# Notifications web (roles gestion et admin, depuis le front web)
+# Notifications web (front web) : gestion et admin pour la plupart, tous les roles pour les demandes de connexion
+
+def push_user(request: Request) -> Secouristes:
+    """Utilisateur connecte qui peut recevoir au moins un type de notification (sinon 403)."""
+    user = badge_user(request, ALL_ROLES)
+    if not user.push_types():
+        raise ApiError("Pas de notification pour votre compte", status.HTTP_403_FORBIDDEN)
+    return user
+
 
 def push_available() -> None:
     if not webpush.available():
@@ -1638,10 +1646,10 @@ def push_subscription(request: Request) -> Response:
     """Etat de l'abonnement de ce navigateur (endpoint), ou creation / mise a jour si `subscription` est donne.
 
     {"user": badge, "endpoint": ...} -> etat ; {"user": badge, "subscription": {endpoint, keys: {p256dh, auth}},
-    types de PUSH_TYPES: bool} -> abonnement enregistre. Roles gestion et admin ; `types` liste ce que
+    types de PUSH_TYPES: bool} -> abonnement enregistre. Tous les roles (push_user) ; `types` liste ce que
     l'utilisateur peut recevoir (son role, moins ce qu'un admin a coupe).
     """
-    user = badge_user(request, GESTION)
+    user = push_user(request)
     push_available()
     data = request.data
     subscription_data = data.get('subscription')
@@ -1674,7 +1682,7 @@ def push_devices(request: Request) -> Response:
 
     {"user": badge, "endpoint": celui de ce navigateur (facultatif, pour le reperer)} -> {types, devices}.
     """
-    user = badge_user(request, GESTION)
+    user = push_user(request)
     return Response(push_devices_dict(user, str(request.data.get('endpoint', ''))))
 
 
@@ -1683,7 +1691,7 @@ def push_devices(request: Request) -> Response:
 def push_device(request: Request, device_id: int) -> Response:
     """Un appareil de l'utilisateur connecte : {"user": badge, types: bool} change ses alertes,
     {"user": badge, "delete": true} le desabonne. Repond la liste a jour, comme push/devices/."""
-    user = badge_user(request, GESTION)
+    user = push_user(request)
     subscription = get_object_or_404(PushSubscription, id=device_id, user=user)
     if request.data.get('delete'):
         subscription.delete()
@@ -1705,7 +1713,7 @@ def push_unsubscribe(request: Request) -> Response:
 @handle_errors
 def push_test(request: Request) -> Response:
     """Notification de test vers ce navigateur."""
-    user = badge_user(request, GESTION)
+    user = push_user(request)
     push_available()
     subscription = PushSubscription.objects.filter(endpoint=str(request.data.get('endpoint', '')), user=user).first()
     if subscription is None:

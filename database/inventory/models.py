@@ -1049,6 +1049,7 @@ def default_pin_required_roles() -> list[str]:
 # Un admin peut en couper certains par utilisateur (Secouristes.push_disabled, fenetre Utilisateurs).
 _GESTION_ROLES = (Role.GESTION, Role.ADMIN)
 _ADMIN_ROLES = (Role.ADMIN,)
+_ALL_ROLES = tuple(Role)
 PUSH_TYPES = {
     'stock_low': ('Stock bas (sous le minimum fixé)', _GESTION_ROLES, True),
     'stock_empty': ('Stock vide (0 en stock)', _GESTION_ROLES, True),
@@ -1067,6 +1068,9 @@ PUSH_TYPES = {
     # sauvegarde ou envoi sur la machine distante en echec, erreur 500... : le detail est dans les journaux
     'server_problem': ('Problème de serveur (sauvegarde, envoi des sauvegardes, erreur à lire dans les journaux)',
                        _ADMIN_ROLES, False),
+    # tous les roles (Hippolyte, 2026-11-27) : l'application d'un ordinateur demande a vous connecter avec votre
+    # passkey ; le clic ouvre la page de validation (views/passkeys.py, poste_browser_start)
+    'login_request': ("Demande de connexion à l'application QRProtec d'un ordinateur (passkey)", _ALL_ROLES, True),
 }
 
 
@@ -1175,8 +1179,16 @@ class Secouristes(models.Model):
         return None if contact is None or contact.matricule == self.matricule else contact
 
     def push_role_types(self) -> list[str]:
-        """Types de notifications web que le role permet (gestion et admin seulement)."""
-        return [name for name, (_, roles, _) in PUSH_TYPES.items() if self.role in roles]
+        """Types de notifications web que le role permet (presque tous pour gestion et admin ; les demandes de
+        connexion pour tous, s'ils ont une passkey : c'est elle qui valide). Jamais pour une carte d'invite."""
+        if self.guest:
+            return []
+        names = [name for name, (_, roles, _) in PUSH_TYPES.items() if self.role in roles]
+        count = getattr(self, 'passkey_count', None)  # annote par la liste des utilisateurs (une requete en tout)
+        has_passkey = bool(count) if count is not None else self.pk is not None and self.passkeys.exists()
+        if 'login_request' in names and not has_passkey:
+            names.remove('login_request')
+        return names
 
     def push_types(self) -> list[str]:
         """Types que cet utilisateur peut recevoir : ceux de son role, moins ceux qu'un admin a coupes."""
@@ -1772,7 +1784,8 @@ class Passkey(models.Model):
 
 
 class PushSubscription(models.Model):
-    """Abonnement d'un navigateur aux notifications web (roles gestion et admin), un par appareil."""
+    """Abonnement d'un navigateur aux notifications web, un par appareil (tous les roles : chacun ne recoit que les
+    types de son role, voir PUSH_TYPES)."""
     user = models.ForeignKey(Secouristes, on_delete=models.CASCADE, related_name='push_subscriptions')
     endpoint = models.URLField(max_length=1024, unique=True)
     p256dh = models.CharField(max_length=128)
@@ -1791,6 +1804,7 @@ class PushSubscription(models.Model):
     revision_daily = models.BooleanField(default=True)  # resume quotidien des revisions de materiel a faire
     verif_problem = models.BooleanField(default=False)  # verif de lot incomplete (manquants, perimes, disparus)
     server_problem = models.BooleanField(default=False)  # sauvegarde, envoi des sauvegardes, erreur du serveur (admins)
+    login_request = models.BooleanField(default=True)  # demande de connexion de l'application d'un ordinateur (tous)
     device = models.CharField(max_length=64, blank=True, default='')  # navigateur et systeme, d'apres le User-Agent
     created = models.DateTimeField(default=timezone.now)
     last_sent = models.DateTimeField(blank=True, null=True)

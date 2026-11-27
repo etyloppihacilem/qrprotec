@@ -200,6 +200,7 @@ def debug_passkeys(request: Request) -> Response:
 
 POSTE_BROWSER_MAX_AGE = 300  # demande valable 5 min
 POSTE_BROWSER_CACHE = 'qrprotec.poste-browser.'
+POSTE_BROWSER_NOTIFY_EVERY = 20  # secondes entre deux notifications de demande de connexion a la meme personne
 
 
 def poste_browser_key(request_id: Any) -> str:
@@ -222,8 +223,12 @@ def poste_browser_left(data: dict[str, Any]) -> int:
 @handle_errors
 def poste_browser_start(request: Request) -> Response:
     """Poste (API locale ou cle de front) : nouvelle demande de connexion par le navigateur -> {"request", "poll",
-    "code", "url", "seconds"}. `url` est a ouvrir dans le navigateur de l'ordinateur ; `poll` reste dans le poste
-    (auth/poste-browser/poll/)."""
+    "code", "url", "seconds", "notified"}. `url` est a ouvrir dans le navigateur de l'ordinateur ; `poll` reste dans le
+    poste (auth/poste-browser/poll/).
+
+    {"matricule"} facultatif (derniere personne connectee sur ce poste) : notification « Demande de connexion » sur ses
+    appareils abonnes (Hippolyte, 2026-11-27), le clic ouvre la meme page de validation, sur le telephone par exemple.
+    `notified` : nombre d'appareils prevenus. Une notification par personne toutes les 20 s au plus."""
     if not is_front(request):
         raise ApiError("Réservé aux postes", status.HTTP_403_FORBIDDEN)
     check_login_address(request)
@@ -234,8 +239,15 @@ def poste_browser_start(request: Request) -> Response:
         'poll': hashlib.sha256(poll.encode()).hexdigest(), 'code': code, 'expires': expires,
         'poste': getattr(request, 'qrprotec_front', '') or 'poste principal', 'matricule': None,
     }, POSTE_BROWSER_MAX_AGE + 60)
+    poste = getattr(request, 'qrprotec_front', '') or 'poste principal'
+    notified = 0
+    matricule = str(request.data.get('matricule') or '')[:16]
+    if matricule and cache.add(f'{POSTE_BROWSER_CACHE}notified.{matricule}', 1, POSTE_BROWSER_NOTIFY_EVERY):
+        user = Secouristes.objects.filter(matricule=matricule, guest=False).first()
+        if user is not None and user.badge_valid() and user.passkeys.exists():
+            notified = webpush.notify_login_request(user, request_id, code, poste)
     return Response({'request': request_id, 'poll': poll, 'code': code, 'seconds': POSTE_BROWSER_MAX_AGE,
-                     'url': ser.public_url('poste', r=request_id)})
+                     'url': ser.public_url('poste', r=request_id), 'notified': notified})
 
 
 @api_view(['POST'])
