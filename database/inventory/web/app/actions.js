@@ -123,7 +123,8 @@ function identityRefused(e) {
 
 // Vérif à plusieurs : chacun valide sa partie, le dernier participant connecte envoie la vérif commune.
 // auto : le serveur demande l'envoi (les autres participants sont partis), sans redemander de confirmation.
-async function validate(partial = false, auto = false) {
+// forced : reassort fait ou « Valider la vérif incomplète » (restock.js), sans ecran de reassort.
+async function validate(partial = false, auto = false, forced = false) {
   if (state.busy) return;
   if (!auto && !await ensureVerifIdentity()) return;
   const missing = blockers(false);
@@ -132,6 +133,8 @@ async function validate(partial = false, auto = false) {
     if (!auto && askLabel()) return;
     feedback.warn(); toast('Pour valider : ' + missing.join(', ') + '.', true); return;
   }
+  // il manque des items : ecran de reassort (liste de courses, scan du reassort) au lieu de valider incomplet
+  if (!auto && !partial && !forced && askRestock(sessionLots().map((lot) => lot.id))) return;
   const team = live.inTeam();
   if (team && !auto) {
     state.busy = true;
@@ -164,7 +167,8 @@ async function validate(partial = false, auto = false) {
     }
     const expected = lots.reduce((sum, lot) => sum + expectedGroups(lot, plan).remaining, 0);
     const what = isMulti() ? 'les lots seront incomplets' : 'le lot sera incomplet';
-    return !expected || confirmDialog('Valider quand même ?',
+    // il ne manque que des items hors definition du lot (pas de reassort) : question d'avant
+    return !expected || forced || confirmDialog('Valider quand même ?',
       `${nb(expected, 'item attendu', 'items attendus')} ${pl(expected, 'manque', 'manquent')} : ${what}.`, 'Valider incomplet', 'warning');
   };
   if (!await confirmed()) { if (team || auto) live.unvalidate(); return; }
@@ -335,10 +339,16 @@ function confirmBreakSeal(names) {
   return confirmDialog('Briser le scellé ?', `${names.join(', ')} : scellé. Valider une vérif brisera le scellé.`, 'Valider et briser le scellé', 'warning');
 }
 
-// confirmed : lot incomplet deja confirme (popup « Passer a … »)
+// confirmed : lot incomplet deja confirme (popup « Passer a … », reassort fait ou « Valider la vérif incomplète »)
 async function validateStep(partial = false, confirmed = false) {
   if (state.busy) return;
   if (!await ensureVerifIdentity()) return;
+  // fin de la vérif en cascade avec des lots au reassort de fin : leur reassort d'abord (restock.js), puis chacun est
+  // valide avant le lot global
+  if (levelId() === state.lotId && !partial && pendingLater().length) {
+    if (!confirmed) { askEndRestock(); return; }
+    if (!await validateLater()) return;
+  }
   const top = levelLot();
   const atRoot = top.id === state.lotId;
   const exclude = excludedFor(top.id);
@@ -369,6 +379,8 @@ async function validateStep(partial = false, confirmed = false) {
   } else {
     const expected = lots.reduce((sum, lot) => sum + expectedGroups(lot, plan).remaining, 0);
     const subs = lots.filter((lot) => lot.id !== top.id && ownContent(lot)).map((lot) => lot.name);
+    // il manque des items : ecran de reassort (au fur et a mesure, ou a la fin de la vérif du lot global)
+    if (expected && !confirmed && !top.storage && askRestock(lots.map((lot) => lot.id), top.id)) return;
     if (expected && !confirmed && !await confirmDialog('Valider quand même ?', `${nb(expected, 'item attendu', 'items attendus')} ${pl(expected, 'manque', 'manquent')} : ${top.name} sera incomplet`
       + (subs.length ? ` (avec ${subs.join(', ')})` : '') + '.', 'Valider incomplet', 'warning')) return;
   }
@@ -394,6 +406,7 @@ async function validateStep(partial = false, confirmed = false) {
     state.startedAt = new Date().toISOString(); // l'etape suivante de la vérif en cascade commence
     state.scanned = state.scanned.filter((entry) => !(entry.kind === 'seal' && payload.sealed.some((row) => row.id === entry.iid)));
     const done = (report.lots || []).filter((row) => row.verified);
+    if (state.restock && !state.restock.end && done.length) state.restock = null; // reassort de ce lot fait
     const incomplete = done.filter((row) => !row.complete);
     // rangement du stock : y ranger des items est l'usage normal, « Ajouter » clot la vérif comme une vérif complete
     // du rangement (celui dont on a lance la vérif ; dans une tournee du stock, retour au lot qui le contient)
@@ -652,7 +665,8 @@ function forgetLot(message = "Scannez l'étiquette d'un lot.") {
 }
 
 $('#report-close').addEventListener('click', () => $('#report').close());
-$('#validate').addEventListener('click', () => (takingOut() ? takeOut() : inCascade() ? validateStep(false) : validate(false)));
+$('#validate').addEventListener('click', () => (takingOut() ? takeOut() : restockScanning() ? restockValidate(false)
+  : inCascade() ? validateStep(false) : validate(false)));
 // Suite de la question du reassort : le lot passe en verif recommandee (reglage du serveur, coche par defaut), sauf
 // sous le credit de confiance (reglage decoche : N sorties / X jours depuis la derniere verif complete)
 const restockNote = (lot) => (!lot || !lot.restock_credit ? 'Le lot sera signalé « vérif recommandée » pour la personne suivante.'
@@ -708,6 +722,7 @@ $('#menu').addEventListener('click', async (event) => {
 // « Quitter cette vérif » (menu ⋯) : rien n'est enregistre, retour a l'accueil. Les scans sont oublies (une vérif
 // commune continue sans nous).
 async function quitVerif() {
+  if (!await quitWithLater()) return;
   const count = state.scanned.length;
   if (count && !await confirmDialog('Quitter cette vérif ?', `${nb(count, 'scan')} ${pl(count, 'ne sera pas enregistré', 'ne seront pas enregistrés')}.`, 'Quitter', 'danger')) return;
   state.waitingTeam = false;

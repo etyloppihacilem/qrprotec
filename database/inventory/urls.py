@@ -38,6 +38,7 @@ public_patterns = [
     path('lots/batch/', views.lots_batch),   # avant lots/<id>/
     path('lots/order/', views.lots_order),   # ordre choisi des lots (gestion, admin)
     path('stock/summary/', views.stock_summary),
+    path('stock/where/', views.stock_where),
     path('stock/forecast/summary/', views.stock_forecast_summary),
     path('tasks/summary/', views.tasks_summary),
     path('events/summary/', views.events_summary),

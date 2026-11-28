@@ -265,6 +265,37 @@ motif, date et auteur de la désactivation) s'affiche d'abord, puis **Voir les t
 tâches. Au poste, l'écran clignote en rouge, sans fenêtre de tâches : l'item compte comme un
 périmé, à remplacer.
 
+## Il manque du matériel : l'écran de réassort (téléphone)
+
+Sur le téléphone, **Valider la vérif** quand il manque des items n'enregistre pas tout de suite un
+lot incomplet : un écran de réassort s'ouvre.
+
+1. **La liste de courses** : ce qui manque, par type (« 2 × Sérum physiologique »), avec en dessous
+   le rangement du stock où en prendre (celui dont le matériel périme le plus tôt d'abord, puis les
+   autres). La **loupe** 🔍 dit où se trouve ce rangement (la pièce, l'armoire…). Cochez les cases
+   au fur et à mesure en prenant le matériel : ce n'est qu'un aide-mémoire, rien n'est enregistré
+   au stock. À plusieurs sur la même vérif, tout le monde voit les mêmes cases cochées.
+2. **J'ai tout le réassort** (même si tout n'est pas coché) : retour au lecteur. Scannez chaque
+   objet en le mettant dans le lot. Les items à cocher (gobelets…) se cochent dans la liste en les
+   sortant du stock, puis à nouveau dans le lot en les y rangeant.
+3. **Valider la vérif** : s'il ne manque plus rien, le lot est **complet**. Sinon la liste se rouvre
+   avec ce qui reste.
+
+Le petit bouton rouge **Valider la vérif incomplète** enregistre la vérif telle quelle, à tout
+moment : ce qui n'est pas scanné passe manquant.
+
+**Vérif en cascade** (B+, VPS…) : pour un sous-lot incomplet, **Faire le réassort à la fin de la
+vérif de B+** le laisse de côté (« réassort à la fin », ses scans sont gardés). En validant le lot
+global, une seule liste regroupe tout ce qui manque dans ces lots : un seul passage au stock. Au
+scan, chaque objet venu du stock va d'office dans le lot qui en manque, et l'écran dit lequel
+(« À mettre dans Sac de soin ») ; vous pouvez aussi scanner l'étiquette d'un lot pour choisir.
+Pour repartir avec seulement votre sous-lot pendant que les autres continuent, touchez-le, faites
+son réassort tout de suite, puis **Quitter la vérif**. En quittant une vérif avec des lots « réassort
+à la fin », le téléphone propose de les valider incomplets.
+
+Au poste, le TECH renseigne **Où trouver ce rangement** dans la fiche de chaque rangement (Gestion
+des lots).
+
 ## Réassort : ajouter du matériel sans tout vérifier
 
 Au retour d'intervention, quand on remet dans le sac ce qui a été utilisé :

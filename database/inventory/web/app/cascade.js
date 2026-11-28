@@ -44,6 +44,7 @@ const cascadeActive = () => inCascade() && (state.path.length > 0 || state.enter
 function resetCascade() {
   state.path = []; state.done = {}; state.keys = {}; state.entered = []; state.reopened = {}; state.startedIn = ''; state.labels = [];
   state.openSeals = []; state.full = false; state.fullBy = ''; state.fullHidden = false;
+  state.restock = null; state.restockChecked = {}; state.restockLater = []; state.restockLocal = false;
 }
 
 // Facultatif (casques du VPS, sous-lot facultatif) : le lot se valide sans, sauf en « vérif complète » (bouton des
@@ -147,8 +148,8 @@ function touched(id) {
     || allScanned().some((entry) => !entry.error && ids.has(entry.place || state.lotId));
 }
 
-// Sous-lots du lot top laisses de cote a sa validation (avec leurs sous-lots) : deja valides, pas commences, ou
-// en cours chez un autre participant
+// Sous-lots du lot top laisses de cote a sa validation (avec leurs sous-lots) : deja valides, pas commences, en
+// cours chez un autre participant, ou dont le reassort se fait a la fin de la vérif (valides a ce moment-la)
 function excludedFor(top) {
   const others = othersLevels();
   const mine = levelId();
@@ -157,7 +158,7 @@ function excludedFor(top) {
     for (const child of childrenOf(id)) {
       const ids = subtreeIds(child.id);
       const busy = ids.some((lotId) => others[lotId]) && !ids.includes(mine);
-      if (state.done[child.id] || busy || !touched(child.id)) result.push(child.id);
+      if (state.done[child.id] || busy || !touched(child.id) || state.restockLater.includes(child.id)) result.push(child.id);
       else walk(child.id);
     }
   };

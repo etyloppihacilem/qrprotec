@@ -19,7 +19,8 @@ let torchWanted = false;  // lampe torche (Chrome Android ; Safari iOS et Firefo
 // Android, un flux encore ouvert quand l'ecran s'eteint ou que l'onglet est decharge peut laisser la
 // camera « utilisee par Firefox » jusqu'au redemarrage du telephone.
 function cameraShouldRun() {
-  return cameraWanted && !document.hidden && (!ficheOpen() || readerOpen() || gateOpen()) && $('#opening').hidden;
+  return cameraWanted && !document.hidden && (!ficheOpen() || readerOpen() || gateOpen()) && $('#opening').hidden
+    && $('#restock-screen').hidden; // liste de courses du reassort : on va au stock, pas de camera
 }
 
 function syncCamera() {

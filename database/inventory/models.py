@@ -791,6 +791,9 @@ class Lots(models.Model):
     # et placeholder {{rangement}} de son etiquette (« {{rangement}} du stock » → « armoire du stock »). Sans effet
     # sur un lot ordinaire.
     storage_kind = models.CharField(max_length=32, blank=True, default=STORAGE_KIND_DEFAULT)
+    # Ou se trouve un rangement du stock, pour qui doit le chercher (ex : « sous-sol, porte du fond à gauche »), texte
+    # libre affiche a la loupe de l'ecran de reassort du web. Sans effet sur un lot ordinaire.
+    storage_location = models.CharField(max_length=200, blank=True, default='')
 
     def save(self, *args: Any, **kwargs: Any) -> None:
         if not self.version:

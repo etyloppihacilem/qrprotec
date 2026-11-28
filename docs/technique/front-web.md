@@ -70,6 +70,7 @@ Deux règles :
 | `cascade.js` | Vérif en cascade, items à cocher, `planSession`, `lotStatus` |
 | `pin-reset.js` | Déblocage d'un PIN par un admin |
 | `actions.js` | `validate`, `partialLots`, réassort, menus de la vérif |
+| `restock.js` | écran de réassort d'une vérif incomplète : liste de courses partagée (`askRestock`, `shoppingList`, `POST stock/where/`), scan du réassort et dispatch vers les lots (`restockDispatch`), réassort de fin de vérif en cascade (`restockLater`, `validateLater`) |
 | `render.js` | Onglets À scanner / Scannés / Lot, `render()` |
 | `home.js` | Accueil et navigation entre ses pages |
 | `login.js` | Grande fenêtre de connexion, connexion par nom, web partagé |

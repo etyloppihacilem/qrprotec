@@ -237,6 +237,13 @@ def storage_kind(lot: Lots) -> str:
     return lot.storage_kind or STORAGE_KIND_DEFAULT
 
 
+def storage_location(lot: Lots) -> str:
+    """Ou trouver un rangement du stock (Lots.storage_location), vide pour un lot ordinaire et pour le stock."""
+    if not lot.lot_type.storage or lot.lot_type_id == STOCK_LOT_TYPE:
+        return ''
+    return lot.storage_location
+
+
 def item_last_location(item: Items) -> dict[str, Any] | None:
     """Dernier emplacement connu d'un item (fiche d'item du front web) : son lot actuel, ou pour un item qui n'est
     plus actif (sorti, disparu, utilise...) le lot qu'il a quitte en dernier. None : en stock, ou jamais range."""
@@ -256,6 +263,7 @@ def item_last_location(item: Items) -> dict[str, Any] | None:
         'lot_type_name': lot.lot_type.name,
         'storage': lot.lot_type.storage,
         'storage_kind': storage_kind(lot),
+        'storage_location': storage_location(lot),
         'path': [{'id': parent.id, 'name': parent.name} for parent in reversed(lot.ancestors())],
         'current': item.location_id == lot.id,
         'at': _date(at),
@@ -442,6 +450,7 @@ def _lot_core(lot: Lots, today: date, items: list[Items] | None = None, preload:
         'unique': lot.lot_type.unique,
         # genre d'un rangement du stock (pièce, armoire...), vide pour un lot ordinaire et pour le stock lui-meme
         'storage_kind': storage_kind(lot),
+        'storage_location': storage_location(lot),
         'seal_required': lot.lot_type.seal_required,
         'name': lot.name,
         'name_short': lot.name_short,

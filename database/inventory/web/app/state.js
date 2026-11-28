@@ -146,6 +146,12 @@ const state = {
   reopened: {},           // lots valides rouverts (« Le refaire ») : {id: validation d'avant}, rendue si l'on en ressort sans scan
   startedIn: '',          // sous-lot dont on a lance la vérif (ex : un kit dans le VPS)
   openSeals: [],          // lots scelles dont on a choisi de verifier le contenu (sealWaiting)
+  // Reassort d'une vérif incomplete (restock.js) : {stage: 'list' (liste de courses) ou 'scan' (scan du reassort),
+  // lots: [ids], level: lot ou l'on validait (cascade), end: reassort de fin de vérif en cascade}, null sinon
+  restock: null,
+  restockChecked: {},     // liste de courses : types pris au stock {type: qui} (partages entre participants)
+  restockLater: [],       // vérif en cascade : lots dont le reassort se fait a la fin (partages)
+  restockLocal: false,    // liste changee ici sans connexion a la vérif commune : renvoyee a la connexion
 };
 
 // roles gestion et admin : acces en lecture a l'etat des stocks
@@ -196,6 +202,7 @@ function save() {
       launched: state.launched, current: state.current, full: state.full, fullHidden: state.fullHidden,
       path: state.path, done: state.done, keys: state.keys, entered: state.entered, reopened: state.reopened, startedIn: state.startedIn,
       labels: state.labels, openSeals: state.openSeals, startedAt: state.startedAt,
+      restock: state.restock, restockChecked: state.restockChecked, restockLater: state.restockLater,
       extra: state.extra.map(({ id, key }) => ({ id, key })),
       scanned: state.scanned.map(({ code, kind, iid, key, info, expired, error, items, place, at }) => ({ code, kind, iid, key, info, expired, error, items, place, at })),
     }));
@@ -240,6 +247,9 @@ function restore() {
       state.reopened = session.reopened && typeof session.reopened === 'object' ? session.reopened : {};
       state.startedIn = typeof session.startedIn === 'string' ? session.startedIn : '';
       state.startedAt = typeof session.startedAt === 'string' ? session.startedAt : '';
+      state.restock = session.restock && typeof session.restock === 'object' && Array.isArray(session.restock.lots) ? session.restock : null;
+      state.restockChecked = session.restockChecked && typeof session.restockChecked === 'object' ? session.restockChecked : {};
+      state.restockLater = Array.isArray(session.restockLater) ? session.restockLater : [];
       state.scanned = Array.isArray(session.scanned) ? session.scanned : [];
       state.lastVerif = session.lastVerif || null;
       state.extra = Array.isArray(session.extra) ? session.extra.map(({ id, key }) => ({ id, key, lot: null })) : [];

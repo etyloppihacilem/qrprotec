@@ -1265,6 +1265,18 @@ def lot_add_items(request: Request, lot_id: str) -> Response:
 
 @api_view(['POST'])
 @handle_errors
+def stock_where(request: Request) -> Response:
+    """Ecran de reassort du web : rangements du stock ou prendre les types qui manquent ({"types": [...]}). Publique
+    comme le detail d'un lot : seulement le nom des rangements et le nombre d'items utilisables de ces types."""
+    from .. import restock
+    types = request.data.get('types')
+    if not isinstance(types, list):
+        raise ApiError("types : liste de types d'items attendue")
+    return Response({'types': restock.stock_places([str(value) for value in types])})
+
+
+@api_view(['POST'])
+@handle_errors
 def lots_summary(request: Request) -> Response:
     """Liste des lots actifs et de leur etat (lecture seule) : page « État des lots » et choix d'un lot a verifier.
     Publique comme le detail d'un lot (etiquettes publiques) ; un badge envoye doit etre valide. Les cles des lots

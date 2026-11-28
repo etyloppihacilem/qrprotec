@@ -1269,3 +1269,51 @@ button.dash-head .fold { width: 1.4em; height: 1.4em; border: 1px solid var(--li
 .dash-bubble { position: relative; background: var(--navy-bg); color: var(--text); border-radius: 8px; padding: 6px 10px; font-size: .82rem; }
 .dash-bubble::before { content: ''; position: absolute; top: -6px; left: 18px; border: 6px solid transparent; border-top: 0;
   border-bottom-color: var(--navy-bg); }
+
+/* ---- Reassort d'une vérif incomplete (web/app/restock.js) ---- */
+/* liste de courses en plein ecran, sans camera : on va au stock */
+body.restock-open #camera, body.restock-open #panel { display: none; }
+body.restock-open #toast { bottom: calc(150px + env(safe-area-inset-bottom)); }
+#restock-screen { height: var(--app-h); display: flex; flex-direction: column; background: var(--panel); }
+#restock-screen[hidden] { display: none; }
+#restock-bar { padding: calc(8px + env(safe-area-inset-top)) 10px 11px; background: var(--dark); box-shadow: inset 0 -3px 0 var(--pc-orange); }
+#restock-bar .chip { background: rgba(255, 255, 255, .14); }
+#restock-body { flex: 1; min-height: 0; overflow-y: auto; -webkit-overflow-scrolling: touch; padding: 14px 12px 20px; }
+#restock-body h2 { margin: 0 0 6px; font-size: 1.3rem; }
+.restock-intro { margin: 4px 0 10px; color: var(--muted); font-size: .92rem; }
+.restock-list { list-style: none; margin: 0 -12px; padding: 0; }
+.restock-row { display: flex; align-items: flex-start; gap: 10px; padding: 12px; border-bottom: 1px solid var(--line); }
+.restock-row .main { flex: 1; min-width: 0; cursor: pointer; }
+.restock-row .name { font-size: 1.08rem; font-weight: 600; }
+.restock-row .sub { color: var(--muted); font-size: .85rem; }
+.restock-row.checked .name { color: var(--muted); text-decoration: line-through; }
+.restock-box { flex: none; width: 44px; height: 44px; padding: 0; font-size: 1.7rem; line-height: 1; background: none; color: var(--navy); }
+.restock-row.checked .restock-box { color: var(--green); }
+.restock-loupe { flex: none; width: 44px; height: 44px; padding: 0; font-size: 1.2rem; }
+.restock-loupe.on { background: var(--navy-bg); outline: 2px solid var(--navy); }
+.restock-where { margin-top: 3px; font-size: .88rem; color: var(--navy); }
+.restock-where .more { color: var(--muted); }
+.restock-where.none { color: var(--orange); }
+.restock-places { list-style: none; margin: 6px 0 0; padding: 0; }
+.restock-places li { margin: 0 0 6px; padding: 8px 10px; border-radius: 8px; background: var(--navy-bg); font-size: .88rem; }
+.restock-places .name { font-size: .95rem; }
+.restock-places .kind { color: var(--muted); font-weight: 400; }
+.restock-places .where-hint { margin: 2px 0; font-weight: 600; }
+.restock-count { margin: 10px 0 0; color: var(--muted); font-size: .85rem; text-align: center; }
+#restock-actions { display: flex; flex-direction: column; gap: 8px; padding: 10px 12px calc(10px + env(safe-area-inset-bottom));
+  border-top: 1px solid var(--line); background: var(--panel); }
+#restock-have { min-height: 64px; font-size: 1.2rem; }
+#restock-later[hidden], #restock-force[hidden] { display: none; }
+/* petit bouton rouge : forcer une vérif incomplete */
+.danger.small, #restock-force { align-self: center; padding: 6px 12px; font-size: .82rem; border-radius: 8px; }
+/* scan du reassort : bandeau au-dessus de la liste du lecteur */
+.restock-banner { padding: 8px 12px; border-left: 6px solid var(--orange); background: var(--orange-bg); font-size: .9rem; }
+.restock-banner[hidden] { display: none; }
+.restock-banner-head { display: flex; align-items: center; gap: 8px; }
+.restock-banner-head .main { flex: 1; min-width: 0; }
+.restock-banner-head .name { font-weight: 600; }
+.restock-banner-head .sub { color: var(--muted); font-size: .82rem; }
+.restock-banner-head button { flex: none; padding: 6px 12px; }
+.restock-dispatch { margin: 6px 0 4px; padding-left: 18px; }
+.restock-dispatch .text-link { padding: 0; font-size: inherit; color: var(--navy); }
+.restock-banner .restock-force { display: block; margin: 4px 0 0 auto; }

@@ -237,6 +237,7 @@ Après chaque `state`, le serveur tente une **fusion** (`_merge`, plus bas) puis
 | `unvalidate` | annule sa validation (confirmation refusée, vérif refusée par l'API, envoi impossible) ; libère `submitting` s'il le tenait. |
 | `done` `{complete, partial, present}` | la vérif vient d'être enregistrée par ce téléphone (vérif seul, sans `live`) : affichée terminée. |
 | `leave` | vérif en cascade terminée par ce participant (voir « Vérif en cascade »). Le serveur termine la boucle. |
+| `restock` `{check, on}` / `{later, on}` / `{reset}` | liste de réassort partagée (voir « Liste de réassort partagée »). |
 | `cancel` | plus de vérif en cours sur ce téléphone : état, scans et validation effacés (le participant reste, connecté). |
 | `ping` | ignoré (maintien en vie). |
 
@@ -348,6 +349,18 @@ participant désigné disparaît lui-même plus de `GRACE`, un autre est désign
 les participants dans `team` (`full`, `full_by`) et aux pages de suivi dans la carte (`full`, plus
 `optional` publié par les pages de scan pour afficher le bouton). La vérif envoyée (`POST verifs`
 avec `live`, ou `save_unattended`) est alors faite en `strict` : rien n'est facultatif.
+
+### Liste de réassort partagée
+
+Valider une vérif où il manque des items ouvre, au téléphone, l'écran de réassort (`web/app/restock.js`) : une liste
+de courses à cocher en prenant le matériel dans le stock. Ses cases sont partagées entre les participants :
+`LiveSession.restock_checked` (type d'item → nom de qui l'a coché) et `LiveSession.restock_later` (vérif en cascade :
+lots dont le réassort se fait à la fin de la vérif du lot global, dans l'ordre). Messages de la page de scan :
+`{"type": "restock", "check": type, "on": bool}` (case cochée ou décochée), `{"type": "restock", "later": id du lot,
+"on": bool}`, `{"type": "restock", "reset": true}` (tout vider), traités par `set_restock` (bornés à `MAX_RESTOCK`
+cases et `MAX_LOTS` lots). L'état part à tous dans `team.restock` (`{"checked": {...}, "later": [...]}`) ; deux vérifs
+fusionnées réunissent leurs listes. Ce n'est que de l'affichage : la vérif envoyée reste contrôlée par le serveur
+comme toute autre. Une page qui a changé sa liste sans connexion la renvoie au retour (`restockLocal`).
 
 ## Vérif en cascade à plusieurs
 
