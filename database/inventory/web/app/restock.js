@@ -254,29 +254,32 @@ function renderRestock() {
   $('#restock-force').hidden = !list.length;
 }
 
-// Bandeau du reassort au lecteur : ce qu'il reste a ranger, lot par lot (dispatch)
+// Bandeau du reassort au lecteur : une carte par lot avec ce qu'il reste a y ranger (pastilles), le lot du dernier
+// item range en evidence, et l'avancement. Le moins de texte possible : on lit en marchant.
 function renderRestockBanner() {
   const banner = $('#restock-banner');
   if (!restockScanning()) { banner.hidden = true; return; }
   banner.hidden = false;
+  const restock = state.restock;
   const needs = restockNeeds(restockLots());
-  const multi = needs.length > 1 || state.restock.end;
-  const lines = needs.map(({ lot, rows }) => el('li', {},
-    multi ? el('b', {}, lot.name + ' : ') : '',
-    ...rows.map((need, index) => [index ? ', ' : '', need.check
-      ? el('button', { type: 'button', class: 'text-link', title: 'Rangé dans le lot : cochez-le',
-        onclick: () => toggleCheck(lot, need.row) }, `☐ ${needText(need)}`)
-      : needText(need)]).flat()));
+  const left = needs.reduce((sum, { rows }) => sum + rows.reduce((total, need) => total + (need.check ? 1 : need.lacking), 0), 0);
+  restock.total = Math.max(restock.total || 0, left);
+  const showNames = needs.length > 1 || restock.end;
+  const chip = (lot, need) => (need.check
+    ? el('button', { type: 'button', class: 'restock-chip check', title: 'Rangé dans le lot : cochez-le',
+      onclick: () => toggleCheck(lot, need.row) }, `☐ ${needText(need)}`)
+    : el('span', { class: 'restock-chip' }, needText(need)));
+  const cards = needs.map(({ lot, rows }) => el('li', { class: 'restock-card' + (restock.last === lot.id ? ' last' : '') },
+    showNames ? el('div', { class: 'restock-card-name' }, '📦 ' + lot.name) : '',
+    el('div', { class: 'restock-chips' }, ...rows.map((need) => chip(lot, need)))));
   banner.replaceChildren(
     el('div', { class: 'restock-banner-head' },
-      el('div', { class: 'main' },
-        el('div', { class: 'name' }, needs.length ? '🛒 Réassort : scannez chaque item mis dans le lot' : '✅ Réassort complet'),
-        el('div', { class: 'sub' }, !needs.length ? 'Tout est là : validez la vérif.'
-          : multi ? "Un item du stock va d'office dans le lot qui en manque : l'écran vous dit lequel." : 'Il reste :')),
-      el('button', { type: 'button', class: 'secondary', onclick: () => { state.restock.stage = 'list'; save(); render(); } }, 'Liste')),
-    needs.length ? el('ul', { class: 'restock-dispatch' }, ...lines) : '',
-    needs.length ? el('button', { type: 'button', class: 'danger small restock-force', onclick: () => restockValidate(true) },
-      state.restock.end ? 'Valider la vérif incomplète et terminer' : 'Valider la vérif incomplète') : '');
+      el('div', { class: 'name' }, needs.length ? '🛒 Réassort' : '✅ Réassort fait'),
+      el('div', { class: 'restock-progress' }, needs.length ? `${restock.total - left} / ${restock.total} rangés` : 'validez la vérif'),
+      el('button', { type: 'button', class: 'secondary', onclick: () => { restock.stage = 'list'; save(); render(); } }, 'Liste')),
+    needs.length ? el('ul', { class: 'restock-cards' }, ...cards) : '',
+    needs.length ? el('button', { type: 'button', class: 'restock-force', onclick: () => restockValidate(true) },
+      'Valider la vérif incomplète') : '');
 }
 
 // Item scanne pendant le reassort d'une vérif en cascade : venu du stock (dans aucun lot de la vérif), il va dans le
@@ -298,8 +301,9 @@ function restockDispatch(entry) {
   if (!lot) return null;
   entry.place = lot.lot.id;
   feedback.good();
-  showInfo('lot', `➜ À mettre dans ${lot.lot.name}`, `${entry.info.type_name} : rangez-le dans ${lot.lot.name}.`,
-    "Scannez l'étiquette d'un lot pour en choisir un autre.");
+  state.restock.last = lot.lot.id;
+  // en grand : le lot ou le ranger ; dessous, l'item (scanner l'etiquette d'un autre lot reste possible)
+  showInfo('lot', `➜ ${lot.lot.name}`, entry.info.type_name);
   return lot.lot;
 }
 
@@ -386,8 +390,7 @@ $('#restock-have').addEventListener('click', () => {
   if (!restockNeeds(restockLots()).length) { restockValidate(false); return; }
   state.restock.stage = 'scan';
   feedback.info();
-  showInfo('lot', '🛒 Réassort', 'Scannez chaque item en le mettant dans le lot.',
-    state.restock.end ? "Pas besoin de scanner l'étiquette du lot : l'écran dit où ranger chaque item." : '');
+  showInfo('lot', '🛒 Scannez chaque item en le rangeant', state.restock.end ? "L'écran dit dans quel lot le mettre." : '');
   switchTab('todo');
   save();
   render();

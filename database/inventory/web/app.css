@@ -1306,14 +1306,20 @@ body.restock-open #toast { bottom: calc(150px + env(safe-area-inset-bottom)); }
 #restock-later[hidden], #restock-force[hidden] { display: none; }
 /* petit bouton rouge : forcer une vérif incomplete */
 .danger.small, #restock-force { align-self: center; padding: 6px 12px; font-size: .82rem; border-radius: 8px; }
-/* scan du reassort : bandeau au-dessus de la liste du lecteur */
-.restock-banner { padding: 8px 12px; border-left: 6px solid var(--orange); background: var(--orange-bg); font-size: .9rem; }
+/* scan du reassort : une carte par lot, pastilles de ce qui reste, le lot du dernier item en evidence */
+.restock-banner { padding: 8px 10px 6px; background: var(--orange-bg); border-left: 6px solid var(--orange); }
 .restock-banner[hidden] { display: none; }
-.restock-banner-head { display: flex; align-items: center; gap: 8px; }
-.restock-banner-head .main { flex: 1; min-width: 0; }
-.restock-banner-head .name { font-weight: 600; }
-.restock-banner-head .sub { color: var(--muted); font-size: .82rem; }
-.restock-banner-head button { flex: none; padding: 6px 12px; }
-.restock-dispatch { margin: 6px 0 4px; padding-left: 18px; }
-.restock-dispatch .text-link { padding: 0; font-size: inherit; color: var(--navy); }
-.restock-banner .restock-force { display: block; margin: 4px 0 0 auto; }
+.restock-banner-head { display: flex; align-items: center; gap: 10px; }
+.restock-banner-head .name { font-weight: 700; font-size: 1.05rem; }
+.restock-progress { flex: 1; color: var(--muted); font-size: .88rem; font-variant-numeric: tabular-nums; }
+.restock-banner-head button { flex: none; padding: 6px 14px; }
+.restock-cards { list-style: none; margin: 6px 0 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.restock-card { padding: 6px 8px; border-radius: 8px; background: var(--panel); border: 2px solid transparent; }
+.restock-card.last { border-color: var(--blue); }
+.restock-card-name { font-weight: 600; font-size: .9rem; margin-bottom: 4px; }
+.restock-chips { display: flex; flex-wrap: wrap; gap: 4px; }
+.restock-chip { display: inline-block; padding: 3px 8px; border-radius: 999px; background: var(--red-bg); color: var(--red);
+  font-size: .85rem; font-weight: 600; line-height: 1.3; }
+button.restock-chip.check { border: 0; background: var(--navy-bg); color: var(--navy); }
+.restock-banner .restock-force { display: block; margin: 6px 0 0 auto; padding: 3px 10px; border-radius: 6px; background: var(--red);
+  color: #fff; font-size: .75rem; font-weight: 600; }
