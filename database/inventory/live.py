@@ -41,12 +41,14 @@ Messages (JSON, trames texte) :
                         "keys": [{"id", "key"}], "labels": [ids des lots dont l'etiquette a ete scannee],
                         "cascade": bool, "level": {"id", "name"} (lot ou l'on se trouve)},
                        {"type": "validate", "partial": bool}, {"type": "unvalidate"}, {"type": "leave"},
+                       {"type": "restock", "check": type | "later": lot id, "on": bool | "reset": true},
                        {"type": "done", "complete": bool, "partial": bool, "present": n},
                        {"type": "identity", ...}, {"type": "cancel"}, {"type": "ping"}
   serveur -> scanner : {"type": "hello", "id", "pid", "token", "merged": bool, "who"}, {"type": "error", "message"},
                        {"type": "team", "participants": [...], "lots": [...], "keyed": [...], "labeled": [...],
                         "entries": [...],
-                        "nearby": [...], "done": {lot id: {"at", "by", "complete", "sealed"}}},
+                        "nearby": [...], "done": {lot id: {"at", "by", "complete", "sealed"}},
+                        "restock": {"checked": {type: qui}, "later": [lot ids]}},
                        {"type": "validate", "submit": bool, "waiting": [noms]}, {"type": "submit", "partial": bool},
                        {"type": "report", "report": {...}},
                        {"type": "step", "by", "lots": [...], "items": [...]} (vérif en cascade : lot valide)
@@ -254,6 +256,30 @@ def clean_keys(value: Any) -> list[tuple[str, str]]:
     return result
 
 
+MAX_RESTOCK = 100  # cases de la liste de reassort d'une verif
+
+
+def set_restock(session: LiveSession, message: dict[str, Any], who: str) -> None:
+    """Liste de reassort partagee : {"check": type, "on"} coche ou decoche un type, {"later": lot, "on"} met un lot
+    au reassort de fin de vérif en cascade (ou l'en retire), {"reset": true} vide la liste (reassort valide)."""
+    if message.get('reset'):
+        session.restock_checked.clear()
+        session.restock_later.clear()
+    type_id = _text(message.get('check'), 16)
+    if type_id:
+        if not message.get('on'):
+            session.restock_checked.pop(type_id, None)
+        elif len(session.restock_checked) < MAX_RESTOCK:
+            session.restock_checked[type_id] = who or 'Invité'
+    lot_id = _text(message.get('later'), 16)
+    if lot_id:
+        if not message.get('on'):
+            session.restock_later = [lot for lot in session.restock_later if lot != lot_id]
+        elif lot_id not in session.restock_later and len(session.restock_later) < MAX_LOTS:
+            session.restock_later.append(lot_id)
+    session.updated = timezone.now()
+
+
 class Participant:
     def __init__(self, identity: str = '', who: str = '', verified: bool = False) -> None:
         self.id = _token(12)
@@ -292,6 +318,10 @@ class LiveSession:
         # obligatoires pour tous les participants (services.perform_verif strict)
         self.full = False
         self.full_by = ''
+        # ecran de reassort du web : cases cochees de la liste de reassort (type d'item -> qui l'a coche) et lots dont
+        # le reassort est fait a la fin de la vérif en cascade (ids, dans l'ordre), partages entre les participants
+        self.restock_checked: dict[str, str] = {}
+        self.restock_later: list[str] = []
 
     @property
     def state(self) -> dict[str, Any] | None:
@@ -396,6 +426,7 @@ class LiveHub:
             'done': session.steps,
             'full': session.full,
             'full_by': session.full_by,
+            'restock': {'checked': dict(session.restock_checked), 'later': list(session.restock_later)},
         }
 
     def _changed(self, session: LiveSession) -> None:
@@ -697,6 +728,9 @@ class LiveHub:
                     if key or lot_id not in target.lots:
                         target.lots[lot_id] = key
                 target.labels |= other.labels
+                for type_id, who in other.restock_checked.items():
+                    target.restock_checked.setdefault(type_id, who)
+                target.restock_later += [lot for lot in other.restock_later if lot not in target.restock_later]
                 self.sessions.pop(other.id, None)
             if not moving:
                 return None
@@ -802,6 +836,10 @@ class LiveHub:
                     return
                 elif kind == 'full':
                     self.set_full(session.id, message.get('on'), message.get('user'))
+                elif kind == 'restock':
+                    with self.lock:
+                        set_restock(session, message, participant.who)
+                    self._changed(session)
                 elif kind == 'cancel':
                     with self.lock:
                         participant.state = None

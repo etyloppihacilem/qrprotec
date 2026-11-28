@@ -845,6 +845,44 @@ class SubLotTests(SubLotCase):
         kinds = {row['name']: row['storage_kind'] for row in body['global']['lots']}
         self.assertEqual(kinds['Armoire 1'], 'armoire')
 
+    def test_restock_where_in_stock(self) -> None:
+        """Ecran de reassort du web : ou trouver un type dans le stock. Rangements qui en ont d'utilisables, le premier
+        a perimer d'abord, chemin et « où le trouver » de chaque niveau ; pas les lots ordinaires ni les perimes."""
+        code, body = self.call('POST', '/api/lot-types/', {'type': 'piece1', 'name': 'La TECH', 'storage': True,
+                                                           'storage_kind': 'pièce', 'storage_location': ' Sous-sol,  à gauche '})
+        piece = body['created_lot']
+        self.assertEqual(piece['storage_location'], 'Sous-sol, à gauche')
+        code, body = self.call('POST', '/api/lot-types/', {'type': 'armoi1', 'name': 'Armoire 1', 'storage': True,
+                                                           'parent': piece['id']})
+        armoire = body['created_lot']
+        code, body = self.call('PATCH', f"/api/lots/{armoire['id']}/update/", {'storage_location': 'Au fond'})
+        self.assertEqual(body['storage_location'], 'Au fond')
+        code, body = self.call('POST', '/api/lot-types/', {'type': 'reser1', 'name': 'Réserve', 'storage': True})
+        reserve = body['created_lot']
+        # un lot ordinaire n'a pas d'emplacement de rangement
+        code, body = self.call('PATCH', f"/api/lots/{self.soin['id']}/update/", {'storage_location': 'ici'})
+        self.assertEqual(body['storage_location'], '')
+        soon = [item.iid for item in self.create(self.compresses, self.today + timedelta(days=20), 2)]
+        late = [item.iid for item in self.create(self.compresses, self.today + timedelta(days=400), 5)]
+        old = [item.iid for item in self.create(self.compresses, self.today - timedelta(days=2), 3)]
+        loose = self.create(self.o2, None, 1)
+        self.call('POST', f"/api/lots/{armoire['id']}/add/", {'items': soon + old, 'user': 'M001'})
+        self.call('POST', f"/api/lots/{reserve['id']}/add/", {'items': late, 'user': 'M001'})
+        self.call('POST', f"/api/lots/{self.soin['id']}/verif/", {'items': self.fresh(), 'user': 'M001'})
+        code, body = self.call('POST', '/api/stock/where/', {'types': ['compre', 'bouo2x', 'inconn']}, local=False)
+        self.assertEqual(code, 200)
+        rows = body['types']['compre']
+        self.assertEqual([(row['name'], row['count']) for row in rows], [('Armoire 1', 2), ('Réserve', 5)])
+        self.assertEqual(rows[0]['path'], ['La TECH'])
+        self.assertEqual(rows[0]['kind'], 'rangement')
+        self.assertEqual(rows[0]['next_expiry'], (self.today + timedelta(days=20)).isoformat())
+        self.assertEqual(rows[0]['hints'], [{'name': 'La TECH', 'location': 'Sous-sol, à gauche'},
+                                            {'name': 'Armoire 1', 'location': 'Au fond'}])
+        self.assertEqual([(row['id'], row['count']) for row in body['types']['bouo2x']], [('', 1)])
+        self.assertEqual(loose[0].location_id, None)
+        self.assertEqual(body['types']['inconn'], [])
+        self.assertEqual(self.call('POST', '/api/stock/where/', {'types': 'compre'}, local=False)[0], 400)
+
     def test_storage_is_unique_without_requirements_nor_expiry(self) -> None:
         code, body = self.call('POST', '/api/lot-types/', {'type': 'armoi1', 'name': 'Armoire 1', 'storage': True})
         self.assertTrue(body['unique'])

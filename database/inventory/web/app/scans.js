@@ -217,6 +217,12 @@ async function addItem(entry, scan, loaded = !!entry.info || !!entry.error) {
   // vérif ; on ne change de lot qu'en scannant son etiquette. Seul un item d'un sous-lot du lot en cours fait entrer
   // dans ce sous-lot (on n'est encore dans aucun d'eux), sauf s'il a deja ete valide.
   const where = inCascade() && info && !entry.error && info.location ? lotById(info.location) : null;
+  // reassort (restock.js) : un item venu du stock va dans le lot du reassort qui en manque, l'ecran dit lequel
+  if (!where && restockDispatch(entry)) {
+    save();
+    render();
+    return;
+  }
   if (where && !isUnder(where.id, levelId())) {
     entry.place = currentPlace();
     showInfo(entry.expired ? 'bad' : 'ok', entry.expired ? badLabel(info) : 'Item scanné',

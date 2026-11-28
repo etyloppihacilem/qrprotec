@@ -321,6 +321,28 @@ class LiveHubTests(ApiTestCase):
         scanner.push(None)
         scanning.join(5)
 
+    def test_restock_list_is_shared(self) -> None:
+        """Ecran de reassort du web : cases de la liste de courses et lots au reassort de fin de vérif en cascade,
+        partages avec tous les participants, videes par "reset"."""
+        scanner = FakeSocket({'type': 'hello', 'user': self.badge})
+        scanning = self.run_socket(self.hub.run_scanner, scanner)
+        self.wait(lambda: scanner.sent)
+        session_id = scanner.sent[0]['id']
+        scanner.push({'type': 'state', 'lot': {'id': self.lot.id, 'name': 'Sac A'}})
+        self.wait(lambda: self.hub.sessions[session_id].state)
+        scanner.push({'type': 'restock', 'check': 'compre', 'on': True})
+        scanner.push({'type': 'restock', 'later': self.lot.id, 'on': True})
+        self.wait(lambda: any(m['type'] == 'team' and m['restock']['later'] for m in scanner.sent))
+        team = [m for m in scanner.sent if m['type'] == 'team'][-1]
+        self.assertEqual(list(team['restock']['checked']), ['compre'])
+        self.assertEqual(team['restock']['later'], [self.lot.id])
+        scanner.push({'type': 'restock', 'check': 'compre', 'on': False})
+        self.wait(lambda: not self.hub.sessions[session_id].restock_checked)
+        scanner.push({'type': 'restock', 'reset': True})
+        self.wait(lambda: not self.hub.sessions[session_id].restock_later)
+        scanner.push(None)
+        scanning.join(5)
+
     def test_reload_resumes_the_session(self) -> None:
         first = FakeSocket({'type': 'hello', 'name': 'Paul Martin'})
         thread = self.run_socket(self.hub.run_scanner, first)

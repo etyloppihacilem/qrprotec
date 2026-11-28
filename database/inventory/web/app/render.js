@@ -403,7 +403,12 @@ function renderCascade(list) {
     const scanned = allScanned().filter((entry) => !entry.error && entry.kind !== 'seal' && ids.includes(entry.place)).length;
     const subs = childrenOf(child.id).length;
     let cls; let sub;
-    if (done) {
+    const later = !done && state.restockLater.includes(child.id);
+    if (later) {
+      // reassort a la fin de la vérif du lot global : pas encore valide, ses scans sont gardes
+      cls = 'partial';
+      sub = `🛒 Réassort à la fin de la vérif · ${nb(scanned, 'scanné')}`;
+    } else if (done) {
       cls = done.complete || done.sealed ? 'ok' : 'bad';
       sub = done.sealed ? `🔒 Scellé intact constaté ${fmtOn(done.at)}`
         : `✔ Validé ${fmtOn(done.at)}${done.by ? ' par ' + done.by : ''}${done.complete ? '' : ' · incomplet'}`;
@@ -461,9 +466,12 @@ function renderCascade(list) {
   }
   subRows.sort((a, b) => a.rank - b.rank || b.last - a.last);
   rows.push(...subRows.flatMap((entry) => entry.rows || [entry.row]), ...ownRows);
-  if (!left && !remaining) {
+  const later = level.id === state.lotId ? pendingLater() : [];
+  if (!left && !remaining && !restockScanning()) {
     rows.unshift(el('li', { class: 'group ok' }, `✅ Tout est fait : validez ${level.name}`
-      + (sealNextLevel() ? ', puis rescellez-le.' : parent ? ` pour revenir à ${parent.name}.` : ' pour terminer la vérif.')));
+      + (sealNextLevel() ? ', puis rescellez-le.' : parent ? ` pour revenir à ${parent.name}.`
+        : later.length ? ` pour faire le réassort (${later.map((id) => lotById(id).name).join(', ')}), puis terminer la vérif.`
+          : ' pour terminer la vérif.')));
   }
   const full = fullVerifRow();
   if (full) rows.unshift(full);
@@ -655,6 +663,16 @@ function render() {
     validateButton.title = `${sealTarget.name} est scellé : scannez l'étiquette collée sur le scellé.`;
     $('#restock').hidden = true;
   }
+  // reassort en cours (restock.js) : liste de courses en plein ecran, ou bandeau et validation du reassort
+  renderRestock();
+  if (restockScanning() && !out && !state.busy) {
+    const left = restockNeeds(restockLots()).length;
+    setLabel(validateButton, 'check', state.restock.end ? (left ? 'Valider le réassort…' : 'Valider le réassort et terminer')
+      : left ? 'Valider la vérif…' : 'Valider la vérif');
+    validateButton.title = left ? 'Il manque encore du matériel : la liste de réassort se rouvre.'
+      : 'Le réassort est fait : la vérif est complète.';
+    $('#restock').hidden = true;
+  }
   live.publish(liveSnapshot(remaining));
   renderTeam();
   setTimeout(maybeVerifHelp, 0); // apres le rendu (et la fermeture eventuelle des popups de connexion)
@@ -676,7 +694,9 @@ function renderCascadeActions(validateButton) {
   const something = ownContent(level) || level.storage || entries.length > 0 || [...scope].some((id) => id !== level.id);
   const name = level.name.length > 22 ? level.name_short || level.name : level.name;
   validateButton.disabled = state.busy;
-  const validateText = state.busy ? 'Envoi…' : !something ? (atRoot ? 'Terminer la vérif' : `Revenir (rien à valider)`)
+  const later = atRoot ? pendingLater().length : 0;
+  const validateText = state.busy ? 'Envoi…' : atRoot && later ? `Réassort (${nb(later, 'lot')}) et fin de la vérif`
+    : !something ? (atRoot ? 'Terminer la vérif' : `Revenir (rien à valider)`)
     : atRoot ? `Valider ${name} et terminer` : `Valider ${name}`;
   setLabel(validateButton, validateText.startsWith('Valider') ? 'check' : '', validateText);
   validateButton.title = atRoot ? 'Enregistre la vérif du lot global et de ses sous-lots commencés ; les sous-lots non faits restent tels quels.'

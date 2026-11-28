@@ -165,6 +165,13 @@ const live = (() => {
       send({ type: 'full', on: !!on, user: credentials() });
       return true;
     },
+    // liste de reassort partagee (restock.js) : case cochee, lot au reassort de fin. false : pas de vérif commune
+    // publiee, gardee sur ce telephone
+    restock(message) {
+      if (!ready || !session) return false;
+      send({ type: 'restock', ...message });
+      return true;
+    },
     // rejoindre la vérif `id` (page de suivi, ou autre vérif du meme lot vue depuis le scanner)
     join(id) {
       join = id;
@@ -259,6 +266,8 @@ function teamChanged() {
     if (state.fullLocal && !!live.team.full !== state.full && canSeeStock()) live.setFull(state.full);
     else { state.full = !!live.team.full; state.fullBy = live.team.full_by || ''; state.fullLocal = false; }
   }
+  // liste de reassort partagee : cases cochees et lots au reassort de fin de vérif en cascade
+  if (live.team && live.team.restock) restockTeamChanged(live.team.restock);
   syncTeamLots();
   render();
 }

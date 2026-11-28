@@ -709,6 +709,7 @@ def lot_types(request: Request) -> Response:
             lot = Lots(lot_type=lot_type, name=name, name_short=name[:16], created_by=identity)
             if storage:
                 lot.storage_kind = storage_kind_value(data.get('storage_kind'))
+                lot.storage_location = ' '.join(str(data.get('storage_location') or '').split())[:200]
             lot.parent = parse_parent(lot, data.get('parent'))
             lot.save()
         journal.record(OperationKind.CATALOG, identity, f'type de lot créé : {lot_type}' + (' (lot unique)' if unique else ''),
@@ -1454,6 +1455,8 @@ def lot_update(request: Request, lot_id: str) -> Response:
         lot.key_location = str(data['key_location']).strip()[:128]
     if 'storage_kind' in data and lot.lot_type.storage and not lot.is_stock:
         lot.storage_kind = storage_kind_value(data['storage_kind'])
+    if 'storage_location' in data and lot.lot_type.storage and not lot.is_stock:
+        lot.storage_location = ' '.join(str(data['storage_location'] or '').split())[:200]
     if 'spare' in data:
         lot.spare = bool(data['spare']) and lot.lot_type.part_of_id is not None
     if 'parent' in data or 'spare' in data:
@@ -1491,6 +1494,8 @@ def lot_update(request: Request, lot_id: str) -> Response:
         changes.append("emplacement de l'étiquette clé")
     if 'storage_kind' in data and lot.lot_type.storage and not lot.is_stock:
         changes.append(f'genre : {lot.storage_kind}')
+    if 'storage_location' in data and lot.lot_type.storage and not lot.is_stock:
+        changes.append('où trouver le rangement')
     if 'optional' in data:
         changes.append('facultatif à la vérif' if lot.optional else 'obligatoire à la vérif')
     if 'hidden_in_verif' in data:

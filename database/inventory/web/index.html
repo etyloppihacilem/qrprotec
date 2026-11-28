@@ -103,6 +103,8 @@
   <!-- Reste de l'ecran : informations et listes -->
   <section id="panel">
     <div id="info" class="info empty">Scannez l'étiquette d'un lot, un item ou votre badge.</div>
+    <!-- Reassort d'une vérif incomplete, scan du reassort : ce qu'il reste a ranger, lot par lot (web/app/restock.js) -->
+    <div id="restock-banner" class="restock-banner" hidden></div>
     <!-- Vérif à plusieurs : participants connectes, ou autre vérif en cours sur le meme lot -->
     <div id="team" class="team" hidden></div>
     <nav id="tabs" role="tablist">
@@ -145,6 +147,19 @@
       <!-- fiche d'un lot : « Partir avec ce lot » et « J'ai utilisé du matériel » sous la vérif (pas en haut de la
            fiche : le bouton de la vérif passait inaperçu tout en bas) -->
       <div id="fiche-more"></div>
+    </footer>
+  </section>
+
+  <!-- Reassort d'une vérif incomplete : liste de courses a cocher en allant au stock (web/app/restock.js) -->
+  <section id="restock-screen" hidden>
+    <header id="restock-bar">
+      <button id="restock-back" class="chip" type="button">← Continuer la vérif</button>
+    </header>
+    <div id="restock-body"></div>
+    <footer id="restock-actions">
+      <button id="restock-have" class="primary big" type="button">J'ai tout le réassort</button>
+      <button id="restock-later" class="secondary" type="button" hidden></button>
+      <button id="restock-force" class="danger small" type="button">Valider la vérif incomplète</button>
     </footer>
   </section>
 
@@ -506,6 +521,7 @@
   <script src="web/app/cascade.js" defer></script>
   <script src="web/app/pin-reset.js" defer></script>
   <script src="web/app/actions.js" defer></script>
+  <script src="web/app/restock.js" defer></script>
   <script src="web/app/render.js" defer></script>
   <script src="web/app/home.js" defer></script>
   <script src="web/app/login.js" defer></script>
